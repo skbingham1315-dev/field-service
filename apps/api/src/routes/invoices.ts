@@ -113,7 +113,7 @@ invoicesRouter.post('/', async (req, res) => {
     data: {
       tenantId: req.user!.tenantId,
       customerId,
-      jobId: jobId || undefined,
+      ...(jobId ? { jobId } : {}),
       invoiceNumber,
       status: 'draft',
       lineItems: {

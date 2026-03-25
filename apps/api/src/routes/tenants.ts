@@ -78,7 +78,7 @@ tenantsRouter.patch('/me', requireRole('owner', 'admin'), async (req, res) => {
   };
   const tenant = await prisma.tenant.update({
     where: { id: req.user!.tenantId },
-    data: { name, settings, timezone, taxRate },
+    data: { name, settings: settings as never, timezone, taxRate },
   });
   res.json({ success: true, data: tenant } satisfies ApiResponse);
 });
