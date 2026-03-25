@@ -17,7 +17,7 @@
     "migrate:deploy": "prisma migrate deploy",
     "studio": "prisma studio",
     "seed": "ts-node src/seed.ts",
-    "build": "tsc && npm run generate",
+    "build": "npm run generate && tsc",
     "clean": "rm -rf dist"
   },
   "dependencies": {
