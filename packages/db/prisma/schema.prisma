@@ -1,0 +1,511 @@
+generator client {
+  provider = "prisma-client-js"
+  output   = "../src/generated/client"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ─── Enums ───────────────────────────────────────────────────────────────────
+
+enum ServiceType {
+  pool
+  pest_control
+  turf
+  handyman
+}
+
+enum TenantPlan {
+  starter
+  professional
+  enterprise
+}
+
+enum TenantStatus {
+  trial
+  active
+  suspended
+  cancelled
+}
+
+enum UserRole {
+  owner
+  admin
+  dispatcher
+  technician
+  sales
+  customer
+}
+
+enum UserStatus {
+  active
+  inactive
+  invited
+}
+
+enum JobStatus {
+  draft
+  scheduled
+  en_route
+  in_progress
+  completed
+  cancelled
+  on_hold
+}
+
+enum JobPriority {
+  low
+  normal
+  high
+  urgent
+}
+
+enum InvoiceStatus {
+  draft
+  sent
+  viewed
+  paid
+  overdue
+  void
+}
+
+enum PaymentMethod {
+  stripe
+  cash
+  check
+  ach
+  other
+}
+
+enum RecurrenceFrequency {
+  daily
+  weekly
+  biweekly
+  monthly
+  custom
+}
+
+enum PhotoType {
+  before
+  after
+  issue
+  other
+}
+
+// ─── Tenant ──────────────────────────────────────────────────────────────────
+
+model Tenant {
+  id                   String       @id @default(cuid())
+  name                 String
+  slug                 String       @unique
+  serviceTypes         ServiceType[]
+  plan                 TenantPlan   @default(starter)
+  status               TenantStatus @default(trial)
+  stripeCustomerId     String?      @unique
+  stripeSubscriptionId String?      @unique
+  twilioPhoneNumber    String?
+  timezone             String       @default("America/New_York")
+  currency             String       @default("USD")
+  taxRate              Decimal      @default(0) @db.Decimal(5, 4)
+  settings             Json         @default("{}")
+  createdAt            DateTime     @default(now())
+  updatedAt            DateTime     @updatedAt
+
+  users            User[]
+  customers        Customer[]
+  jobs             Job[]
+  invoices         Invoice[]
+  serviceTemplates ServiceTemplate[]
+  salesActivities  SalesActivity[]
+  salesGoal        SalesGoal?
+
+  @@map("tenants")
+}
+
+// ─── User ─────────────────────────────────────────────────────────────────────
+
+model User {
+  id                String     @id @default(cuid())
+  tenantId          String
+  email             String
+  passwordHash      String
+  firstName         String
+  lastName          String
+  phone             String?
+  role              UserRole
+  status            UserStatus @default(invited)
+  avatarUrl         String?
+  timezone          String?
+  inviteToken       String?    @unique
+  inviteExpiresAt   DateTime?
+  lastLoginAt       DateTime?
+  refreshTokenHash  String?
+  skills            String[]
+  licenseNumber     String?
+  vehicleInfo       Json?
+  isAvailable       Boolean    @default(false)
+  serviceRadius     Float?
+  createdAt         DateTime   @default(now())
+  updatedAt         DateTime   @updatedAt
+
+  tenant              Tenant        @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  assignedJobs        Job[]         @relation("TechnicianJobs")
+  createdJobs         Job[]         @relation("CreatedByJobs")
+  jobNotes            JobNote[]
+  jobPhotos           JobPhoto[]
+  technicianLocations TechnicianLocation[]
+  salesActivities     SalesActivity[]
+  reviewsReceived     JobReview[]   @relation("TechnicianReviews")
+
+  @@unique([tenantId, email])
+  @@index([tenantId, role])
+  @@map("users")
+}
+
+// ─── Customer ────────────────────────────────────────────────────────────────
+
+model Customer {
+  id               String         @id @default(cuid())
+  tenantId         String
+  firstName        String
+  lastName         String
+  email            String?
+  phone            String?
+  status           String         @default("active")
+  stripeCustomerId String?
+  notes            String?
+  tags             String[]
+  createdAt        DateTime       @default(now())
+  updatedAt        DateTime       @updatedAt
+
+  tenant           Tenant           @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  serviceAddresses ServiceAddress[]
+  jobs             Job[]
+  invoices         Invoice[]
+  smsMessages      SmsMessage[]
+
+  @@index([tenantId])
+  @@index([tenantId, email])
+  @@map("customers")
+}
+
+model ServiceAddress {
+  id                  String   @id @default(cuid())
+  customerId          String
+  label               String?
+  street              String
+  city                String
+  state               String
+  zip                 String
+  country             String   @default("US")
+  lat                 Float?
+  lng                 Float?
+  accessInstructions  String?
+  isPrimary           Boolean  @default(false)
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+
+  customer Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  jobs     Job[]
+
+  @@index([customerId])
+  @@map("service_addresses")
+}
+
+// ─── Job ─────────────────────────────────────────────────────────────────────
+
+model Job {
+  id                String      @id @default(cuid())
+  tenantId          String
+  customerId        String
+  serviceAddressId  String
+  technicianId      String?
+  createdById       String?
+  serviceType       ServiceType
+  title             String
+  description       String?
+  status            JobStatus   @default(draft)
+  priority          JobPriority @default(normal)
+  scheduledStart    DateTime?
+  scheduledEnd      DateTime?
+  actualStart       DateTime?
+  actualEnd         DateTime?
+  estimatedDuration Int?        // minutes
+  customFields      Json?
+  parentJobId       String?
+  invoiceId         String?
+  createdAt         DateTime    @default(now())
+  updatedAt         DateTime    @updatedAt
+
+  tenant         Tenant         @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  customer       Customer       @relation(fields: [customerId], references: [id])
+  serviceAddress ServiceAddress @relation(fields: [serviceAddressId], references: [id])
+  technician     User?          @relation("TechnicianJobs", fields: [technicianId], references: [id])
+  createdBy      User?          @relation("CreatedByJobs", fields: [createdById], references: [id])
+  parentJob      Job?           @relation("RecurringJobs", fields: [parentJobId], references: [id])
+  childJobs      Job[]          @relation("RecurringJobs")
+  lineItems      JobLineItem[]
+  photos         JobPhoto[]
+  notes          JobNote[]
+  recurrence     RecurrenceRule?
+  invoice        Invoice?       @relation(fields: [invoiceId], references: [id])
+  review         JobReview?
+
+  @@index([tenantId, status])
+  @@index([tenantId, technicianId])
+  @@index([tenantId, scheduledStart])
+  @@index([customerId])
+  @@map("jobs")
+}
+
+model JobLineItem {
+  id          String  @id @default(cuid())
+  jobId       String
+  description String
+  quantity    Float
+  unitPrice   Int     // cents
+  taxable     Boolean @default(true)
+  serviceCode String?
+
+  job Job @relation(fields: [jobId], references: [id], onDelete: Cascade)
+
+  @@index([jobId])
+  @@map("job_line_items")
+}
+
+model JobPhoto {
+  id           String    @id @default(cuid())
+  jobId        String
+  uploadedById String
+  s3Key        String
+  url          String
+  caption      String?
+  type         PhotoType @default(other)
+  takenAt      DateTime  @default(now())
+  createdAt    DateTime  @default(now())
+
+  job        Job  @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  uploadedBy User @relation(fields: [uploadedById], references: [id])
+
+  @@index([jobId])
+  @@map("job_photos")
+}
+
+model JobNote {
+  id         String   @id @default(cuid())
+  jobId      String
+  authorId   String
+  content    String
+  isInternal Boolean  @default(false)
+  createdAt  DateTime @default(now())
+
+  job    Job  @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  author User @relation(fields: [authorId], references: [id])
+
+  @@index([jobId])
+  @@map("job_notes")
+}
+
+model RecurrenceRule {
+  id          String              @id @default(cuid())
+  jobId       String              @unique
+  frequency   RecurrenceFrequency
+  interval    Int                 @default(1)
+  daysOfWeek  Int[]
+  dayOfMonth  Int?
+  endDate     DateTime?
+  occurrences Int?
+  createdAt   DateTime            @default(now())
+
+  job Job @relation(fields: [jobId], references: [id], onDelete: Cascade)
+
+  @@map("recurrence_rules")
+}
+
+// ─── Invoice & Payment ────────────────────────────────────────────────────────
+
+model Invoice {
+  id                     String        @id @default(cuid())
+  tenantId               String
+  customerId             String
+  invoiceNumber          String
+  status                 InvoiceStatus @default(draft)
+  subtotal               Int           // cents
+  taxAmount              Int           // cents
+  discountAmount         Int           @default(0)
+  total                  Int           // cents
+  amountPaid             Int           @default(0)
+  amountDue              Int           // cents
+  dueDate                DateTime?
+  issuedAt               DateTime?
+  paidAt                 DateTime?
+  stripePaymentIntentId  String?
+  notes                  String?
+  createdAt              DateTime      @default(now())
+  updatedAt              DateTime      @updatedAt
+
+  tenant    Tenant             @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  customer  Customer           @relation(fields: [customerId], references: [id])
+  lineItems InvoiceLineItem[]
+  payments  Payment[]
+  jobs      Job[]
+
+  @@unique([tenantId, invoiceNumber])
+  @@index([tenantId, status])
+  @@index([customerId])
+  @@map("invoices")
+}
+
+model InvoiceLineItem {
+  id          String  @id @default(cuid())
+  invoiceId   String
+  description String
+  quantity    Float
+  unitPrice   Int     // cents
+  total       Int     // cents
+  taxable     Boolean @default(true)
+
+  invoice Invoice @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+
+  @@index([invoiceId])
+  @@map("invoice_line_items")
+}
+
+model Payment {
+  id                     String        @id @default(cuid())
+  tenantId               String
+  invoiceId              String
+  amount                 Int           // cents
+  method                 PaymentMethod
+  stripePaymentIntentId  String?
+  stripeChargeId         String?
+  notes                  String?
+  paidAt                 DateTime
+  createdAt              DateTime      @default(now())
+
+  invoice Invoice @relation(fields: [invoiceId], references: [id])
+
+  @@index([invoiceId])
+  @@map("payments")
+}
+
+// ─── Service Templates ────────────────────────────────────────────────────────
+
+model ServiceTemplate {
+  id          String      @id @default(cuid())
+  tenantId    String
+  serviceType ServiceType
+  name        String
+  description String?
+  duration    Int         // minutes
+  lineItems   Json        // default line items
+  isActive    Boolean     @default(true)
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId])
+  @@map("service_templates")
+}
+
+// ─── Sales Activity ──────────────────────────────────────────────────────────
+
+model SalesActivity {
+  id              String   @id @default(cuid())
+  tenantId        String
+  userId          String
+  date            DateTime @db.Date
+  doorsKnocked    Int      @default(0)
+  peopleContacted Int      @default(0)
+  estimatesGiven  Int      @default(0)
+  leadsAdded      Int      @default(0)
+  jobsScheduled   Int      @default(0)
+  notes           String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, date])
+  @@index([tenantId, date])
+  @@map("sales_activities")
+}
+
+model SalesGoal {
+  id              String   @id @default(cuid())
+  tenantId        String   @unique
+  doorsKnocked    Int      @default(20)
+  peopleContacted Int      @default(10)
+  estimatesGiven  Int      @default(5)
+  leadsAdded      Int      @default(3)
+  jobsScheduled   Int      @default(2)
+  updatedAt       DateTime @updatedAt
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@map("sales_goals")
+}
+
+// ─── Job Review ───────────────────────────────────────────────────────────────
+
+model JobReview {
+  id           String    @id @default(cuid())
+  tenantId     String
+  jobId        String    @unique
+  customerId   String
+  technicianId String?
+  rating       Int?
+  comment      String?
+  reviewToken  String    @unique @default(cuid())
+  submittedAt  DateTime?
+  createdAt    DateTime  @default(now())
+
+  job        Job  @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  technician User? @relation("TechnicianReviews", fields: [technicianId], references: [id])
+
+  @@index([tenantId])
+  @@index([technicianId])
+  @@map("job_reviews")
+}
+
+// ─── SMS Messages ─────────────────────────────────────────────────────────────
+
+model SmsMessage {
+  id         String   @id @default(cuid())
+  tenantId   String
+  customerId String
+  direction  String   // 'outbound' | 'inbound'
+  from       String
+  to         String
+  body       String
+  twilioSid  String?  @unique
+  status     String   @default("sent") // sent | delivered | failed | received
+  createdAt  DateTime @default(now())
+
+  customer Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+
+  @@index([customerId, createdAt])
+  @@index([tenantId])
+  @@map("sms_messages")
+}
+
+// ─── Technician Location (time-series) ───────────────────────────────────────
+
+model TechnicianLocation {
+  id           String   @id @default(cuid())
+  technicianId String
+  lat          Float
+  lng          Float
+  heading      Float?
+  speed        Float?
+  recordedAt   DateTime @default(now())
+
+  technician User @relation(fields: [technicianId], references: [id], onDelete: Cascade)
+
+  @@index([technicianId, recordedAt])
+  @@map("technician_locations")
+}

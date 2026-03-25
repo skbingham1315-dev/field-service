@@ -1,0 +1,14 @@
+[phases.setup]
+nixPkgs = ["nodejs_20"]
+
+[phases.install]
+cmds = ["npm ci --legacy-peer-deps"]
+
+[phases.build]
+cmds = [
+  "npm run db:generate",
+  "cd apps/api && npx tsc -p tsconfig.json"
+]
+
+[start]
+cmd = "cd apps/api && npx prisma migrate deploy --schema ../../packages/db/prisma/schema.prisma && node -r tsconfig-paths/register dist/src/index.js"

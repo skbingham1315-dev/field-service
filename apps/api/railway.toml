@@ -1,0 +1,8 @@
+[build]
+builder = "NIXPACKS"
+buildCommand = "npm ci --workspace=apps/api --workspace=packages/db --workspace=packages/types --workspace=packages/ui && npm run db:generate && cd apps/api && npx tsc -p tsconfig.json"
+
+[deploy]
+startCommand = "cd apps/api && sh start.sh"
+healthcheckPath = "/health"
+healthcheckTimeout = 30
