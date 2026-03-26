@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { useAuthStore } from '../store/authStore';
 import { Button } from '@fsp/ui';
 
-export function LoginPage() {
+export function LoginPage({ onSignup }: { onSignup?: () => void }) {
   const login = useAuthStore((s) => s.login);
   const [form, setForm] = useState({ email: '', password: '', tenantSlug: '' });
   const [error, setError] = useState('');
@@ -77,6 +77,20 @@ export function LoginPage() {
               Sign In
             </Button>
           </form>
+
+          {onSignup && (
+            <div className="mt-6 pt-6 border-t border-gray-100 text-center">
+              <p className="text-sm text-gray-500">
+                Don't have an account?{' '}
+                <button
+                  onClick={onSignup}
+                  className="text-blue-600 font-semibold hover:underline"
+                >
+                  Create one free →
+                </button>
+              </p>
+            </div>
+          )}
         </div>
       </div>
     </div>

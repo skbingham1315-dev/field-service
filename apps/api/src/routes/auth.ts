@@ -67,6 +67,93 @@ authRouter.post('/login', async (req, res) => {
   } satisfies ApiResponse);
 });
 
+// POST /api/v1/auth/register — create new tenant + owner account
+authRouter.post('/register', async (req, res) => {
+  const { companyName, slug, firstName, lastName, email, password, plan } = req.body as {
+    companyName: string;
+    slug: string;
+    firstName: string;
+    lastName: string;
+    email: string;
+    password: string;
+    plan: string;
+  };
+
+  if (!companyName || !slug || !firstName || !lastName || !email || !password) {
+    throw new AppError('All fields are required', 400, 'VALIDATION_ERROR');
+  }
+  if (password.length < 8) {
+    throw new AppError('Password must be at least 8 characters', 400, 'VALIDATION_ERROR');
+  }
+
+  const slugClean = slug.toLowerCase().replace(/[^a-z0-9-]/g, '-').replace(/-+/g, '-').replace(/^-|-$/g, '');
+  if (!slugClean) throw new AppError('Invalid company slug', 400, 'VALIDATION_ERROR');
+
+  const existing = await prisma.tenant.findUnique({ where: { slug: slugClean } });
+  if (existing) throw new AppError('That company URL is already taken', 409, 'SLUG_TAKEN');
+
+  const validPlans = ['starter', 'professional', 'enterprise'];
+  const selectedPlan = validPlans.includes(plan) ? plan : 'starter';
+
+  const passwordHash = await bcrypt.hash(password, 12);
+
+  const tenant = await prisma.tenant.create({
+    data: {
+      name: companyName,
+      slug: slugClean,
+      plan: selectedPlan as never,
+      status: 'active',
+    },
+  });
+
+  const user = await prisma.user.create({
+    data: {
+      tenantId: tenant.id,
+      email,
+      firstName,
+      lastName,
+      passwordHash,
+      role: 'owner',
+      status: 'active',
+    },
+  });
+
+  const tokenPayload = buildTokenPayload({
+    id: user.id,
+    tenantId: user.tenantId,
+    role: user.role as UserRole,
+    email: user.email,
+  });
+  const accessToken = signAccessToken(tokenPayload);
+  const refreshToken = signRefreshToken(user.id);
+  const refreshHash = await bcrypt.hash(refreshToken, 10);
+  await prisma.user.update({ where: { id: user.id }, data: { refreshTokenHash: refreshHash } });
+
+  res.status(201).json({
+    success: true,
+    data: {
+      accessToken,
+      refreshToken,
+      user: {
+        id: user.id,
+        email: user.email,
+        firstName: user.firstName,
+        lastName: user.lastName,
+        role: user.role,
+        tenantId: user.tenantId,
+      },
+    },
+  } satisfies ApiResponse);
+});
+
+// POST /api/v1/auth/check-slug — check if slug is available
+authRouter.post('/check-slug', async (req, res) => {
+  const { slug } = req.body as { slug: string };
+  const slugClean = (slug ?? '').toLowerCase().replace(/[^a-z0-9-]/g, '-').replace(/-+/g, '-').replace(/^-|-$/g, '');
+  const existing = await prisma.tenant.findUnique({ where: { slug: slugClean } });
+  res.json({ success: true, data: { available: !existing, slug: slugClean } } satisfies ApiResponse);
+});
+
 // POST /api/v1/auth/refresh
 authRouter.post('/refresh', async (req, res) => {
   const { refreshToken } = req.body as { refreshToken: string };
