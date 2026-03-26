@@ -21,6 +21,7 @@ import { EstimatesPage } from '../pages/EstimatesPage';
 import { SettingsPage } from '../pages/SettingsPage';
 import { TechnicianPage } from '../pages/TechnicianPage';
 import { SalesPage } from '../pages/SalesPage';
+import { AIAssistant } from '../components/AIAssistant';
 
 type Page = 'dashboard' | 'customers' | 'jobs' | 'schedule' | 'invoices' | 'estimates' | 'settings';
 
@@ -40,10 +41,10 @@ export function DashboardLayout() {
   const { user, logout } = useAuthStore();
 
   if (user?.role === 'technician') {
-    return <TechnicianPage />;
+    return <><TechnicianPage /><AIAssistant /></>;
   }
   if (user?.role === 'sales') {
-    return <SalesPage />;
+    return <><SalesPage /><AIAssistant /></>;
   }
 
   const renderPage = () => {
@@ -135,6 +136,7 @@ export function DashboardLayout() {
           {renderPage()}
         </main>
       </div>
+      <AIAssistant />
     </div>
   );
 }
