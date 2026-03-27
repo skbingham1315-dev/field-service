@@ -169,7 +169,7 @@ export function MapPage() {
             {/* Job info window */}
             {selectedJob && selectedJob.serviceAddress?.lat && (
               <InfoWindow
-                position={{ lat: selectedJob.serviceAddress.lat, lng: selectedJob.serviceAddress.lng }}
+                position={{ lat: selectedJob.serviceAddress.lat as number, lng: selectedJob.serviceAddress.lng as number }}
                 onCloseClick={() => setSelectedJob(null)}
               >
                 <div className="p-1 min-w-[180px]">
