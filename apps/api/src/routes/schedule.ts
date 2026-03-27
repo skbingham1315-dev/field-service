@@ -165,3 +165,25 @@ scheduleRouter.get('/map-jobs', async (req, res) => {
   });
   res.json({ success: true, data: jobs });
 });
+
+// POST /api/v1/schedule/geocode-backfill — owner/admin: geocode all addresses missing coords
+scheduleRouter.post('/geocode-backfill', async (req, res) => {
+  if (!['owner', 'admin'].includes(req.user!.role)) {
+    res.status(403).json({ success: false, message: 'Forbidden' }); return;
+  }
+  const { geocodeAddress } = await import('../lib/geocode');
+  const addresses = await prisma.serviceAddress.findMany({
+    where: { lat: null, NOT: { street: 'TBD' } },
+    select: { id: true, street: true, city: true, state: true, zip: true, country: true },
+  });
+  let updated = 0;
+  for (const addr of addresses) {
+    const coords = await geocodeAddress(addr);
+    if (coords) {
+      await prisma.serviceAddress.update({ where: { id: addr.id }, data: coords });
+      updated++;
+    }
+    await new Promise((r) => setTimeout(r, 50)); // respect rate limit
+  }
+  res.json({ success: true, data: { total: addresses.length, geocoded: updated } });
+});

@@ -4,6 +4,7 @@ import { prisma } from '@fsp/db';
 import { AppError } from '../middleware/errorHandler';
 import type { ApiResponse } from '@fsp/types';
 import { sendSms } from '../lib/sms';
+import { geocodeAndSave } from '../lib/geocode';
 
 export const customersRouter = Router();
 
@@ -183,6 +184,8 @@ customersRouter.post('/:id/addresses', async (req, res) => {
     },
   });
 
+  geocodeAndSave(address.id, { street, city, state, zip, country });
+
   res.status(201).json({ success: true, data: address } satisfies ApiResponse);
 });
 
@@ -210,6 +213,10 @@ customersRouter.patch('/:id/addresses/:addressId', async (req, res) => {
     where: { id: req.params.addressId },
     data: req.body,
   });
+
+  // Re-geocode if address fields changed
+  const { street: s, city: c, state: st, zip: z, country: co } = { ...address, ...req.body };
+  if (s && c && st && z) geocodeAndSave(updated.id, { street: s, city: c, state: st, zip: z, country: co });
 
   res.json({ success: true, data: updated } satisfies ApiResponse);
 });

@@ -3,6 +3,7 @@ import Anthropic from '@anthropic-ai/sdk';
 import { authenticate } from '../middleware/authenticate';
 import { prisma } from '@fsp/db';
 import { sendSms } from '../lib/sms';
+import { geocodeAndSave } from '../lib/geocode';
 
 export const aiRouter = Router();
 aiRouter.use(authenticate);
@@ -190,18 +191,16 @@ async function executeTool(name: string, input: Record<string, unknown>, tenantI
       if (existing) {
         serviceAddressId = existing.id;
       } else {
+        const street = (input.street as string) || 'TBD';
+        const city = (input.city as string) || 'TBD';
+        const state = (input.state as string) || 'TBD';
+        const zip = (input.zip as string) || '00000';
         const addr = await prisma.serviceAddress.create({
-          data: {
-            customerId,
-            street: (input.street as string) || 'TBD',
-            city: (input.city as string) || 'TBD',
-            state: (input.state as string) || 'TBD',
-            zip: (input.zip as string) || '00000',
-            isPrimary: true,
-          },
+          data: { customerId, street, city, state, zip, isPrimary: true },
           select: { id: true },
         });
         serviceAddressId = addr.id;
+        if (street !== 'TBD') geocodeAndSave(addr.id, { street, city, state, zip });
       }
 
       const job = await prisma.job.create({
