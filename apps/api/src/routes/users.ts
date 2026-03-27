@@ -199,3 +199,35 @@ usersRouter.delete('/:userId', requireRole('owner', 'admin'), async (req, res) =
 
   res.json({ success: true, data: { message: 'User deactivated' } } satisfies ApiResponse);
 });
+
+// POST /api/v1/users/me/location — tech/sales update their GPS position
+usersRouter.post('/me/location', async (req, res) => {
+  const { lat, lng, heading, speed } = req.body as { lat: number; lng: number; heading?: number; speed?: number };
+  const { sub: userId, tenantId } = req.user!;
+
+  if (typeof lat !== 'number' || typeof lng !== 'number') {
+    res.status(400).json({ success: false, message: 'lat and lng required' });
+    return;
+  }
+
+  await Promise.all([
+    prisma.technicianLocation.create({ data: { technicianId: userId, lat, lng, heading: heading ?? null, speed: speed ?? null } }),
+    prisma.user.update({ where: { id: userId }, data: { lastLat: lat, lastLng: lng, lastLocationAt: new Date() } }),
+  ]);
+
+  res.json({ success: true, data: { lat, lng } });
+});
+
+// GET /api/v1/users/locations — get current positions of all active field staff
+usersRouter.get('/locations', requireRole('owner', 'admin', 'dispatcher'), async (req, res) => {
+  const users = await prisma.user.findMany({
+    where: {
+      tenantId: req.user!.tenantId,
+      role: { in: ['technician', 'sales'] },
+      status: 'active',
+      lastLat: { not: null },
+    },
+    select: { id: true, firstName: true, lastName: true, role: true, lastLat: true, lastLng: true, lastLocationAt: true, isAvailable: true },
+  });
+  res.json({ success: true, data: users });
+});

@@ -10,6 +10,7 @@ import {
   Menu,
   X,
   Receipt,
+  Map,
 } from 'lucide-react';
 import { useAuthStore } from '../store/authStore';
 import { DashboardPage } from '../pages/DashboardPage';
@@ -21,14 +22,17 @@ import { EstimatesPage } from '../pages/EstimatesPage';
 import { SettingsPage } from '../pages/SettingsPage';
 import { TechnicianPage } from '../pages/TechnicianPage';
 import { SalesPage } from '../pages/SalesPage';
+import { MapPage } from '../pages/MapPage';
 import { AIAssistant } from '../components/AIAssistant';
+import { useLocationSharing } from '../hooks/useLocationSharing';
 
-type Page = 'dashboard' | 'customers' | 'jobs' | 'schedule' | 'invoices' | 'estimates' | 'settings';
+type Page = 'dashboard' | 'customers' | 'jobs' | 'schedule' | 'map' | 'invoices' | 'estimates' | 'settings';
 
 const NAV_ITEMS: Array<{ id: Page; label: string; icon: React.ElementType }> = [
   { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
   { id: 'jobs', label: 'Jobs', icon: Briefcase },
   { id: 'schedule', label: 'Schedule', icon: Calendar },
+  { id: 'map', label: 'Live Map', icon: Map },
   { id: 'customers', label: 'Customers', icon: Users },
   { id: 'invoices', label: 'Invoices', icon: FileText },
   { id: 'estimates', label: 'Estimates', icon: Receipt },
@@ -40,12 +44,16 @@ export function DashboardLayout() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const { user, logout } = useAuthStore();
 
+  // Share GPS for field roles (triggers browser permission prompt automatically)
+  useLocationSharing();
+
   if (user?.role === 'technician') {
     return <><TechnicianPage /><AIAssistant /></>;
   }
   if (user?.role === 'sales') {
     return <><SalesPage /><AIAssistant /></>;
   }
+  // Note: useLocationSharing is a no-op for owner/admin/dispatcher roles
 
   const renderPage = () => {
     switch (currentPage) {
@@ -53,6 +61,7 @@ export function DashboardLayout() {
       case 'customers': return <CustomersPage />;
       case 'jobs': return <JobsPage />;
       case 'schedule': return <SchedulePage />;
+      case 'map': return <MapPage />;
       case 'invoices': return <InvoicesPage />;
       case 'estimates': return <EstimatesPage />;
       case 'settings': return <SettingsPage />;
@@ -132,7 +141,7 @@ export function DashboardLayout() {
           <span className="ml-4 font-semibold capitalize">{currentPage}</span>
         </header>
 
-        <main className={`flex-1 min-h-0 ${currentPage === 'schedule' ? 'flex flex-col overflow-hidden' : 'overflow-y-auto'}`}>
+        <main className={`flex-1 min-h-0 ${(currentPage === 'schedule' || currentPage === 'map') ? 'flex flex-col overflow-hidden' : 'overflow-y-auto'}`}>
           {renderPage()}
         </main>
       </div>

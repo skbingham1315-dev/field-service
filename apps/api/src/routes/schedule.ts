@@ -141,3 +141,27 @@ scheduleRouter.get('/technicians', async (req, res) => {
   });
   res.json({ success: true, data: technicians } satisfies ApiResponse);
 });
+
+// GET /api/v1/schedule/map-jobs — jobs with address coords for map display
+scheduleRouter.get('/map-jobs', async (req, res) => {
+  const { date } = req.query as { date?: string };
+  const where: Record<string, unknown> = {
+    tenantId: req.user!.tenantId,
+    status: { notIn: ['cancelled'] },
+  };
+  if (date) {
+    const d = new Date(date); const next = new Date(d); next.setDate(next.getDate() + 1);
+    where.scheduledStart = { gte: d, lt: next };
+  }
+  const jobs = await prisma.job.findMany({
+    where,
+    take: 200,
+    orderBy: { scheduledStart: 'asc' },
+    include: {
+      customer: { select: { firstName: true, lastName: true } },
+      technician: { select: { id: true, firstName: true, lastName: true } },
+      serviceAddress: { select: { street: true, city: true, state: true, zip: true, lat: true, lng: true } },
+    },
+  });
+  res.json({ success: true, data: jobs });
+});

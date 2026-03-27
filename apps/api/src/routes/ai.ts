@@ -354,7 +354,7 @@ async function executeTool(name: string, input: Record<string, unknown>, tenantI
 }
 
 aiRouter.post('/chat', async (req, res) => {
-  const { messages } = req.body as { messages: Array<{ role: 'user' | 'assistant'; content: string }> };
+  const { messages, timezone } = req.body as { messages: Array<{ role: 'user' | 'assistant'; content: string }>; timezone?: string };
   const { tenantId, role, sub: userId } = req.user!;
 
   if (!messages?.length) {
@@ -368,13 +368,17 @@ aiRouter.post('/chat', async (req, res) => {
   }
 
   const tools = TOOLS.filter((t) => allowedTools(role).includes(t.name));
-  const today = new Date().toISOString().split('T')[0];
+  const tz = timezone || 'America/Phoenix';
+  const today = new Date().toLocaleDateString('en-CA', { timeZone: tz }); // YYYY-MM-DD in user's tz
+  const nowLocal = new Date().toLocaleString('en-US', { timeZone: tz, weekday: 'long', year: 'numeric', month: 'long', day: 'numeric', hour: 'numeric', minute: '2-digit', timeZoneName: 'short' });
 
-  const systemPrompt = `You are an AI assistant for a field service management platform. Today is ${today}.
+  const systemPrompt = `You are an AI assistant for a field service management platform.
+Current date/time for the user: ${nowLocal} (timezone: ${tz}, today's date: ${today}).
 The user's role is: ${role}.
 You help with ${role === 'technician' ? 'checking schedules and jobs' : role === 'sales' ? 'creating customers and scheduling appointments' : 'creating jobs, finding customers, scheduling, and sending reminders'}.
 Be concise and action-oriented. When creating jobs or customers, confirm details only if something is ambiguous.
 Always use tools to take real actions — never fabricate IDs or data.
+IMPORTANT: All scheduled times the user mentions are in their local timezone (${tz}). When calling create_job or update_job, convert the time to an ISO datetime string that correctly represents their local time (e.g. if user says "9am tomorrow" in ${tz}, use the correct ISO string for 9am in that timezone).
 When you complete an action, tell the user clearly what was done.`;
 
   const anthropicMessages = messages.map((m) => ({ role: m.role, content: m.content }));

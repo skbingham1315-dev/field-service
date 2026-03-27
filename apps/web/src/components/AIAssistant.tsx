@@ -59,6 +59,8 @@ export function AIAssistant() {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages, loading]);
 
+  const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+
   const send = async (text?: string) => {
     const content = (text ?? input).trim();
     if (!content || loading) return;
@@ -69,7 +71,7 @@ export function AIAssistant() {
     setLoading(true);
 
     try {
-      const { data } = await api.post('/ai/chat', { messages: next });
+      const { data } = await api.post('/ai/chat', { messages: next, timezone });
       setMessages([...next, { role: 'assistant', content: data.data.message }]);
     } catch {
       setMessages([...next, { role: 'assistant', content: 'Sorry, something went wrong. Please try again.' }]);

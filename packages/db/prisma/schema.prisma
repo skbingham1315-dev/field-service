@@ -146,6 +146,9 @@ model User {
   vehicleInfo       Json?
   isAvailable       Boolean    @default(false)
   serviceRadius     Float?
+  lastLat           Float?
+  lastLng           Float?
+  lastLocationAt    DateTime?
   createdAt         DateTime   @default(now())
   updatedAt         DateTime   @updatedAt
 
