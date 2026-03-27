@@ -1,6 +1,7 @@
 import { useState, useRef } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { MapPin, Navigation, ChevronDown, ChevronUp, Clock, Phone, DollarSign, LogOut, CheckCircle } from 'lucide-react';
+import { MapPin, Navigation, ChevronDown, ChevronUp, Clock, Phone, DollarSign, LogOut, CheckCircle, Timer } from 'lucide-react';
+import { TimeTrackingPage } from './TimeTrackingPage';
 import { Badge } from '@fsp/ui';
 import { api } from '../lib/api';
 import { useAuthStore } from '../store/authStore';
@@ -227,6 +228,7 @@ function JobCard({
 }
 
 export function TechnicianPage() {
+  const [activeTab, setActiveTab] = useState<'jobs' | 'time'>('jobs');
   const { user, logout } = useAuthStore();
   const qc = useQueryClient();
   const [tracking, setTracking] = useState(false);
@@ -342,9 +344,22 @@ export function TechnicianPage() {
             </button>
           </div>
         </div>
+        {/* Tab bar */}
+        <div className="flex border-t border-gray-100">
+          {([['jobs', 'Jobs', CheckCircle], ['time', 'Time', Timer]] as const).map(([id, label, Icon]) => (
+            <button key={id} onClick={() => setActiveTab(id)}
+              className={`flex-1 flex items-center justify-center gap-1.5 py-2.5 text-sm font-medium transition-colors ${
+                activeTab === id ? 'text-indigo-600 border-b-2 border-indigo-600' : 'text-gray-500 hover:text-gray-700'
+              }`}>
+              <Icon className="h-4 w-4" />{label}
+            </button>
+          ))}
+        </div>
       </header>
 
-      {completedToast && (
+      {activeTab === 'time' && <TimeTrackingPage />}
+
+      {activeTab === 'jobs' && completedToast && (
         <div className="mx-4 mt-3 p-3 bg-green-50 border border-green-200 rounded-xl flex items-start gap-2 animate-pulse-once">
           <CheckCircle className="h-5 w-5 text-green-600 flex-shrink-0 mt-0.5" />
           <div>
@@ -354,7 +369,7 @@ export function TechnicianPage() {
         </div>
       )}
 
-      <main className="px-4 py-4 space-y-3 max-w-2xl mx-auto">
+      {activeTab === 'jobs' && <main className="px-4 py-4 space-y-3 max-w-2xl mx-auto">
         {isLoading ? (
           <div className="space-y-3">
             {[1, 2, 3].map((i) => (
@@ -381,7 +396,7 @@ export function TechnicianPage() {
             />
           ))
         )}
-      </main>
+      </main>}
     </div>
   );
 }

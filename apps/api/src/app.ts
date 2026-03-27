@@ -21,6 +21,8 @@ import { salesRouter } from './routes/sales';
 import { reviewsRouter } from './routes/reviews';
 import { aiRouter } from './routes/ai';
 import { billingRouter } from './routes/billing';
+import { timeEntriesRouter } from './routes/time-entries';
+import { payrollRouter } from './routes/payroll';
 
 export const app = express();
 
@@ -75,6 +77,8 @@ apiV1.use('/sales', salesRouter);
 apiV1.use('/reviews', reviewsRouter);
 apiV1.use('/ai', aiRouter);
 apiV1.use('/billing', billingRouter);
+apiV1.use('/time-entries', timeEntriesRouter);
+apiV1.use('/payroll', payrollRouter);
 
 app.use('/api/v1', apiV1);
 app.use('/webhooks', webhooksRouter);

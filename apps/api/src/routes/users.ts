@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import crypto from 'crypto';
+import bcrypt from 'bcryptjs';
 import { authenticate, requireRole } from '../middleware/authenticate';
 import { prisma } from '@fsp/db';
 import { AppError } from '../middleware/errorHandler';
@@ -25,6 +26,9 @@ usersRouter.get('/', requireRole('owner', 'admin', 'dispatcher'), async (req, re
       avatarUrl: true,
       isAvailable: true,
       skills: true,
+      payRate: true,
+      payType: true,
+      customPermissions: true,
       createdAt: true,
     },
     orderBy: { firstName: 'asc' },
@@ -74,32 +78,62 @@ usersRouter.patch('/me', async (req, res) => {
   res.json({ success: true, data: user } satisfies ApiResponse);
 });
 
+// POST /api/v1/users — owner/admin: directly create a team member with password
+usersRouter.post('/', requireRole('owner', 'admin'), async (req, res) => {
+  const { email, firstName, lastName, role, phone, password, payRate, payType, customPermissions } = req.body as {
+    email: string; firstName: string; lastName: string; role: string;
+    phone?: string; password: string;
+    payRate?: number; payType?: string; customPermissions?: Record<string, unknown>;
+  };
+
+  const validRoles = ['admin', 'dispatcher', 'technician', 'sales'];
+  if (!email || !firstName || !lastName || !validRoles.includes(role)) {
+    throw new AppError('email, firstName, lastName, and valid role are required', 400, 'VALIDATION_ERROR');
+  }
+  if (!password || password.length < 8) {
+    throw new AppError('password must be at least 8 characters', 400, 'VALIDATION_ERROR');
+  }
+
+  const existing = await prisma.user.findFirst({ where: { tenantId: req.user!.tenantId, email } });
+  if (existing) throw new AppError('A user with that email already exists', 409, 'CONFLICT');
+
+  const passwordHash = await bcrypt.hash(password, 12);
+
+  const user = await prisma.user.create({
+    data: {
+      tenantId: req.user!.tenantId,
+      email, firstName, lastName,
+      phone: phone || null,
+      role: role as never,
+      status: 'active',
+      passwordHash,
+      payRate: payRate ?? null,
+      payType: payType ?? 'hourly',
+      customPermissions: customPermissions ?? undefined,
+    },
+    select: {
+      id: true, email: true, firstName: true, lastName: true, phone: true,
+      role: true, status: true, payRate: true, payType: true, customPermissions: true, createdAt: true,
+    },
+  });
+
+  res.status(201).json({ success: true, data: user } satisfies ApiResponse);
+});
+
 // POST /api/v1/users/invite — owner/admin only
 usersRouter.post('/invite', requireRole('owner', 'admin'), async (req, res) => {
-  const { email, firstName, lastName, role, phone } = req.body as {
-    email: string;
-    firstName: string;
-    lastName: string;
-    role: string;
-    phone?: string;
+  const { email, firstName, lastName, role, phone, payRate, payType } = req.body as {
+    email: string; firstName: string; lastName: string; role: string;
+    phone?: string; payRate?: number; payType?: string;
   };
 
   const validRoles = ['admin', 'dispatcher', 'technician', 'sales'];
   if (!validRoles.includes(role)) {
-    throw new AppError(
-      `role must be one of: ${validRoles.join(', ')}`,
-      400,
-      'VALIDATION_ERROR',
-    );
+    throw new AppError(`role must be one of: ${validRoles.join(', ')}`, 400, 'VALIDATION_ERROR');
   }
 
-  // Check email is not already used within this tenant
-  const existing = await prisma.user.findFirst({
-    where: { tenantId: req.user!.tenantId, email },
-  });
-  if (existing) {
-    throw new AppError('A user with that email already exists in this tenant', 409, 'CONFLICT');
-  }
+  const existing = await prisma.user.findFirst({ where: { tenantId: req.user!.tenantId, email } });
+  if (existing) throw new AppError('A user with that email already exists in this tenant', 409, 'CONFLICT');
 
   const inviteToken = crypto.randomUUID();
   const inviteExpiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
@@ -107,29 +141,18 @@ usersRouter.post('/invite', requireRole('owner', 'admin'), async (req, res) => {
   const user = await prisma.user.create({
     data: {
       tenantId: req.user!.tenantId,
-      email,
-      firstName,
-      lastName,
-      phone,
+      email, firstName, lastName, phone,
       role: role as never,
       status: 'invited',
       passwordHash: '',
       inviteToken,
       inviteExpiresAt,
+      payRate: payRate ?? null,
+      payType: payType ?? 'hourly',
     },
-    select: {
-      id: true,
-      email: true,
-      firstName: true,
-      lastName: true,
-      phone: true,
-      role: true,
-      status: true,
-      createdAt: true,
-    },
+    select: { id: true, email: true, firstName: true, lastName: true, phone: true, role: true, status: true, createdAt: true },
   });
 
-  // In dev, return the invite token directly so admin can share the link manually
   res.status(201).json({ success: true, data: { user, inviteToken } } satisfies ApiResponse);
 });
 
@@ -142,15 +165,11 @@ usersRouter.patch('/:userId', requireRole('owner', 'admin'), async (req, res) =>
     throw new AppError('User not found', 404, 'NOT_FOUND');
   }
 
-  const { role, status, firstName, lastName, phone } = req.body as {
-    role?: string;
-    status?: string;
-    firstName?: string;
-    lastName?: string;
-    phone?: string;
+  const { role, status, firstName, lastName, phone, payRate, payType, customPermissions } = req.body as {
+    role?: string; status?: string; firstName?: string; lastName?: string; phone?: string;
+    payRate?: number | null; payType?: string; customPermissions?: Record<string, unknown> | null;
   };
 
-  // Owner cannot change their own role
   if (role && userId === req.user!.sub && req.user!.role === 'owner') {
     throw new AppError('Owner cannot change their own role', 403, 'FORBIDDEN');
   }
@@ -160,19 +179,14 @@ usersRouter.patch('/:userId', requireRole('owner', 'admin'), async (req, res) =>
     data: {
       ...(role ? { role: role as never } : {}),
       ...(status ? { status: status as never } : {}),
-      firstName,
-      lastName,
-      phone,
+      firstName, lastName, phone,
+      ...(payRate !== undefined ? { payRate } : {}),
+      ...(payType !== undefined ? { payType } : {}),
+      ...(customPermissions !== undefined ? { customPermissions } : {}),
     },
     select: {
-      id: true,
-      email: true,
-      firstName: true,
-      lastName: true,
-      phone: true,
-      role: true,
-      status: true,
-      updatedAt: true,
+      id: true, email: true, firstName: true, lastName: true, phone: true,
+      role: true, status: true, payRate: true, payType: true, customPermissions: true, updatedAt: true,
     },
   });
 

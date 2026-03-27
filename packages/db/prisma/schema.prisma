@@ -119,6 +119,8 @@ model Tenant {
   serviceTemplates ServiceTemplate[]
   salesActivities  SalesActivity[]
   salesGoal        SalesGoal?
+  timeEntries      TimeEntry[]
+  payrollRuns      PayrollRun[]
 
   @@map("tenants")
 }
@@ -146,6 +148,9 @@ model User {
   vehicleInfo       Json?
   isAvailable       Boolean    @default(false)
   serviceRadius     Float?
+  payRate           Float?
+  payType           String?    @default("hourly")
+  customPermissions Json?
   lastLat           Float?
   lastLng           Float?
   lastLocationAt    DateTime?
@@ -160,6 +165,9 @@ model User {
   technicianLocations TechnicianLocation[]
   salesActivities     SalesActivity[]
   reviewsReceived     JobReview[]   @relation("TechnicianReviews")
+  timeEntries         TimeEntry[]
+  payrollEntries      PayrollEntry[]
+  payrollRuns         PayrollRun[]  @relation("PayrollCreatedBy")
 
   @@unique([tenantId, email])
   @@index([tenantId, role])
@@ -254,6 +262,7 @@ model Job {
   recurrence     RecurrenceRule?
   invoice        Invoice?       @relation(fields: [invoiceId], references: [id])
   review         JobReview?
+  timeEntries    TimeEntry[]
 
   @@index([tenantId, status])
   @@index([tenantId, technicianId])
@@ -510,4 +519,81 @@ model TechnicianLocation {
 
   @@index([technicianId, recordedAt])
   @@map("technician_locations")
+}
+
+// ─── Time Tracking ────────────────────────────────────────────────────────────
+
+enum TimeEntryStatus {
+  pending
+  approved
+  paid
+}
+
+model TimeEntry {
+  id          String          @id @default(cuid())
+  tenantId    String
+  userId      String
+  jobId       String?
+  date        DateTime        @db.Date
+  clockIn     DateTime?
+  clockOut    DateTime?
+  hoursWorked Float           @default(0)
+  notes       String?
+  status      TimeEntryStatus @default(pending)
+  createdAt   DateTime        @default(now())
+  updatedAt   DateTime        @updatedAt
+
+  tenant Tenant  @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  user   User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  job    Job?    @relation(fields: [jobId], references: [id], onDelete: SetNull)
+
+  @@index([tenantId, date])
+  @@index([userId, date])
+  @@map("time_entries")
+}
+
+// ─── Payroll ──────────────────────────────────────────────────────────────────
+
+enum PayrollStatus {
+  draft
+  approved
+  paid
+}
+
+model PayrollRun {
+  id          String        @id @default(cuid())
+  tenantId    String
+  periodStart DateTime
+  periodEnd   DateTime
+  status      PayrollStatus @default(draft)
+  totalGross  Float         @default(0)
+  notes       String?
+  createdById String?
+  paidAt      DateTime?
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+
+  tenant    Tenant         @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  createdBy User?          @relation("PayrollCreatedBy", fields: [createdById], references: [id])
+  entries   PayrollEntry[]
+
+  @@index([tenantId])
+  @@map("payroll_runs")
+}
+
+model PayrollEntry {
+  id            String @id @default(cuid())
+  payrollRunId  String
+  userId        String
+  regularHours  Float  @default(0)
+  overtimeHours Float  @default(0)
+  payRate       Float  @default(0)
+  payType       String @default("hourly")
+  grossPay      Float  @default(0)
+  notes         String?
+
+  payrollRun PayrollRun @relation(fields: [payrollRunId], references: [id], onDelete: Cascade)
+  user       User       @relation(fields: [userId], references: [id])
+
+  @@map("payroll_entries")
 }
