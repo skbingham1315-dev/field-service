@@ -11,6 +11,7 @@ import {
   X,
   Receipt,
   Map,
+  CreditCard,
 } from 'lucide-react';
 import { useAuthStore } from '../store/authStore';
 import { DashboardPage } from '../pages/DashboardPage';
@@ -23,10 +24,11 @@ import { SettingsPage } from '../pages/SettingsPage';
 import { TechnicianPage } from '../pages/TechnicianPage';
 import { SalesPage } from '../pages/SalesPage';
 import { MapPage } from '../pages/MapPage';
+import { BillingPage } from '../pages/BillingPage';
 import { AIAssistant } from '../components/AIAssistant';
 import { useLocationSharing } from '../hooks/useLocationSharing';
 
-type Page = 'dashboard' | 'customers' | 'jobs' | 'schedule' | 'map' | 'invoices' | 'estimates' | 'settings';
+type Page = 'dashboard' | 'customers' | 'jobs' | 'schedule' | 'map' | 'invoices' | 'estimates' | 'settings' | 'billing';
 
 const NAV_ITEMS: Array<{ id: Page; label: string; icon: React.ElementType }> = [
   { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
@@ -36,6 +38,7 @@ const NAV_ITEMS: Array<{ id: Page; label: string; icon: React.ElementType }> = [
   { id: 'customers', label: 'Customers', icon: Users },
   { id: 'invoices', label: 'Invoices', icon: FileText },
   { id: 'estimates', label: 'Estimates', icon: Receipt },
+  { id: 'billing', label: 'Billing', icon: CreditCard },
   { id: 'settings', label: 'Settings', icon: Settings },
 ];
 
@@ -64,6 +67,7 @@ export function DashboardLayout() {
       case 'map': return <MapPage />;
       case 'invoices': return <InvoicesPage />;
       case 'estimates': return <EstimatesPage />;
+      case 'billing': return <BillingPage />;
       case 'settings': return <SettingsPage />;
     }
   };

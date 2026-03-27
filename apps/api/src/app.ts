@@ -20,6 +20,7 @@ import { estimatesRouter } from './routes/estimates';
 import { salesRouter } from './routes/sales';
 import { reviewsRouter } from './routes/reviews';
 import { aiRouter } from './routes/ai';
+import { billingRouter } from './routes/billing';
 
 export const app = express();
 
@@ -73,6 +74,7 @@ apiV1.use('/estimates', estimatesRouter);
 apiV1.use('/sales', salesRouter);
 apiV1.use('/reviews', reviewsRouter);
 apiV1.use('/ai', aiRouter);
+apiV1.use('/billing', billingRouter);
 
 app.use('/api/v1', apiV1);
 app.use('/webhooks', webhooksRouter);

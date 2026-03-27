@@ -1,10 +1,19 @@
 import { Router } from 'express';
 import { prisma } from '@fsp/db';
 import bcrypt from 'bcryptjs';
+import Stripe from 'stripe';
 import { AppError } from '../middleware/errorHandler';
 import { signAccessToken, signRefreshToken, verifyRefreshToken, buildTokenPayload } from '../lib/jwt';
 import type { ApiResponse } from '@fsp/types';
 import type { UserRole } from '@fsp/types';
+
+const stripe = new Stripe(process.env.STRIPE_SECRET_KEY ?? '', { apiVersion: '2024-04-10' });
+
+const PRICE_MAP: Record<string, string> = {
+  starter: process.env.STRIPE_PRICE_STARTER ?? '',
+  professional: process.env.STRIPE_PRICE_PROFESSIONAL ?? '',
+  enterprise: process.env.STRIPE_PRICE_ENTERPRISE ?? '',
+};
 
 export const authRouter = Router();
 
@@ -97,12 +106,24 @@ authRouter.post('/register', async (req, res) => {
 
   const passwordHash = await bcrypt.hash(password, 12);
 
+  // Create Stripe customer
+  let stripeCustomerId: string | undefined;
+  try {
+    const customer = await stripe.customers.create({
+      email,
+      name: `${firstName} ${lastName}`,
+      metadata: { companyName, slug: slugClean },
+    });
+    stripeCustomerId = customer.id;
+  } catch { /* non-fatal — billing can be set up later */ }
+
   const tenant = await prisma.tenant.create({
     data: {
       name: companyName,
       slug: slugClean,
       plan: selectedPlan as never,
-      status: 'active',
+      status: 'trial',
+      stripeCustomerId: stripeCustomerId ?? null,
     },
   });
 
@@ -129,11 +150,32 @@ authRouter.post('/register', async (req, res) => {
   const refreshHash = await bcrypt.hash(refreshToken, 10);
   await prisma.user.update({ where: { id: user.id }, data: { refreshTokenHash: refreshHash } });
 
+  // Create Stripe Checkout session so user can enter payment details
+  let checkoutUrl: string | null = null;
+  const priceId = PRICE_MAP[selectedPlan];
+  const webUrl = process.env.WEB_URL ?? 'http://localhost:5173';
+  if (stripeCustomerId && priceId) {
+    try {
+      const session = await stripe.checkout.sessions.create({
+        mode: 'subscription',
+        customer: stripeCustomerId,
+        line_items: [{ price: priceId, quantity: 1 }],
+        success_url: `${webUrl}?billing=success&session_id={CHECKOUT_SESSION_ID}`,
+        cancel_url: `${webUrl}?billing=cancelled`,
+        metadata: { tenantId: tenant.id, plan: selectedPlan },
+        subscription_data: { trial_period_days: 14, metadata: { tenantId: tenant.id, plan: selectedPlan } },
+        allow_promotion_codes: true,
+      });
+      checkoutUrl = session.url;
+    } catch { /* non-fatal */ }
+  }
+
   res.status(201).json({
     success: true,
     data: {
       accessToken,
       refreshToken,
+      checkoutUrl,
       user: {
         id: user.id,
         email: user.email,

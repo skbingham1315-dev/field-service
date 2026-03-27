@@ -214,8 +214,12 @@ function RegisterForm({ plan, onBack }: { plan: PlanId; onBack: () => void }) {
     setLoading(true);
     try {
       const { data } = await api.post('/auth/register', { ...form, plan });
-      const { accessToken, refreshToken, user } = data.data;
+      const { accessToken, refreshToken, user, checkoutUrl } = data.data;
       useAuthStore.getState().setAuth({ accessToken, refreshToken, user });
+      // Redirect to Stripe Checkout to enter payment details (14-day trial starts)
+      if (checkoutUrl) {
+        window.location.href = checkoutUrl;
+      }
     } catch (err: unknown) {
       const msg = (err as { response?: { data?: { message?: string } } })?.response?.data?.message;
       setError(msg ?? 'Registration failed. Please try again.');
