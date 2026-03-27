@@ -86,6 +86,39 @@ const TOOLS: Anthropic.Tool[] = [
     },
   },
   {
+    name: 'update_job',
+    description: 'Update an existing job/appointment. Can change title, scheduled time, technician, status, description, or service type. Use list_jobs first to get the job ID.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        jobId: { type: 'string', description: 'The job ID to update' },
+        title: { type: 'string', description: 'New title (optional)' },
+        scheduledStart: { type: 'string', description: 'New start datetime ISO e.g. 2026-03-27T09:00:00 (optional)' },
+        scheduledEnd: { type: 'string', description: 'New end datetime ISO (optional)' },
+        technicianId: { type: 'string', description: 'New technician user ID, or "unassign" to remove (optional)' },
+        status: { type: 'string', description: 'New status: scheduled | in_progress | completed | cancelled (optional)' },
+        description: { type: 'string', description: 'New description (optional)' },
+        serviceType: { type: 'string', description: 'New service type: pool | pest_control | turf | handyman (optional)' },
+      },
+      required: ['jobId'],
+    },
+  },
+  {
+    name: 'update_customer',
+    description: 'Update an existing customer\'s information such as name, email, or phone number. Use list_customers first to get the customer ID.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        customerId: { type: 'string', description: 'The customer ID to update' },
+        firstName: { type: 'string', description: 'New first name (optional)' },
+        lastName: { type: 'string', description: 'New last name (optional)' },
+        email: { type: 'string', description: 'New email address (optional)' },
+        phone: { type: 'string', description: 'New phone number (optional)' },
+      },
+      required: ['customerId'],
+    },
+  },
+  {
     name: 'send_reminder',
     description: 'Send an SMS reminder to a customer about their upcoming appointment.',
     input_schema: {
@@ -101,7 +134,7 @@ const TOOLS: Anthropic.Tool[] = [
 
 function allowedTools(role: string): string[] {
   if (role === 'technician') return ['list_jobs', 'get_schedule'];
-  if (role === 'sales') return ['list_jobs', 'create_job', 'list_customers', 'create_customer', 'get_schedule'];
+  if (role === 'sales') return ['list_jobs', 'create_job', 'update_job', 'list_customers', 'create_customer', 'update_customer', 'get_schedule'];
   return TOOLS.map((t) => t.name);
 }
 
@@ -255,6 +288,49 @@ async function executeTool(name: string, input: Record<string, unknown>, tenantI
         customer: j.customer ? `${j.customer.firstName} ${j.customer.lastName}` : null,
         technician: j.technician ? `${j.technician.firstName} ${j.technician.lastName}` : 'Unassigned',
       }));
+    }
+
+    case 'update_job': {
+      const validTypes = ['pool', 'pest_control', 'turf', 'handyman'];
+      const validStatuses = ['scheduled', 'in_progress', 'completed', 'cancelled'];
+      const data: Record<string, unknown> = {};
+      if (input.title) data.title = input.title;
+      if (input.scheduledStart) data.scheduledStart = new Date(input.scheduledStart as string);
+      if (input.scheduledEnd) data.scheduledEnd = new Date(input.scheduledEnd as string);
+      if (input.description !== undefined) data.description = input.description;
+      if (input.technicianId) {
+        data.technicianId = (input.technicianId as string) === 'unassign' ? null : input.technicianId;
+      }
+      if (input.status && validStatuses.includes(input.status as string)) data.status = input.status;
+      if (input.serviceType && validTypes.includes(input.serviceType as string)) data.serviceType = input.serviceType;
+
+      const job = await prisma.job.update({
+        where: { id: input.jobId as string },
+        data,
+        include: { customer: { select: { firstName: true, lastName: true } } },
+      }) as never as { id: string; title: string; scheduledStart: Date | null; status: string; customer: { firstName: string; lastName: string } | null };
+      return {
+        id: job.id,
+        title: job.title,
+        scheduledStart: job.scheduledStart,
+        status: job.status,
+        customer: job.customer ? `${job.customer.firstName} ${job.customer.lastName}` : null,
+      };
+    }
+
+    case 'update_customer': {
+      const data: Record<string, unknown> = {};
+      if (input.firstName) data.firstName = input.firstName;
+      if (input.lastName) data.lastName = input.lastName;
+      if (input.email !== undefined) data.email = input.email || null;
+      if (input.phone !== undefined) data.phone = input.phone || null;
+
+      const customer = await prisma.customer.update({
+        where: { id: input.customerId as string },
+        data,
+        select: { id: true, firstName: true, lastName: true, email: true, phone: true },
+      });
+      return { id: customer.id, name: `${customer.firstName} ${customer.lastName}`, email: customer.email, phone: customer.phone };
     }
 
     case 'send_reminder': {
