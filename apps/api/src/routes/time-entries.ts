@@ -129,7 +129,7 @@ timeEntriesRouter.delete('/:id', async (req, res) => {
 timeEntriesRouter.post('/clock-in', async (req, res) => {
   const { sub: userId, tenantId } = req.user!;
   const today = new Date(); today.setHours(0, 0, 0, 0);
-  const { jobId } = req.body as { jobId?: string };
+  const { jobId, lat, lng } = req.body as { jobId?: string; lat?: number; lng?: number };
 
   // Check if already clocked in today (no clockOut)
   const existing = await prisma.timeEntry.findFirst({
@@ -140,7 +140,16 @@ timeEntriesRouter.post('/clock-in', async (req, res) => {
   }
 
   const entry = await prisma.timeEntry.create({
-    data: { tenantId, userId, date: today, clockIn: new Date(), jobId: jobId || null, status: 'pending' },
+    data: {
+      tenantId,
+      userId,
+      date: today,
+      clockIn: new Date(),
+      jobId: jobId || null,
+      clockInLat: typeof lat === 'number' ? lat : null,
+      clockInLng: typeof lng === 'number' ? lng : null,
+      status: 'pending',
+    },
   });
   res.status(201).json({ success: true, data: entry } satisfies ApiResponse);
 });

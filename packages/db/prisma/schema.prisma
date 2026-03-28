@@ -537,6 +537,8 @@ model TimeEntry {
   date        DateTime        @db.Date
   clockIn     DateTime?
   clockOut    DateTime?
+  clockInLat  Float?
+  clockInLng  Float?
   hoursWorked Float           @default(0)
   notes       String?
   status      TimeEntryStatus @default(pending)
