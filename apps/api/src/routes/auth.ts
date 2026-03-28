@@ -164,6 +164,7 @@ authRouter.post('/register', async (req, res) => {
         cancel_url: `${webUrl}?billing=cancelled`,
         metadata: { tenantId: tenant.id, plan: selectedPlan },
         subscription_data: { trial_period_days: 14, metadata: { tenantId: tenant.id, plan: selectedPlan } },
+        payment_method_collection: 'always', // require card upfront even during trial
         allow_promotion_codes: true,
       });
       checkoutUrl = session.url;
