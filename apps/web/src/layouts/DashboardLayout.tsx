@@ -13,6 +13,8 @@ import {
   Map,
   CreditCard,
   DollarSign,
+  ArrowLeft,
+  ChevronDown,
 } from 'lucide-react';
 import { useAuthStore } from '../store/authStore';
 import { DashboardPage } from '../pages/DashboardPage';
@@ -32,19 +34,27 @@ import { AIAssistant } from '../components/AIAssistant';
 import { useLocationSharing } from '../hooks/useLocationSharing';
 
 type Page = 'dashboard' | 'customers' | 'jobs' | 'schedule' | 'map' | 'invoices' | 'estimates' | 'team' | 'payroll' | 'billing' | 'settings';
+type ViewAs = 'owner' | 'technician' | 'sales' | 'dispatcher';
+
+const VIEW_OPTIONS: Array<{ id: ViewAs; label: string; desc: string; color: string }> = [
+  { id: 'owner',      label: 'Owner',      desc: 'Full dashboard',     color: 'text-violet-400' },
+  { id: 'dispatcher', label: 'Dispatcher', desc: 'Schedule & jobs',    color: 'text-blue-400' },
+  { id: 'technician', label: 'Tech',       desc: 'Mobile job view',    color: 'text-amber-400' },
+  { id: 'sales',      label: 'Sales',      desc: 'Leads & pipeline',   color: 'text-emerald-400' },
+];
 
 const NAV_ITEMS: Array<{ id: Page; label: string; icon: React.ElementType }> = [
-  { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
-  { id: 'jobs', label: 'Jobs', icon: Briefcase },
-  { id: 'schedule', label: 'Schedule', icon: Calendar },
-  { id: 'map', label: 'Live Map', icon: Map },
-  { id: 'customers', label: 'Customers', icon: Users },
-  { id: 'invoices', label: 'Invoices', icon: FileText },
-  { id: 'estimates', label: 'Estimates', icon: Receipt },
-  { id: 'team', label: 'Team', icon: Users },
-  { id: 'payroll', label: 'Payroll', icon: DollarSign },
-  { id: 'billing', label: 'Billing', icon: CreditCard },
-  { id: 'settings', label: 'Settings', icon: Settings },
+  { id: 'dashboard', label: 'Dashboard',  icon: LayoutDashboard },
+  { id: 'jobs',      label: 'Jobs',       icon: Briefcase },
+  { id: 'schedule',  label: 'Schedule',   icon: Calendar },
+  { id: 'map',       label: 'Live Map',   icon: Map },
+  { id: 'customers', label: 'Customers',  icon: Users },
+  { id: 'invoices',  label: 'Invoices',   icon: FileText },
+  { id: 'estimates', label: 'Estimates',  icon: Receipt },
+  { id: 'team',      label: 'Team',       icon: Users },
+  { id: 'payroll',   label: 'Payroll',    icon: DollarSign },
+  { id: 'billing',   label: 'Billing',    icon: CreditCard },
+  { id: 'settings',  label: 'Settings',   icon: Settings },
 ];
 
 function LogoMark({ size = 28 }: { size?: number }) {
@@ -66,31 +76,58 @@ function LogoMark({ size = 28 }: { size?: number }) {
 export function DashboardLayout() {
   const [currentPage, setCurrentPage] = useState<Page>('dashboard');
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [viewAs, setViewAs] = useState<ViewAs>('owner');
+  const [viewPickerOpen, setViewPickerOpen] = useState(false);
   const { user, logout } = useAuthStore();
 
-  // Share GPS for field roles (triggers browser permission prompt automatically)
   useLocationSharing();
 
-  if (user?.role === 'technician') {
-    return <><TechnicianPage /><AIAssistant /></>;
+  const isOwner = user?.role === 'owner' || user?.role === 'admin';
+  const activeView = VIEW_OPTIONS.find(v => v.id === viewAs)!;
+
+  // Real technician / sales get their dedicated UI (no role switcher)
+  if (user?.role === 'technician') return <><TechnicianPage /><AIAssistant /></>;
+  if (user?.role === 'sales') return <><SalesPage /><AIAssistant /></>;
+
+  // Owner previewing another role — show that role's full-screen UI + exit bar
+  if (isOwner && viewAs === 'technician') {
+    return (
+      <div className="relative min-h-screen">
+        <TechnicianPage />
+        <AIAssistant />
+        <PreviewBar label="Tech view" onExit={() => setViewAs('owner')} />
+      </div>
+    );
   }
-  if (user?.role === 'sales') {
-    return <><SalesPage /><AIAssistant /></>;
+  if (isOwner && viewAs === 'sales') {
+    return (
+      <div className="relative min-h-screen">
+        <SalesPage />
+        <AIAssistant />
+        <PreviewBar label="Sales view" onExit={() => setViewAs('owner')} />
+      </div>
+    );
   }
 
+  // Dispatcher view: owner stays in main layout but lands on Schedule
+  const effectivePage: Page = (isOwner && viewAs === 'dispatcher' && currentPage === 'dashboard')
+    ? 'schedule'
+    : currentPage;
+
   const renderPage = () => {
-    switch (currentPage) {
-      case 'dashboard': return <DashboardPage />;
-      case 'customers': return <CustomersPage />;
-      case 'jobs': return <JobsPage />;
-      case 'schedule': return <SchedulePage />;
-      case 'map': return <MapPage />;
-      case 'invoices': return <InvoicesPage />;
-      case 'estimates': return <EstimatesPage />;
-      case 'team': return <TeamPage />;
-      case 'payroll': return <PayrollPage />;
-      case 'billing': return <BillingPage />;
-      case 'settings': return <SettingsPage />;
+    const p = effectivePage;
+    switch (p) {
+      case 'dashboard':  return <DashboardPage />;
+      case 'customers':  return <CustomersPage />;
+      case 'jobs':       return <JobsPage />;
+      case 'schedule':   return <SchedulePage />;
+      case 'map':        return <MapPage />;
+      case 'invoices':   return <InvoicesPage />;
+      case 'estimates':  return <EstimatesPage />;
+      case 'team':       return <TeamPage />;
+      case 'payroll':    return <PayrollPage />;
+      case 'billing':    return <BillingPage />;
+      case 'settings':   return <SettingsPage />;
     }
   };
 
@@ -124,10 +161,57 @@ export function DashboardLayout() {
           </button>
         </div>
 
+        {/* Role view switcher (owners only) */}
+        {isOwner && (
+          <div className="px-2.5 pt-3 pb-1 flex-shrink-0">
+            <button
+              onClick={() => setViewPickerOpen(v => !v)}
+              className="w-full flex items-center gap-2.5 px-3 py-2 rounded-xl bg-white/[0.05] hover:bg-white/[0.08] border border-white/[0.06] transition-colors"
+            >
+              <div className="h-6 w-6 rounded-lg bg-white/10 flex items-center justify-center flex-shrink-0">
+                <span className={`text-[10px] font-bold ${activeView.color}`}>
+                  {activeView.label[0]}
+                </span>
+              </div>
+              <div className="flex-1 min-w-0 text-left">
+                <p className="text-xs font-semibold text-white leading-tight">{activeView.label} View</p>
+                <p className="text-[10px] text-slate-500 leading-tight">{activeView.desc}</p>
+              </div>
+              <ChevronDown className={`h-3.5 w-3.5 text-slate-500 transition-transform flex-shrink-0 ${viewPickerOpen ? 'rotate-180' : ''}`} />
+            </button>
+
+            {viewPickerOpen && (
+              <div className="mt-1 bg-[#13151f] border border-white/10 rounded-xl overflow-hidden shadow-2xl">
+                {VIEW_OPTIONS.map(opt => (
+                  <button
+                    key={opt.id}
+                    onClick={() => {
+                      setViewAs(opt.id);
+                      setViewPickerOpen(false);
+                      if (opt.id === 'dispatcher') setCurrentPage('schedule');
+                      else if (opt.id === 'owner') setCurrentPage('dashboard');
+                    }}
+                    className={`w-full flex items-center gap-3 px-3 py-2.5 text-sm transition-colors hover:bg-white/5 ${
+                      viewAs === opt.id ? 'bg-white/[0.07]' : ''
+                    }`}
+                  >
+                    <span className={`text-xs font-bold w-5 ${opt.color}`}>{opt.label[0]}</span>
+                    <div className="flex-1 text-left">
+                      <p className="text-xs font-semibold text-white leading-tight">{opt.label}</p>
+                      <p className="text-[10px] text-slate-500">{opt.desc}</p>
+                    </div>
+                    {viewAs === opt.id && <span className="h-1.5 w-1.5 rounded-full bg-violet-400 flex-shrink-0" />}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+
         {/* Nav */}
-        <nav className="flex-1 px-2.5 py-4 space-y-0.5 overflow-y-auto">
+        <nav className="flex-1 px-2.5 py-2 space-y-0.5 overflow-y-auto">
           {NAV_ITEMS.map(({ id, label, icon: Icon }) => {
-            const active = currentPage === id;
+            const active = effectivePage === id;
             return (
               <button
                 key={id}
@@ -147,7 +231,7 @@ export function DashboardLayout() {
 
         {/* User */}
         <div className="p-2.5 border-t border-white/5 flex-shrink-0">
-          <div className="flex items-center gap-3 px-2 py-2 rounded-xl hover:bg-white/5 transition-colors group">
+          <div className="flex items-center gap-3 px-2 py-2 rounded-xl hover:bg-white/5 transition-colors">
             <div className="h-8 w-8 rounded-full bg-gradient-to-br from-violet-500 to-indigo-600 flex items-center justify-center text-xs font-bold flex-shrink-0 shadow-lg shadow-indigo-900/40">
               {user?.firstName?.[0]}{user?.lastName?.[0]}
             </div>
@@ -179,11 +263,42 @@ export function DashboardLayout() {
           </div>
         </header>
 
-        <main className={`flex-1 min-h-0 ${(currentPage === 'schedule' || currentPage === 'map') ? 'flex flex-col overflow-hidden' : 'overflow-y-auto'}`}>
+        {/* Dispatcher preview banner */}
+        {isOwner && viewAs === 'dispatcher' && (
+          <div className="bg-blue-50 border-b border-blue-100 px-4 py-2 flex items-center justify-between flex-shrink-0">
+            <span className="text-xs text-blue-700 font-medium">Previewing dispatcher view — your permissions are unchanged</span>
+            <button onClick={() => { setViewAs('owner'); setCurrentPage('dashboard'); }}
+              className="text-xs text-blue-700 font-semibold hover:text-blue-900 flex items-center gap-1">
+              <ArrowLeft className="h-3 w-3" /> Back to owner
+            </button>
+          </div>
+        )}
+
+        <main className={`flex-1 min-h-0 ${(effectivePage === 'schedule' || effectivePage === 'map') ? 'flex flex-col overflow-hidden' : 'overflow-y-auto'}`}>
           {renderPage()}
         </main>
       </div>
       <AIAssistant />
+    </div>
+  );
+}
+
+function PreviewBar({ label, onExit }: { label: string; onExit: () => void }) {
+  return (
+    <div className="fixed bottom-0 left-0 right-0 z-50 bg-[#0c0e16]/95 backdrop-blur-sm border-t border-white/10 px-5 py-3 flex items-center justify-between">
+      <div className="flex items-center gap-2.5">
+        <span className="h-2 w-2 rounded-full bg-amber-400 animate-pulse" />
+        <span className="text-sm text-slate-300">
+          Previewing <span className="text-white font-semibold">{label}</span> — your admin permissions are unchanged
+        </span>
+      </div>
+      <button
+        onClick={onExit}
+        className="flex items-center gap-1.5 text-sm text-violet-400 hover:text-violet-300 font-semibold transition-colors"
+      >
+        <ArrowLeft className="h-4 w-4" />
+        Back to Owner view
+      </button>
     </div>
   );
 }

@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { Copy, Check, Wrench, TrendingUp, Shield } from 'lucide-react';
+import { Copy, Check, Wrench, TrendingUp, Shield, MessageSquare, Mail, CheckCircle2, AlertTriangle, Send, Loader2, ExternalLink } from 'lucide-react';
 import { Button, Badge } from '@fsp/ui';
 import { api } from '../lib/api';
 import { useAuthStore } from '../store/authStore';
@@ -53,7 +53,7 @@ const ROLE_LABEL: Record<UserRole, string> = {
   sales: 'Sales Rep',
 };
 
-type Tab = 'profile' | 'team' | 'company' | 'permissions';
+type Tab = 'profile' | 'team' | 'company' | 'permissions' | 'notifications';
 
 function ProfileTab() {
   const qc = useQueryClient();
@@ -723,6 +723,267 @@ function PermissionsTab() {
   );
 }
 
+// ── Notifications Tab ─────────────────────────────────────────────────────────
+
+const NOTIFICATION_EVENTS = [
+  { trigger: 'Job completed', sms: 'Review request + thank-you', email: 'Review request email' },
+  { trigger: 'Invoice sent', sms: 'Payment due reminder', email: 'Invoice with amount due' },
+  { trigger: 'Estimate ready', sms: 'Estimate notification', email: 'Estimate details + total' },
+  { trigger: 'Estimate approved', sms: 'Converted to invoice notice', email: 'Approval confirmation' },
+  { trigger: 'Payment received', sms: 'Payment thank-you', email: 'Payment receipt' },
+];
+
+function StatusCard({
+  icon: Icon,
+  title,
+  configured,
+  detail,
+  setupSteps,
+  envVars,
+  docsUrl,
+}: {
+  icon: React.ElementType;
+  title: string;
+  configured: boolean;
+  detail?: string | null;
+  setupSteps: string[];
+  envVars: string[];
+  docsUrl: string;
+}) {
+  const [open, setOpen] = useState(!configured);
+  return (
+    <div className={`rounded-2xl border ${configured ? 'border-emerald-200 bg-emerald-50/40' : 'border-amber-200 bg-amber-50/40'} p-5`}>
+      <div className="flex items-start justify-between gap-3">
+        <div className="flex items-center gap-3">
+          <div className={`h-9 w-9 rounded-xl flex items-center justify-center ${configured ? 'bg-emerald-100' : 'bg-amber-100'}`}>
+            <Icon className={`h-5 w-5 ${configured ? 'text-emerald-600' : 'text-amber-600'}`} />
+          </div>
+          <div>
+            <div className="flex items-center gap-2">
+              <p className="font-semibold text-gray-900 text-sm">{title}</p>
+              {configured
+                ? <span className="text-[11px] bg-emerald-100 text-emerald-700 font-semibold px-2 py-0.5 rounded-full flex items-center gap-1"><CheckCircle2 className="h-3 w-3" /> Active</span>
+                : <span className="text-[11px] bg-amber-100 text-amber-700 font-semibold px-2 py-0.5 rounded-full flex items-center gap-1"><AlertTriangle className="h-3 w-3" /> Setup needed</span>}
+            </div>
+            {detail && <p className="text-xs text-gray-500 mt-0.5">{detail}</p>}
+          </div>
+        </div>
+        <button onClick={() => setOpen(v => !v)} className="text-xs text-gray-400 hover:text-gray-600 underline underline-offset-2 flex-shrink-0">
+          {open ? 'Hide' : 'Setup'}
+        </button>
+      </div>
+      {open && (
+        <div className="mt-4 pt-4 border-t border-gray-200/60 space-y-3">
+          <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Setup steps</p>
+          <ol className="space-y-1.5 text-sm text-gray-700">
+            {setupSteps.map((s, i) => (
+              <li key={i} className="flex items-start gap-2">
+                <span className="flex-shrink-0 h-5 w-5 rounded-full bg-gray-200 text-gray-600 text-xs font-bold flex items-center justify-center mt-px">{i + 1}</span>
+                <span dangerouslySetInnerHTML={{ __html: s }} />
+              </li>
+            ))}
+          </ol>
+          <div className="bg-gray-900 rounded-xl p-3 mt-2">
+            <p className="text-[11px] text-gray-400 mb-1.5 font-medium">Add to Railway environment variables:</p>
+            {envVars.map(v => (
+              <p key={v} className="text-xs font-mono text-green-400">{v}</p>
+            ))}
+          </div>
+          <a href={docsUrl} target="_blank" rel="noopener noreferrer"
+            className="inline-flex items-center gap-1.5 text-xs text-violet-600 hover:text-violet-700 font-medium">
+            <ExternalLink className="h-3.5 w-3.5" /> Open {title} docs
+          </a>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function NotificationsTab() {
+  const { data: status } = useQuery({
+    queryKey: ['notifications', 'status'],
+    queryFn: () => api.get('/notifications/status').then(r => r.data.data as {
+      sms: { configured: boolean; phoneNumber: string | null };
+      email: { configured: boolean; from: string | null };
+    }),
+    staleTime: 10_000,
+  });
+
+  const { data: smsHistory = [] } = useQuery({
+    queryKey: ['notifications', 'sms-history'],
+    queryFn: () => api.get('/notifications/sms-history').then(r => r.data.data as Array<{
+      id: string; to: string; body: string; status: string; createdAt: string; direction: string;
+      customer: { firstName: string; lastName: string } | null;
+    }>),
+  });
+
+  const [testType, setTestType] = useState<'sms' | 'email'>('sms');
+  const [testTo, setTestTo] = useState('');
+  const [testLoading, setTestLoading] = useState(false);
+  const [testResult, setTestResult] = useState<{ ok: boolean; msg: string } | null>(null);
+
+  const sendTest = async () => {
+    if (!testTo) return;
+    setTestLoading(true); setTestResult(null);
+    try {
+      const { data } = await api.post('/notifications/test', { type: testType, to: testTo });
+      const d = data.data;
+      if (d?.simulated) {
+        setTestResult({ ok: false, msg: `Simulated only — add real ${testType === 'sms' ? 'Twilio' : 'Resend'} keys to send live messages.` });
+      } else {
+        setTestResult({ ok: true, msg: `Test ${testType === 'sms' ? 'SMS' : 'email'} sent! Check ${testTo}.` });
+      }
+    } catch {
+      setTestResult({ ok: false, msg: 'Send failed. Check your credentials.' });
+    } finally { setTestLoading(false); }
+  };
+
+  return (
+    <div className="space-y-6">
+      {/* Service status */}
+      <div>
+        <h2 className="text-sm font-semibold text-gray-900 mb-3">Service Status</h2>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <StatusCard
+            icon={MessageSquare}
+            title="SMS (Twilio)"
+            configured={status?.sms.configured ?? false}
+            detail={status?.sms.phoneNumber ? `Sending from ${status.sms.phoneNumber}` : undefined}
+            setupSteps={[
+              'Sign up free at <a href="https://www.twilio.com/try-twilio" target="_blank" class="text-violet-600 underline">twilio.com</a>',
+              'From the Console Dashboard copy your <strong>Account SID</strong> and <strong>Auth Token</strong>',
+              'Buy a phone number (Phone Numbers → Manage → Buy a Number) — ~$1.15/mo',
+              'Add all three values to Railway (see below)',
+            ]}
+            envVars={[
+              'TWILIO_ACCOUNT_SID=ACxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx',
+              'TWILIO_AUTH_TOKEN=your_auth_token',
+              'TWILIO_PHONE_NUMBER=+1xxxxxxxxxx',
+            ]}
+            docsUrl="https://www.twilio.com/docs/sms/quickstart"
+          />
+          <StatusCard
+            icon={Mail}
+            title="Email (Resend)"
+            configured={status?.email.configured ?? false}
+            detail={status?.email.from ? `Sending from ${status.email.from}` : undefined}
+            setupSteps={[
+              'Sign up free at <a href="https://resend.com/signup" target="_blank" class="text-violet-600 underline">resend.com</a> — 3,000 emails/month free',
+              'Go to API Keys → Create API Key → copy it',
+              'Add your domain in Domains → Add Domain (so emails come from your address)',
+              'Add the API key and from address to Railway (see below)',
+            ]}
+            envVars={[
+              'RESEND_API_KEY=re_xxxxxxxxxxxxxxxxxxxxxxxxx',
+              'EMAIL_FROM=Your Company <noreply@yourdomain.com>',
+            ]}
+            docsUrl="https://resend.com/docs"
+          />
+        </div>
+      </div>
+
+      {/* What sends what */}
+      <div>
+        <h2 className="text-sm font-semibold text-gray-900 mb-3">Automated Notifications</h2>
+        <div className="bg-white rounded-2xl border border-gray-200 overflow-hidden shadow-sm">
+          <table className="w-full text-sm">
+            <thead className="bg-gray-50 text-xs text-gray-500 uppercase border-b border-gray-100">
+              <tr>
+                <th className="text-left px-4 py-2.5 font-semibold">Trigger</th>
+                <th className="text-left px-4 py-2.5 font-semibold">SMS sent to customer</th>
+                <th className="text-left px-4 py-2.5 font-semibold">Email sent to customer</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-gray-50">
+              {NOTIFICATION_EVENTS.map(e => (
+                <tr key={e.trigger} className="hover:bg-gray-50">
+                  <td className="px-4 py-3 font-medium text-gray-800">{e.trigger}</td>
+                  <td className="px-4 py-3 text-gray-500 text-xs">{e.sms}</td>
+                  <td className="px-4 py-3 text-gray-500 text-xs">{e.email}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+        <p className="text-xs text-gray-400 mt-2">Notifications only fire if the customer has a phone number (SMS) or email address on file.</p>
+      </div>
+
+      {/* Test send */}
+      <div>
+        <h2 className="text-sm font-semibold text-gray-900 mb-3">Send a Test</h2>
+        <div className="bg-white rounded-2xl border border-gray-200 p-5 shadow-sm space-y-4">
+          <div className="flex gap-2">
+            {(['sms', 'email'] as const).map(t => (
+              <button key={t} onClick={() => { setTestType(t); setTestTo(''); setTestResult(null); }}
+                className={`flex items-center gap-1.5 px-4 py-2 rounded-xl text-sm font-semibold border transition-colors ${
+                  testType === t ? 'bg-violet-600 text-white border-violet-600' : 'bg-white text-gray-600 border-gray-200 hover:border-gray-300'
+                }`}>
+                {t === 'sms' ? <MessageSquare className="h-4 w-4" /> : <Mail className="h-4 w-4" />}
+                {t === 'sms' ? 'Test SMS' : 'Test Email'}
+              </button>
+            ))}
+          </div>
+          <div className="flex gap-3">
+            <input
+              type={testType === 'email' ? 'email' : 'tel'}
+              value={testTo}
+              onChange={e => setTestTo(e.target.value)}
+              placeholder={testType === 'sms' ? '+1 (555) 123-4567' : 'you@example.com'}
+              className="flex-1 px-4 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-violet-500/40 focus:border-violet-400"
+            />
+            <button onClick={sendTest} disabled={testLoading || !testTo}
+              className="flex items-center gap-2 px-5 py-2.5 bg-violet-600 hover:bg-violet-700 disabled:opacity-50 text-white text-sm font-semibold rounded-xl transition-colors">
+              {testLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
+              Send
+            </button>
+          </div>
+          {testResult && (
+            <div className={`flex items-start gap-2 p-3 rounded-xl text-sm ${testResult.ok ? 'bg-emerald-50 text-emerald-700 border border-emerald-200' : 'bg-amber-50 text-amber-700 border border-amber-200'}`}>
+              {testResult.ok ? <CheckCircle2 className="h-4 w-4 flex-shrink-0 mt-0.5" /> : <AlertTriangle className="h-4 w-4 flex-shrink-0 mt-0.5" />}
+              {testResult.msg}
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* SMS history */}
+      {smsHistory.length > 0 && (
+        <div>
+          <h2 className="text-sm font-semibold text-gray-900 mb-3">Recent SMS</h2>
+          <div className="bg-white rounded-2xl border border-gray-200 overflow-hidden shadow-sm">
+            <div className="divide-y divide-gray-50">
+              {smsHistory.slice(0, 20).map(msg => (
+                <div key={msg.id} className="flex items-start gap-3 px-4 py-3 hover:bg-gray-50">
+                  <div className={`h-7 w-7 rounded-full flex items-center justify-center flex-shrink-0 mt-0.5 ${msg.direction === 'outbound' ? 'bg-violet-100' : 'bg-gray-100'}`}>
+                    <MessageSquare className={`h-3.5 w-3.5 ${msg.direction === 'outbound' ? 'text-violet-600' : 'text-gray-500'}`} />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="text-sm font-medium text-gray-800">
+                        {msg.customer ? `${msg.customer.firstName} ${msg.customer.lastName}` : msg.to}
+                      </span>
+                      <span className={`text-[11px] px-1.5 py-0.5 rounded-full font-medium ${
+                        msg.status === 'delivered' ? 'bg-emerald-100 text-emerald-700' :
+                        msg.status === 'failed' ? 'bg-red-100 text-red-700' :
+                        msg.status === 'simulated' ? 'bg-gray-100 text-gray-500' :
+                        'bg-blue-100 text-blue-700'
+                      }`}>{msg.status}</span>
+                      <span className="text-xs text-gray-400 ml-auto">
+                        {new Date(msg.createdAt).toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}
+                      </span>
+                    </div>
+                    <p className="text-xs text-gray-500 mt-0.5 truncate">{msg.body}</p>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 export function SettingsPage() {
   const { user } = useAuthStore();
   const [tab, setTab] = useState<Tab>('profile');
@@ -736,6 +997,7 @@ export function SettingsPage() {
     ...(canSeeTeam ? [{ id: 'team' as Tab, label: 'Team' }] : []),
     ...(canSeeCompany ? [{ id: 'company' as Tab, label: 'Company' }] : []),
     ...(canSeePermissions ? [{ id: 'permissions' as Tab, label: 'Permissions' }] : []),
+    ...(canSeeCompany ? [{ id: 'notifications' as Tab, label: 'Notifications' }] : []),
   ];
 
   return (
@@ -763,6 +1025,7 @@ export function SettingsPage() {
         {tab === 'team' && canSeeTeam && <TeamTab />}
         {tab === 'company' && canSeeCompany && <CompanyTab />}
         {tab === 'permissions' && canSeePermissions && <PermissionsTab />}
+        {tab === 'notifications' && canSeeCompany && <NotificationsTab />}
       </div>
     </div>
   );

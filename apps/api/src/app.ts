@@ -23,6 +23,7 @@ import { aiRouter } from './routes/ai';
 import { billingRouter } from './routes/billing';
 import { timeEntriesRouter } from './routes/time-entries';
 import { payrollRouter } from './routes/payroll';
+import { notificationsRouter } from './routes/notifications';
 
 export const app = express();
 
@@ -79,6 +80,7 @@ apiV1.use('/ai', aiRouter);
 apiV1.use('/billing', billingRouter);
 apiV1.use('/time-entries', timeEntriesRouter);
 apiV1.use('/payroll', payrollRouter);
+apiV1.use('/notifications', notificationsRouter);
 
 app.use('/api/v1', apiV1);
 app.use('/webhooks', webhooksRouter);
