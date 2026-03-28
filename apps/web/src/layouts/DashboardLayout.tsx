@@ -47,6 +47,22 @@ const NAV_ITEMS: Array<{ id: Page; label: string; icon: React.ElementType }> = [
   { id: 'settings', label: 'Settings', icon: Settings },
 ];
 
+function LogoMark({ size = 28 }: { size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <defs>
+        <linearGradient id="lm-g" x1="0" y1="0" x2="32" y2="32" gradientUnits="userSpaceOnUse">
+          <stop offset="0%" stopColor="#a78bfa" />
+          <stop offset="100%" stopColor="#4338ca" />
+        </linearGradient>
+      </defs>
+      <rect width="32" height="32" rx="9" fill="url(#lm-g)" />
+      <path d="M16 7C12.134 7 9 10.134 9 14c0 4.9 7 11 7 11s7-6.1 7-11c0-3.866-3.134-7-7-7z" fill="white" />
+      <path d="M13.5 14l2 2 3.5-3.5" stroke="#6366f1" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
 export function DashboardLayout() {
   const [currentPage, setCurrentPage] = useState<Page>('dashboard');
   const [sidebarOpen, setSidebarOpen] = useState(false);
@@ -61,7 +77,6 @@ export function DashboardLayout() {
   if (user?.role === 'sales') {
     return <><SalesPage /><AIAssistant /></>;
   }
-  // Note: useLocationSharing is a no-op for owner/admin/dispatcher roles
 
   const renderPage = () => {
     switch (currentPage) {
@@ -80,76 +95,88 @@ export function DashboardLayout() {
   };
 
   return (
-    <div className="flex h-screen bg-gray-100 overflow-hidden">
+    <div className="flex h-screen bg-[#f4f5f8] overflow-hidden">
       {/* Mobile overlay */}
       {sidebarOpen && (
         <div
-          className="fixed inset-0 z-20 bg-black/50 lg:hidden"
+          className="fixed inset-0 z-20 bg-black/60 backdrop-blur-sm lg:hidden"
           onClick={() => setSidebarOpen(false)}
         />
       )}
 
       {/* Sidebar */}
       <aside
-        className={`fixed inset-y-0 left-0 z-30 w-64 bg-gray-900 text-white flex flex-col transform transition-transform duration-200 lg:relative lg:translate-x-0 ${
+        className={`fixed inset-y-0 left-0 z-30 w-[232px] bg-[#0c0e16] text-white flex flex-col transform transition-transform duration-200 lg:relative lg:translate-x-0 ${
           sidebarOpen ? 'translate-x-0' : '-translate-x-full'
         }`}
       >
-        <div className="flex items-center justify-between h-16 px-4 border-b border-gray-700">
-          <span className="font-bold text-lg">FSP</span>
+        {/* Logo */}
+        <div className="flex items-center justify-between h-[60px] px-4 border-b border-white/5 flex-shrink-0">
+          <div className="flex items-center gap-2.5">
+            <LogoMark size={28} />
+            <span className="font-display font-bold text-white text-lg tracking-tight">FieldOps</span>
+          </div>
           <button
             onClick={() => setSidebarOpen(false)}
-            className="lg:hidden text-gray-400 hover:text-white"
+            className="lg:hidden text-slate-500 hover:text-white p-1 rounded-lg hover:bg-white/5 transition-colors"
           >
-            <X className="h-5 w-5" />
+            <X className="h-4 w-4" />
           </button>
         </div>
 
-        <nav className="flex-1 px-3 py-4 space-y-1 overflow-y-auto">
-          {NAV_ITEMS.map(({ id, label, icon: Icon }) => (
-            <button
-              key={id}
-              onClick={() => { setCurrentPage(id); setSidebarOpen(false); }}
-              className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
-                currentPage === id
-                  ? 'bg-blue-600 text-white'
-                  : 'text-gray-300 hover:bg-gray-800 hover:text-white'
-              }`}
-            >
-              <Icon className="h-5 w-5" />
-              {label}
-            </button>
-          ))}
+        {/* Nav */}
+        <nav className="flex-1 px-2.5 py-4 space-y-0.5 overflow-y-auto">
+          {NAV_ITEMS.map(({ id, label, icon: Icon }) => {
+            const active = currentPage === id;
+            return (
+              <button
+                key={id}
+                onClick={() => { setCurrentPage(id); setSidebarOpen(false); }}
+                className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-all ${
+                  active
+                    ? 'bg-white/[0.09] text-white'
+                    : 'text-slate-400 hover:bg-white/[0.05] hover:text-slate-200'
+                }`}
+              >
+                <Icon className={`h-4 w-4 flex-shrink-0 ${active ? 'text-violet-400' : ''}`} />
+                {label}
+              </button>
+            );
+          })}
         </nav>
 
-        <div className="p-4 border-t border-gray-700">
-          <div className="flex items-center gap-3 mb-3">
-            <div className="h-8 w-8 rounded-full bg-blue-500 flex items-center justify-center text-sm font-semibold">
+        {/* User */}
+        <div className="p-2.5 border-t border-white/5 flex-shrink-0">
+          <div className="flex items-center gap-3 px-2 py-2 rounded-xl hover:bg-white/5 transition-colors group">
+            <div className="h-8 w-8 rounded-full bg-gradient-to-br from-violet-500 to-indigo-600 flex items-center justify-center text-xs font-bold flex-shrink-0 shadow-lg shadow-indigo-900/40">
               {user?.firstName?.[0]}{user?.lastName?.[0]}
             </div>
-            <div className="min-w-0">
-              <p className="text-sm font-medium truncate">{user?.firstName} {user?.lastName}</p>
-              <p className="text-xs text-gray-400 capitalize">{user?.role}</p>
+            <div className="flex-1 min-w-0">
+              <p className="text-sm font-semibold text-white truncate leading-tight">{user?.firstName} {user?.lastName}</p>
+              <p className="text-xs text-slate-500 capitalize leading-tight">{user?.role}</p>
             </div>
+            <button
+              onClick={logout}
+              title="Sign out"
+              className="p-1.5 text-slate-600 hover:text-slate-300 rounded-lg hover:bg-white/10 transition-colors flex-shrink-0"
+            >
+              <LogOut className="h-3.5 w-3.5" />
+            </button>
           </div>
-          <button
-            onClick={logout}
-            className="w-full flex items-center gap-2 px-3 py-2 text-sm text-gray-300 hover:text-white hover:bg-gray-800 rounded-lg transition-colors"
-          >
-            <LogOut className="h-4 w-4" />
-            Sign out
-          </button>
         </div>
       </aside>
 
       {/* Main content */}
       <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
         {/* Top bar (mobile) */}
-        <header className="lg:hidden h-16 bg-white border-b flex items-center px-4">
+        <header className="lg:hidden h-14 bg-white border-b border-gray-200 flex items-center px-4 shadow-sm">
           <button onClick={() => setSidebarOpen(true)} className="text-gray-500 hover:text-gray-900">
-            <Menu className="h-6 w-6" />
+            <Menu className="h-5 w-5" />
           </button>
-          <span className="ml-4 font-semibold capitalize">{currentPage}</span>
+          <div className="flex items-center gap-2 ml-3">
+            <LogoMark size={22} />
+            <span className="font-display font-bold text-gray-900 text-base">FieldOps</span>
+          </div>
         </header>
 
         <main className={`flex-1 min-h-0 ${(currentPage === 'schedule' || currentPage === 'map') ? 'flex flex-col overflow-hidden' : 'overflow-y-auto'}`}>

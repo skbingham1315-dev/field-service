@@ -63,37 +63,37 @@ type PlanId = 'starter' | 'professional' | 'enterprise';
 
 const COLOR_MAP = {
   blue: {
-    border: 'border-blue-500',
-    bg: 'bg-blue-50',
-    badge: 'bg-blue-100 text-blue-700',
-    button: 'bg-blue-600 hover:bg-blue-700',
-    check: 'text-blue-600',
-    ring: 'ring-blue-500',
+    border: 'border-slate-300',
+    bg: 'bg-slate-50',
+    badge: 'bg-slate-100 text-slate-600',
+    button: 'bg-gradient-to-r from-slate-700 to-slate-800 hover:from-slate-800 hover:to-slate-900',
+    check: 'text-violet-500',
+    ring: 'ring-slate-300',
   },
   indigo: {
-    border: 'border-indigo-500',
-    bg: 'bg-indigo-50',
-    badge: 'bg-indigo-100 text-indigo-700',
-    button: 'bg-indigo-600 hover:bg-indigo-700',
-    check: 'text-indigo-600',
-    ring: 'ring-indigo-500',
+    border: 'border-violet-400',
+    bg: 'bg-violet-50',
+    badge: 'bg-violet-100 text-violet-700',
+    button: 'bg-gradient-to-r from-violet-600 to-indigo-600 hover:from-violet-700 hover:to-indigo-700',
+    check: 'text-violet-600',
+    ring: 'ring-violet-400',
   },
   purple: {
-    border: 'border-purple-500',
-    bg: 'bg-purple-50',
-    badge: 'bg-purple-100 text-purple-700',
-    button: 'bg-purple-600 hover:bg-purple-700',
-    check: 'text-purple-600',
-    ring: 'ring-purple-500',
+    border: 'border-indigo-300',
+    bg: 'bg-indigo-50',
+    badge: 'bg-indigo-100 text-indigo-700',
+    button: 'bg-gradient-to-r from-indigo-700 to-purple-700 hover:from-indigo-800 hover:to-purple-800',
+    check: 'text-indigo-600',
+    ring: 'ring-indigo-300',
   },
 };
 
 function PlanPicker({ onSelect }: { onSelect: (plan: PlanId) => void }) {
   return (
-    <div className="min-h-screen bg-gray-50 py-12 px-4">
+    <div className="min-h-screen bg-[#f4f5f8] py-12 px-4">
       <div className="max-w-5xl mx-auto">
         <div className="text-center mb-10">
-          <h1 className="text-3xl font-bold text-gray-900">Choose your plan</h1>
+          <h1 className="text-3xl font-display font-bold text-gray-900">Choose your plan</h1>
           <p className="text-gray-500 mt-2">Start free for 14 days. No credit card required.</p>
         </div>
 
@@ -229,7 +229,7 @@ function RegisterForm({ plan, onBack }: { plan: PlanId; onBack: () => void }) {
   };
 
   return (
-    <div className="min-h-screen bg-gray-50 flex items-center justify-center py-12 px-4">
+    <div className="min-h-screen bg-[#f4f5f8] flex items-center justify-center py-12 px-4">
       <div className="w-full max-w-md">
         <button onClick={onBack} className="flex items-center gap-1.5 text-sm text-gray-500 hover:text-gray-700 mb-6">
           <ArrowLeft className="h-4 w-4" /> Back to plans
@@ -241,7 +241,7 @@ function RegisterForm({ plan, onBack }: { plan: PlanId; onBack: () => void }) {
               <selectedPlan.icon className={`h-5 w-5 ${c.check}`} />
             </div>
             <div>
-              <h1 className="text-lg font-bold text-gray-900">Create your account</h1>
+              <h1 className="text-lg font-display font-bold text-gray-900">Create your account</h1>
               <p className="text-xs text-gray-400">{selectedPlan.name} plan · ${selectedPlan.price}/mo · 14-day free trial</p>
             </div>
           </div>
