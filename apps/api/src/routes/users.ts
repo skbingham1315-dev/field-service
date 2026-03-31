@@ -109,7 +109,7 @@ usersRouter.post('/', requireRole('owner', 'admin'), async (req, res) => {
       passwordHash,
       payRate: payRate ?? null,
       payType: payType ?? 'hourly',
-      customPermissions: customPermissions ?? undefined,
+      customPermissions: (customPermissions ?? undefined) as never,
     },
     select: {
       id: true, email: true, firstName: true, lastName: true, phone: true,
@@ -182,7 +182,7 @@ usersRouter.patch('/:userId', requireRole('owner', 'admin'), async (req, res) =>
       firstName, lastName, phone,
       ...(payRate !== undefined ? { payRate } : {}),
       ...(payType !== undefined ? { payType } : {}),
-      ...(customPermissions !== undefined ? { customPermissions } : {}),
+      ...(customPermissions !== undefined ? { customPermissions: customPermissions as never } : {}),
     },
     select: {
       id: true, email: true, firstName: true, lastName: true, phone: true,

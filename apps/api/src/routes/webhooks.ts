@@ -58,7 +58,7 @@ webhooksRouter.post('/stripe', async (req: Request, res: Response) => {
 
     // ── Subscription checkout completed ──────────────────────────────────────
     case 'checkout.session.completed': {
-      const session = event.data.object as Stripe.CheckoutSession;
+      const session = event.data.object as Stripe.Checkout.Session;
       if (session.mode !== 'subscription') break;
       const tenantId = session.metadata?.tenantId;
       if (!tenantId) break;

@@ -255,7 +255,13 @@ export function BillingPage() {
         successUrl: window.location.origin,
         cancelUrl: window.location.origin,
       });
-      window.location.href = data.data.url;
+      if (data.data.switched) {
+        // Direct subscription update — no redirect needed
+        await load();
+        setActionLoading('');
+      } else {
+        window.location.href = data.data.url;
+      }
     } catch { setActionLoading(''); }
   };
 

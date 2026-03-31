@@ -24,6 +24,9 @@ import { billingRouter } from './routes/billing';
 import { timeEntriesRouter } from './routes/time-entries';
 import { payrollRouter } from './routes/payroll';
 import { notificationsRouter } from './routes/notifications';
+import { contactsRouter } from './routes/contacts';
+import { crmJobsRouter } from './routes/crm-jobs';
+import { subcontractorsRouter } from './routes/subcontractors';
 
 export const app = express();
 
@@ -81,6 +84,9 @@ apiV1.use('/billing', billingRouter);
 apiV1.use('/time-entries', timeEntriesRouter);
 apiV1.use('/payroll', payrollRouter);
 apiV1.use('/notifications', notificationsRouter);
+apiV1.use('/contacts', contactsRouter);
+apiV1.use('/crm-jobs', crmJobsRouter);
+apiV1.use('/subcontractors', subcontractorsRouter);
 
 app.use('/api/v1', apiV1);
 app.use('/webhooks', webhooksRouter);

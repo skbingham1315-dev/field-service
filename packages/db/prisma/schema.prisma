@@ -121,6 +121,9 @@ model Tenant {
   salesGoal        SalesGoal?
   timeEntries      TimeEntry[]
   payrollRuns      PayrollRun[]
+  contacts         Contact[]
+  crmJobs          CRMJob[]
+  subcontractors   Subcontractor[]
 
   @@map("tenants")
 }
@@ -552,6 +555,222 @@ model TimeEntry {
   @@index([tenantId, date])
   @@index([userId, date])
   @@map("time_entries")
+}
+
+// ─── CRM — Contacts ──────────────────────────────────────────────────────────
+
+enum ContactType {
+  business
+  individual
+}
+
+enum ContactStatus {
+  prospect
+  contacted
+  follow_up
+  try_later
+  scheduled
+  new_client
+  active_client
+  on_hold
+  do_not_contact
+}
+
+enum LeadSource {
+  natural_contact
+  door_to_door
+  business_referral
+  cold_outreach
+  social_media
+  online_ad
+  google_search
+  past_customer
+  other
+}
+
+enum ActivityEntryType {
+  call
+  email
+  visit
+  text
+  estimate_sent
+  job_completed
+  note
+  status_change
+  follow_up_set
+}
+
+enum CRMJobStatus {
+  estimate_pending
+  estimate_sent
+  approved
+  scheduled
+  in_progress
+  completed
+  invoiced
+  paid
+  on_hold
+  cancelled
+  warranty_callback
+}
+
+enum JobExecutionType {
+  in_house
+  subcontracted
+}
+
+model Contact {
+  id              String        @id @default(cuid())
+  tenantId        String
+  type            ContactType   @default(individual)
+
+  // Business fields
+  businessName    String?
+  contactPerson   String?
+  website         String?
+  industry        String?
+
+  // Shared / individual
+  fullName        String?
+  howWeMet        String?
+
+  phone           String
+  email           String?
+  address         String?
+  city            String?
+  state           String?
+  zip             String?
+
+  status          ContactStatus @default(prospect)
+  leadSource      LeadSource
+  leadSourceOther String?
+
+  followUpDate    DateTime?
+  notes           String?
+  isArchived      Boolean       @default(false)
+
+  createdById     String?
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+
+  tenant          Tenant        @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  activities      ContactActivity[]
+  crmJobs         CRMJob[]
+
+  @@index([tenantId, status])
+  @@index([tenantId, leadSource])
+  @@index([tenantId, followUpDate])
+  @@map("contacts")
+}
+
+model ContactActivity {
+  id          String            @id @default(cuid())
+  contactId   String
+  type        ActivityEntryType
+  note        String?
+  createdBy   String
+  createdAt   DateTime          @default(now())
+
+  contact     Contact           @relation(fields: [contactId], references: [id], onDelete: Cascade)
+
+  @@index([contactId])
+  @@map("contact_activities")
+}
+
+// ─── CRM — Jobs ───────────────────────────────────────────────────────────────
+
+model CRMJob {
+  id                  String           @id @default(cuid())
+  tenantId            String
+  jobNumber           String
+
+  name                String
+  contactId           String
+  serviceAddress      String?
+  serviceCity         String?
+  serviceState        String?
+  serviceZip          String?
+
+  tradeCategory       String?
+  status              CRMJobStatus     @default(estimate_pending)
+  executionType       JobExecutionType @default(in_house)
+
+  assignedToId        String?
+  subcontractorId     String?
+
+  estimatedStartDate  DateTime?
+  completionDate      DateTime?
+
+  estimatedValue      Decimal?         @db.Decimal(10, 2)
+  actualInvoiceAmount Decimal?         @db.Decimal(10, 2)
+
+  permitRequired      String?
+  permitNumber        String?
+  notes               String?
+
+  // Sub payment calculator
+  subPaymentType      String?
+  subPaymentAmount    Decimal?         @db.Decimal(10, 2)
+  subPaymentPercent   Decimal?         @db.Decimal(5, 2)
+  materialsCost       Decimal?         @db.Decimal(10, 2)
+  otherCosts          Decimal?         @db.Decimal(10, 2)
+  targetMargin        Decimal?         @db.Decimal(5, 2) @default(25)
+
+  isArchived          Boolean          @default(false)
+  createdById         String?
+  createdAt           DateTime         @default(now())
+  updatedAt           DateTime         @updatedAt
+
+  tenant              Tenant           @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  contact             Contact          @relation(fields: [contactId], references: [id])
+  subcontractor       Subcontractor?   @relation(fields: [subcontractorId], references: [id])
+  activities          CRMJobActivity[]
+
+  @@unique([tenantId, jobNumber])
+  @@index([tenantId, status])
+  @@index([contactId])
+  @@map("crm_jobs")
+}
+
+model CRMJobActivity {
+  id        String            @id @default(cuid())
+  jobId     String
+  type      ActivityEntryType
+  note      String?
+  createdBy String
+  createdAt DateTime          @default(now())
+
+  job       CRMJob            @relation(fields: [jobId], references: [id], onDelete: Cascade)
+
+  @@index([jobId])
+  @@map("crm_job_activities")
+}
+
+// ─── Subcontractors ───────────────────────────────────────────────────────────
+
+model Subcontractor {
+  id                String    @id @default(cuid())
+  tenantId          String
+  name              String
+  contactName       String?
+  phone             String
+  email             String?
+  licenseNumber     String?
+  insuranceExpDate  DateTime?
+  tradeSpecialties  String[]
+  defaultRateType   String?
+  defaultPercentage Decimal?  @db.Decimal(5, 2)
+  notes             String?
+  reliabilityRating Int?
+  isArchived        Boolean   @default(false)
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  tenant            Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  crmJobs           CRMJob[]
+
+  @@index([tenantId])
+  @@map("subcontractors")
 }
 
 // ─── Payroll ──────────────────────────────────────────────────────────────────

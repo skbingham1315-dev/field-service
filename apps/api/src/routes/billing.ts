@@ -66,7 +66,15 @@ billingRouter.get('/status', requireRole('owner', 'admin'), async (req, res) => 
   } satisfies ApiResponse);
 });
 
-// POST /api/v1/billing/checkout — create checkout session (new sub or upgrade)
+// Helper: ensure a Stripe customer exists for this tenant, create + save one if not
+async function ensureStripeCustomer(tenantId: string, existingCustomerId: string | null, tenantName: string): Promise<string> {
+  if (existingCustomerId) return existingCustomerId;
+  const customer = await stripe.customers.create({ name: tenantName, metadata: { tenantId } });
+  await prisma.tenant.update({ where: { id: tenantId }, data: { stripeCustomerId: customer.id } });
+  return customer.id;
+}
+
+// POST /api/v1/billing/checkout — create checkout session (new sub) OR switch plan (existing sub)
 billingRouter.post('/checkout', requireRole('owner', 'admin'), async (req, res) => {
   const { plan, successUrl, cancelUrl } = req.body as { plan: string; successUrl: string; cancelUrl: string };
   const priceId = PRICE_MAP[plan];
@@ -78,42 +86,42 @@ billingRouter.post('/checkout', requireRole('owner', 'admin'), async (req, res) 
   });
   if (!tenant) { res.status(404).json({ success: false, message: 'Tenant not found' }); return; }
 
-  // If already subscribed, send to portal with subscription_update flow pre-selected
+  // Already subscribed — directly update the subscription to the new price (no portal needed)
   if (tenant.stripeSubscriptionId) {
     try {
       const sub = await stripe.subscriptions.retrieve(tenant.stripeSubscriptionId);
-      const currentItemId = sub.items.data[0]?.id;
-      const portal = await stripe.billingPortal.sessions.create({
-        customer: tenant.stripeCustomerId!,
-        return_url: successUrl,
-        flow_data: currentItemId && priceId ? {
-          type: 'subscription_update',
-          subscription_update: {
-            subscription: tenant.stripeSubscriptionId,
-          },
-        } : undefined,
-      } as Parameters<typeof stripe.billingPortal.sessions.create>[0]);
-      res.json({ success: true, data: { url: portal.url } } satisfies ApiResponse);
-    } catch {
-      // fall back to plain portal
-      const portal = await stripe.billingPortal.sessions.create({
-        customer: tenant.stripeCustomerId!,
-        return_url: successUrl,
-      });
-      res.json({ success: true, data: { url: portal.url } } satisfies ApiResponse);
+      const itemId = sub.items.data[0]?.id;
+      if (itemId) {
+        await stripe.subscriptions.update(tenant.stripeSubscriptionId, {
+          items: [{ id: itemId, price: priceId }],
+          proration_behavior: 'create_prorations',
+          metadata: { tenantId: req.user!.tenantId, plan },
+        });
+        // Update tenant plan immediately (webhook will confirm)
+        await prisma.tenant.update({
+          where: { id: req.user!.tenantId },
+          data: { plan: plan as never },
+        });
+        res.json({ success: true, data: { switched: true, plan } } satisfies ApiResponse);
+        return;
+      }
+    } catch (err) {
+      // Subscription invalid — fall through to new checkout
     }
-    return;
   }
+
+  // No subscription yet — create a Stripe customer if needed, then start checkout
+  const customerId = await ensureStripeCustomer(req.user!.tenantId, tenant.stripeCustomerId, tenant.name);
 
   const session = await stripe.checkout.sessions.create({
     mode: 'subscription',
-    customer: tenant.stripeCustomerId ?? undefined,
+    customer: customerId,
     line_items: [{ price: priceId, quantity: 1 }],
     success_url: `${successUrl}?billing=success&session_id={CHECKOUT_SESSION_ID}`,
     cancel_url: `${cancelUrl}?billing=cancelled`,
     metadata: { tenantId: req.user!.tenantId, plan },
     subscription_data: { trial_period_days: 14, metadata: { tenantId: req.user!.tenantId, plan } },
-    payment_method_collection: 'always', // require card even during trial
+    payment_method_collection: 'always',
     allow_promotion_codes: true,
     billing_address_collection: 'auto',
   });
@@ -121,20 +129,20 @@ billingRouter.post('/checkout', requireRole('owner', 'admin'), async (req, res) 
   res.json({ success: true, data: { url: session.url } } satisfies ApiResponse);
 });
 
-// POST /api/v1/billing/portal — customer portal for plan changes, payment method, invoices
+// POST /api/v1/billing/portal — customer portal for payment method management, invoices
 billingRouter.post('/portal', requireRole('owner', 'admin'), async (req, res) => {
   const { returnUrl } = req.body as { returnUrl: string };
   const tenant = await prisma.tenant.findUnique({
     where: { id: req.user!.tenantId },
-    select: { stripeCustomerId: true },
+    select: { stripeCustomerId: true, name: true },
   });
-  if (!tenant?.stripeCustomerId) {
-    res.status(400).json({ success: false, message: 'No billing account found. Please subscribe first.' });
-    return;
-  }
+  if (!tenant) { res.status(404).json({ success: false, message: 'Tenant not found' }); return; }
+
+  // Create customer if not yet exists so portal can be opened
+  const customerId = await ensureStripeCustomer(req.user!.tenantId, tenant.stripeCustomerId, tenant.name);
 
   const session = await stripe.billingPortal.sessions.create({
-    customer: tenant.stripeCustomerId,
+    customer: customerId,
     return_url: returnUrl,
   });
 
@@ -146,28 +154,29 @@ billingRouter.post('/setup-payment', requireRole('owner', 'admin'), async (req, 
   const { returnUrl } = req.body as { returnUrl: string };
   const tenant = await prisma.tenant.findUnique({
     where: { id: req.user!.tenantId },
-    select: { stripeCustomerId: true, stripeSubscriptionId: true },
+    select: { stripeCustomerId: true, stripeSubscriptionId: true, name: true },
   });
   if (!tenant) { res.status(404).json({ success: false, message: 'Tenant not found' }); return; }
 
-  // Prefer portal if they have an existing subscription (cleanest UX)
-  if (tenant.stripeCustomerId && tenant.stripeSubscriptionId) {
-    const portal = await stripe.billingPortal.sessions.create({
-      customer: tenant.stripeCustomerId,
-      return_url: returnUrl,
-    });
-    res.json({ success: true, data: { url: portal.url } } satisfies ApiResponse);
-    return;
+  // Ensure a Stripe customer exists
+  const customerId = await ensureStripeCustomer(req.user!.tenantId, tenant.stripeCustomerId, tenant.name);
+
+  // If active subscription exists, send to billing portal (updates default payment method cleanly)
+  if (tenant.stripeSubscriptionId) {
+    try {
+      const portal = await stripe.billingPortal.sessions.create({
+        customer: customerId,
+        return_url: returnUrl,
+      });
+      res.json({ success: true, data: { url: portal.url } } satisfies ApiResponse);
+      return;
+    } catch { /* portal not configured — fall through to setup session */ }
   }
 
-  // No subscription yet — use a Checkout setup session to collect card only
-  if (!tenant.stripeCustomerId) {
-    res.status(400).json({ success: false, message: 'No billing account found.' }); return;
-  }
-
+  // No subscription or portal not configured — use Checkout setup mode to collect card
   const setupSession = await stripe.checkout.sessions.create({
     mode: 'setup',
-    customer: tenant.stripeCustomerId,
+    customer: customerId,
     success_url: `${returnUrl}?billing=payment_added`,
     cancel_url: returnUrl,
   });

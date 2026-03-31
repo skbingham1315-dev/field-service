@@ -15,6 +15,9 @@ import {
   DollarSign,
   ArrowLeft,
   ChevronDown,
+  BookUser,
+  HardHat,
+  ClipboardList,
 } from 'lucide-react';
 import { useAuthStore } from '../store/authStore';
 import { DashboardPage } from '../pages/DashboardPage';
@@ -30,10 +33,13 @@ import { MapPage } from '../pages/MapPage';
 import { BillingPage } from '../pages/BillingPage';
 import { TeamPage } from '../pages/TeamPage';
 import { PayrollPage } from '../pages/PayrollPage';
+import { ContactsPage } from '../pages/ContactsPage';
+import { CRMJobsPage } from '../pages/CRMJobsPage';
+import { SubsPage } from '../pages/SubsPage';
 import { AIAssistant } from '../components/AIAssistant';
 import { useLocationSharing } from '../hooks/useLocationSharing';
 
-type Page = 'dashboard' | 'customers' | 'jobs' | 'schedule' | 'map' | 'invoices' | 'estimates' | 'team' | 'payroll' | 'billing' | 'settings';
+type Page = 'dashboard' | 'customers' | 'jobs' | 'schedule' | 'map' | 'invoices' | 'estimates' | 'team' | 'payroll' | 'billing' | 'settings' | 'contacts' | 'crm-jobs' | 'subs';
 type ViewAs = 'owner' | 'technician' | 'sales' | 'dispatcher';
 
 const VIEW_OPTIONS: Array<{ id: ViewAs; label: string; desc: string; color: string }> = [
@@ -53,6 +59,9 @@ const NAV_ITEMS: Array<{ id: Page; label: string; icon: React.ElementType }> = [
   { id: 'estimates', label: 'Estimates',  icon: Receipt },
   { id: 'team',      label: 'Team',       icon: Users },
   { id: 'payroll',   label: 'Payroll',    icon: DollarSign },
+  { id: 'contacts',  label: 'Contacts',   icon: BookUser },
+  { id: 'crm-jobs',  label: 'CRM Jobs',   icon: ClipboardList },
+  { id: 'subs',      label: 'Subs',       icon: HardHat },
   { id: 'billing',   label: 'Billing',    icon: CreditCard },
   { id: 'settings',  label: 'Settings',   icon: Settings },
 ];
@@ -126,6 +135,9 @@ export function DashboardLayout() {
       case 'estimates':  return <EstimatesPage />;
       case 'team':       return <TeamPage />;
       case 'payroll':    return <PayrollPage />;
+      case 'contacts':   return <ContactsPage />;
+      case 'crm-jobs':   return <CRMJobsPage />;
+      case 'subs':       return <SubsPage />;
       case 'billing':    return <BillingPage />;
       case 'settings':   return <SettingsPage />;
     }
