@@ -119,9 +119,10 @@ function daysUntil(isoDate: string): number {
   return Math.max(0, Math.ceil((new Date(isoDate).getTime() - Date.now()) / 86_400_000));
 }
 
-function PlanModal({ detail, isCurrent, onClose, onCheckout, actionLoading }: {
+function PlanModal({ detail, isCurrent, isSubscribed, onClose, onCheckout, actionLoading }: {
   detail: PlanDetail;
   isCurrent: boolean;
+  isSubscribed: boolean;
   onClose: () => void;
   onCheckout: (id: string) => void;
   actionLoading: string;
@@ -201,10 +202,12 @@ function PlanModal({ detail, isCurrent, onClose, onCheckout, actionLoading }: {
               {actionLoading === 'checkout-' + detail.id
                 ? <Loader2 className="h-4 w-4 animate-spin" />
                 : <ChevronRight className="h-4 w-4" />}
-              Start {detail.name} — 14-day free trial
+              {isSubscribed ? `Switch to ${detail.name}` : `Start ${detail.name} — 14-day free trial`}
             </button>
           )}
-          <p className="text-center text-[11px] text-gray-400 mt-2">Cancel anytime · No charge until trial ends</p>
+          <p className="text-center text-[11px] text-gray-400 mt-2">
+            {isSubscribed ? 'Change takes effect immediately · Cancel anytime' : 'Cancel anytime · No charge until trial ends'}
+          </p>
         </div>
       </div>
     </div>
@@ -487,21 +490,21 @@ export function BillingPage() {
                   </li>
                 </ul>
 
-                {!isSubscribed && (
-                  <button
-                    onClick={(e) => { e.stopPropagation(); openCheckout(detail.id); }}
-                    disabled={!!actionLoading}
-                    className={`w-full text-xs font-semibold py-2.5 rounded-xl transition-opacity disabled:opacity-50 ${
-                      isCurrent
-                        ? `${detail.bg} ${detail.color} opacity-60 cursor-default`
-                        : `bg-gradient-to-r from-violet-600 to-indigo-600 hover:from-violet-700 hover:to-indigo-700 text-white`
-                    }`}
-                  >
-                    {actionLoading === 'checkout-' + detail.id
-                      ? 'Loading...'
-                      : isCurrent ? 'Current plan' : `Start ${detail.name} Trial`}
-                  </button>
-                )}
+                <button
+                  onClick={(e) => { e.stopPropagation(); isCurrent ? undefined : openCheckout(detail.id); }}
+                  disabled={isCurrent || !!actionLoading}
+                  className={`w-full text-xs font-semibold py-2.5 rounded-xl transition-opacity disabled:opacity-50 ${
+                    isCurrent
+                      ? `${detail.bg} ${detail.color} opacity-60 cursor-default`
+                      : `bg-gradient-to-r from-violet-600 to-indigo-600 hover:from-violet-700 hover:to-indigo-700 text-white`
+                  }`}
+                >
+                  {actionLoading === 'checkout-' + detail.id
+                    ? 'Loading...'
+                    : isCurrent
+                      ? 'Current plan'
+                      : isSubscribed ? `Switch to ${detail.name}` : `Start ${detail.name} Trial`}
+                </button>
               </div>
             );
           })}
@@ -518,6 +521,7 @@ export function BillingPage() {
         <PlanModal
           detail={PLAN_DETAILS[modalPlan as keyof typeof PLAN_DETAILS]}
           isCurrent={modalPlan === plan}
+          isSubscribed={isSubscribed}
           onClose={() => setModalPlan(null)}
           onCheckout={openCheckout}
           actionLoading={actionLoading}

@@ -78,13 +78,30 @@ billingRouter.post('/checkout', requireRole('owner', 'admin'), async (req, res) 
   });
   if (!tenant) { res.status(404).json({ success: false, message: 'Tenant not found' }); return; }
 
-  // If already subscribed, redirect to portal instead
+  // If already subscribed, send to portal with subscription_update flow pre-selected
   if (tenant.stripeSubscriptionId) {
-    const portal = await stripe.billingPortal.sessions.create({
-      customer: tenant.stripeCustomerId!,
-      return_url: successUrl,
-    });
-    res.json({ success: true, data: { url: portal.url } } satisfies ApiResponse);
+    try {
+      const sub = await stripe.subscriptions.retrieve(tenant.stripeSubscriptionId);
+      const currentItemId = sub.items.data[0]?.id;
+      const portal = await stripe.billingPortal.sessions.create({
+        customer: tenant.stripeCustomerId!,
+        return_url: successUrl,
+        flow_data: currentItemId && priceId ? {
+          type: 'subscription_update',
+          subscription_update: {
+            subscription: tenant.stripeSubscriptionId,
+          },
+        } : undefined,
+      } as Parameters<typeof stripe.billingPortal.sessions.create>[0]);
+      res.json({ success: true, data: { url: portal.url } } satisfies ApiResponse);
+    } catch {
+      // fall back to plain portal
+      const portal = await stripe.billingPortal.sessions.create({
+        customer: tenant.stripeCustomerId!,
+        return_url: successUrl,
+      });
+      res.json({ success: true, data: { url: portal.url } } satisfies ApiResponse);
+    }
     return;
   }
 
