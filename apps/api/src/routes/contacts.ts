@@ -369,6 +369,8 @@ contactsRouter.post('/import/csv', upload.single('file'), async (req, res) => {
         zip: data.zip?.trim() || undefined,
         status: 'prospect',
         leadSource: leadSource as Parameters<typeof prisma.contact.create>[0]['data']['leadSource'],
+        website: data.website?.trim() || undefined,
+        industry: data.industry?.trim() || undefined,
         notes: data.notes?.trim() || undefined,
         createdById: req.user!.sub,
         activities: {
