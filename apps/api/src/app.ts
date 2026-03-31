@@ -1,4 +1,5 @@
 import express from 'express';
+import path from 'path';
 import helmet from 'helmet';
 import cors from 'cors';
 import compression from 'compression';
@@ -29,6 +30,9 @@ import { crmJobsRouter } from './routes/crm-jobs';
 import { subcontractorsRouter } from './routes/subcontractors';
 
 export const app = express();
+
+// Trust Railway's proxy so rate-limit / IP detection works correctly
+app.set('trust proxy', 1);
 
 // ─── Security ────────────────────────────────────────────────────────────────
 app.use(helmet());
@@ -90,6 +94,15 @@ apiV1.use('/subcontractors', subcontractorsRouter);
 
 app.use('/api/v1', apiV1);
 app.use('/webhooks', webhooksRouter);
+
+// ─── Serve frontend in production ────────────────────────────────────────────
+if (process.env.NODE_ENV === 'production') {
+  const webDist = path.join(__dirname, '..', '..', '..', '..', 'apps', 'web', 'dist');
+  app.use(express.static(webDist));
+  app.get('*', (_req, res) => {
+    res.sendFile(path.join(webDist, 'index.html'));
+  });
+}
 
 // ─── Error handling ───────────────────────────────────────────────────────────
 app.use(notFound);
