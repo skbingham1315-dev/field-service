@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import multer from 'multer';
 import Papa from 'papaparse';
+import * as XLSX from 'xlsx';
 import { authenticate } from '../middleware/authenticate';
 import { prisma } from '@fsp/db';
 import { AppError } from '../middleware/errorHandler';
@@ -10,6 +11,16 @@ export const contactsRouter = Router();
 contactsRouter.use(authenticate);
 
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024 } });
+
+function bufferToCsvText(buffer: Buffer, mimetype: string, originalname: string): string {
+  const isXlsx = mimetype.includes('spreadsheet') || mimetype.includes('excel') || originalname.match(/\.xlsx?$/i);
+  if (isXlsx) {
+    const wb = XLSX.read(buffer, { type: 'buffer' });
+    const ws = wb.Sheets[wb.SheetNames[0]];
+    return XLSX.utils.sheet_to_csv(ws);
+  }
+  return buffer.toString('utf-8');
+}
 
 const contactInclude = {
   activities: { orderBy: { createdAt: 'desc' as const }, take: 50 },
@@ -277,14 +288,14 @@ contactsRouter.post('/import/csv', upload.single('file'), async (req, res) => {
   };
 
   const fieldMap: Record<string, string> = mapping ? JSON.parse(mapping) : {};
-  const text = req.file.buffer.toString('utf-8');
+  const text = bufferToCsvText(req.file.buffer, req.file.mimetype, req.file.originalname);
   const { data: rows, errors } = Papa.parse<Record<string, string>>(text, {
     header: true,
     skipEmptyLines: true,
   });
 
   if (errors.length > 0 && rows.length === 0) {
-    throw new AppError('Failed to parse CSV file', 400, 'PARSE_ERROR');
+    throw new AppError('Failed to parse file. Ensure it is a valid CSV or Excel file.', 400, 'PARSE_ERROR');
   }
 
   const tenantId = req.user!.tenantId;
@@ -398,7 +409,7 @@ contactsRouter.post('/import/csv', upload.single('file'), async (req, res) => {
 contactsRouter.post('/import/preview', upload.single('file'), async (req, res) => {
   if (!req.file) throw new AppError('No file uploaded', 400, 'VALIDATION_ERROR');
 
-  const text = req.file.buffer.toString('utf-8');
+  const text = bufferToCsvText(req.file.buffer, req.file.mimetype, req.file.originalname);
   const { data: rows, meta } = Papa.parse<Record<string, string>>(text, {
     header: true,
     skipEmptyLines: true,

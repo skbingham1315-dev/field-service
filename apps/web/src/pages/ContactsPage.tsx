@@ -615,9 +615,9 @@ function CSVImportModal({ onClose }: { onClose: () => void }) {
                 className="border-2 border-dashed border-gray-200 rounded-xl p-10 text-center cursor-pointer hover:border-blue-400 hover:bg-blue-50 transition-colors"
               >
                 <Upload className="h-10 w-10 text-gray-300 mx-auto mb-3" />
-                <p className="text-sm font-semibold text-gray-700">Drop a CSV file here or click to browse</p>
-                <p className="text-xs text-gray-400 mt-1">Accepts .csv files</p>
-                <input ref={fileRef} type="file" accept=".csv" className="hidden"
+                <p className="text-sm font-semibold text-gray-700">Drop a file here or click to browse</p>
+                <p className="text-xs text-gray-400 mt-1">Accepts .csv and .xlsx files</p>
+                <input ref={fileRef} type="file" accept=".csv,.xlsx,.xls" className="hidden"
                   onChange={e => { const f = e.target.files?.[0]; if (f) handleFile(f); }} />
               </div>
               {uploading && <p className="text-sm text-center text-gray-500 animate-pulse">Parsing file...</p>}
