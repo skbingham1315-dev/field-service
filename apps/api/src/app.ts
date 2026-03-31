@@ -1,5 +1,6 @@
 import express from 'express';
 import path from 'path';
+import fs from 'fs';
 import helmet from 'helmet';
 import cors from 'cors';
 import compression from 'compression';
@@ -97,11 +98,15 @@ app.use('/webhooks', webhooksRouter);
 
 // ─── Serve frontend in production ────────────────────────────────────────────
 if (process.env.NODE_ENV === 'production') {
-  const webDist = path.join(__dirname, '..', '..', '..', '..', 'apps', 'web', 'dist');
-  app.use(express.static(webDist));
-  app.get('*', (_req, res) => {
-    res.sendFile(path.join(webDist, 'index.html'));
-  });
+  // process.cwd() = /app/apps/api when started via nixpacks start cmd
+  const webDist = path.resolve(process.cwd(), '..', 'web', 'dist');
+  if (fs.existsSync(webDist)) {
+    app.use(express.static(webDist));
+    app.get('*', (_req, res, next) => {
+      const index = path.join(webDist, 'index.html');
+      res.sendFile(index, (err) => { if (err) next(err); });
+    });
+  }
 }
 
 // ─── Error handling ───────────────────────────────────────────────────────────
