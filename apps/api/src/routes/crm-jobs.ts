@@ -4,6 +4,7 @@ import { authenticate } from '../middleware/authenticate';
 import { prisma } from '@fsp/db';
 import { AppError } from '../middleware/errorHandler';
 import type { ApiResponse } from '@fsp/types';
+import { triggerCommission } from './compensation';
 
 export const crmJobsRouter = Router();
 crmJobsRouter.use(authenticate);
@@ -18,6 +19,9 @@ const jobInclude = {
   subcontractor: {
     select: { id: true, name: true, phone: true, email: true, defaultPercentage: true, defaultRateType: true },
   },
+  primarySales: { select: { id: true, firstName: true, lastName: true, role: true } },
+  secondarySales: { select: { id: true, firstName: true, lastName: true, role: true } },
+  pm: { select: { id: true, firstName: true, lastName: true, role: true } },
   activities: { orderBy: { createdAt: 'desc' as const }, take: 50 },
 };
 
@@ -105,6 +109,7 @@ crmJobsRouter.post('/', async (req, res) => {
     permitRequired, permitNumber, notes,
     subPaymentType, subPaymentAmount, subPaymentPercent,
     materialsCost, otherCosts, targetMargin,
+    primarySalesId, primarySalesPct, secondarySalesId, secondarySalesPct, pmId,
   } = req.body;
 
   if (!name) throw new AppError('name is required', 400, 'VALIDATION_ERROR');
@@ -140,6 +145,11 @@ crmJobsRouter.post('/', async (req, res) => {
       materialsCost: materialsCost ? parseFloat(materialsCost) : undefined,
       otherCosts: otherCosts ? parseFloat(otherCosts) : undefined,
       targetMargin: targetMargin ? parseFloat(targetMargin) : 25,
+      primarySalesId: primarySalesId || undefined,
+      primarySalesPct: primarySalesPct ? parseFloat(primarySalesPct) : undefined,
+      secondarySalesId: secondarySalesId || undefined,
+      secondarySalesPct: secondarySalesPct ? parseFloat(secondarySalesPct) : undefined,
+      pmId: pmId || undefined,
       createdById: req.user!.sub,
       activities: {
         create: [{ type: 'note', note: 'Job created', createdBy: req.user!.email }],
@@ -159,8 +169,12 @@ crmJobsRouter.patch('/:id', async (req, res) => {
     throw new AppError('Job not found', 404, 'NOT_FOUND');
   }
 
-  const { status, estimatedStartDate, completionDate, estimatedValue, actualInvoiceAmount,
-    subPaymentAmount, subPaymentPercent, materialsCost, otherCosts, targetMargin, ...rest } = req.body;
+  const {
+    status, estimatedStartDate, completionDate, estimatedValue, actualInvoiceAmount,
+    subPaymentAmount, subPaymentPercent, materialsCost, otherCosts, targetMargin,
+    primarySalesId, primarySalesPct, secondarySalesId, secondarySalesPct, pmId,
+    ...rest
+  } = req.body;
 
   const activities: Array<{ type: string; note: string; createdBy: string }> = [];
   if (status && status !== existing.status) {
@@ -185,6 +199,11 @@ crmJobsRouter.patch('/:id', async (req, res) => {
       materialsCost: materialsCost !== undefined ? parseFloat(materialsCost) : undefined,
       otherCosts: otherCosts !== undefined ? parseFloat(otherCosts) : undefined,
       targetMargin: targetMargin !== undefined ? parseFloat(targetMargin) : undefined,
+      primarySalesId: primarySalesId !== undefined ? (primarySalesId || null) : undefined,
+      primarySalesPct: primarySalesPct !== undefined ? parseFloat(primarySalesPct) : undefined,
+      secondarySalesId: secondarySalesId !== undefined ? (secondarySalesId || null) : undefined,
+      secondarySalesPct: secondarySalesPct !== undefined ? parseFloat(secondarySalesPct) : undefined,
+      pmId: pmId !== undefined ? (pmId || null) : undefined,
     },
     include: jobInclude,
   });
@@ -195,6 +214,12 @@ crmJobsRouter.patch('/:id', async (req, res) => {
         data: { jobId: job.id, type: a.type as 'status_change', note: a.note, createdBy: a.createdBy },
       });
     }
+  }
+
+  // Auto-trigger commission when job reaches a commission-eligible status
+  const commissionStatuses = ['approved', 'invoiced', 'paid'];
+  if (status && commissionStatuses.includes(status) && status !== existing.status && !existing.commissionTriggered) {
+    triggerCommission(job.id, req.user!.tenantId).catch(() => {/* non-blocking */});
   }
 
   res.json({ success: true, data: job } satisfies ApiResponse);

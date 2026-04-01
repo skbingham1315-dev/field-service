@@ -124,6 +124,9 @@ model Tenant {
   contacts         Contact[]
   crmJobs          CRMJob[]
   subcontractors   Subcontractor[]
+  payComponents    PayComponent[]
+  commissionEntries CommissionEntry[]
+  salesTargets     SalesTarget[]
 
   @@map("tenants")
 }
@@ -153,6 +156,10 @@ model User {
   serviceRadius     Float?
   payRate           Float?
   payType           String?    @default("hourly")
+  employmentType    String?    // w2 | contractor_1099 | owner_partner
+  territory         String?
+  startDate         DateTime?
+  showEarnings      Boolean    @default(false)
   customPermissions Json?
   lastLat           Float?
   lastLng           Float?
@@ -171,6 +178,12 @@ model User {
   timeEntries         TimeEntry[]
   payrollEntries      PayrollEntry[]
   payrollRuns         PayrollRun[]  @relation("PayrollCreatedBy")
+  payComponents       PayComponent[]
+  commissionEntries   CommissionEntry[]
+  salesTargets        SalesTarget[]
+  primarySalesJobs    CRMJob[]      @relation("PrimarySales")
+  secondarySalesJobs  CRMJob[]      @relation("SecondarySales")
+  pmJobs              CRMJob[]      @relation("PMJobs")
 
   @@unique([tenantId, email])
   @@index([tenantId, role])
@@ -716,6 +729,14 @@ model CRMJob {
   otherCosts          Decimal?         @db.Decimal(10, 2)
   targetMargin        Decimal?         @db.Decimal(5, 2) @default(25)
 
+  // Team credit
+  primarySalesId      String?
+  primarySalesPct     Decimal?         @db.Decimal(5, 2) @default(100)
+  secondarySalesId    String?
+  secondarySalesPct   Decimal?         @db.Decimal(5, 2)
+  pmId               String?
+  commissionTriggered Boolean          @default(false)
+
   isArchived          Boolean          @default(false)
   createdById         String?
   createdAt           DateTime         @default(now())
@@ -724,7 +745,11 @@ model CRMJob {
   tenant              Tenant           @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   contact             Contact          @relation(fields: [contactId], references: [id])
   subcontractor       Subcontractor?   @relation(fields: [subcontractorId], references: [id])
+  primarySales        User?            @relation("PrimarySales", fields: [primarySalesId], references: [id])
+  secondarySales      User?            @relation("SecondarySales", fields: [secondarySalesId], references: [id])
+  pm                  User?            @relation("PMJobs", fields: [pmId], references: [id])
   activities          CRMJobActivity[]
+  commissionEntries   CommissionEntry[]
 
   @@unique([tenantId, jobNumber])
   @@index([tenantId, status])
@@ -817,4 +842,68 @@ model PayrollEntry {
   user       User       @relation(fields: [userId], references: [id])
 
   @@map("payroll_entries")
+}
+
+// ─── Compensation ─────────────────────────────────────────────────────────────
+
+model PayComponent {
+  id            String   @id @default(cuid())
+  tenantId      String
+  userId        String
+  type          String   // hourly|salary|commission_flat|commission_pct|commission_tiered|bonus_milestone|draw|revenue_share
+  label         String?
+  config        Json     @default("{}")
+  effectiveDate DateTime @default(now())
+  endDate       DateTime?
+  isActive      Boolean  @default(true)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  tenant        Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId, userId])
+  @@map("pay_components")
+}
+
+model CommissionEntry {
+  id             String   @id @default(cuid())
+  tenantId       String
+  userId         String
+  crmJobId       String
+  payComponentId String?
+  creditPct      Decimal  @db.Decimal(5, 2)
+  jobValue       Decimal  @db.Decimal(10, 2)
+  amount         Decimal  @db.Decimal(10, 2)
+  payType        String
+  status         String   @default("pending") // pending | finalized
+  payRunId       String?
+  note           String?
+  createdAt      DateTime @default(now())
+
+  tenant         Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  user           User     @relation(fields: [userId], references: [id])
+  crmJob         CRMJob   @relation(fields: [crmJobId], references: [id])
+
+  @@index([tenantId, userId])
+  @@index([tenantId, crmJobId])
+  @@map("commission_entries")
+}
+
+model SalesTarget {
+  id           String   @id @default(cuid())
+  tenantId     String
+  userId       String
+  targetAmount Decimal  @db.Decimal(10, 2)
+  period       String   // monthly | quarterly
+  startDate    DateTime
+  endDate      DateTime
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  tenant       Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  user         User     @relation(fields: [userId], references: [id])
+
+  @@index([tenantId, userId])
+  @@map("sales_targets")
 }

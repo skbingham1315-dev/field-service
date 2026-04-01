@@ -29,6 +29,7 @@ import { notificationsRouter } from './routes/notifications';
 import { contactsRouter } from './routes/contacts';
 import { crmJobsRouter } from './routes/crm-jobs';
 import { subcontractorsRouter } from './routes/subcontractors';
+import { compensationRouter } from './routes/compensation';
 
 export const app = express();
 
@@ -92,6 +93,7 @@ apiV1.use('/notifications', notificationsRouter);
 apiV1.use('/contacts', contactsRouter);
 apiV1.use('/crm-jobs', crmJobsRouter);
 apiV1.use('/subcontractors', subcontractorsRouter);
+apiV1.use('/compensation', compensationRouter);
 
 app.use('/api/v1', apiV1);
 app.use('/webhooks', webhooksRouter);

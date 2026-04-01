@@ -45,6 +45,12 @@ interface CRMJob {
   assignedToId?: string; subcontractorId?: string;
   subPaymentType?: string; subPaymentAmount?: number; subPaymentPercent?: number;
   materialsCost?: number; otherCosts?: number; targetMargin?: number;
+  primarySalesId?: string; primarySalesPct?: number;
+  secondarySalesId?: string; secondarySalesPct?: number; pmId?: string;
+  primarySales?: { id: string; firstName: string; lastName: string };
+  secondarySales?: { id: string; firstName: string; lastName: string };
+  pm?: { id: string; firstName: string; lastName: string };
+  commissionTriggered?: boolean;
   contact: ContactSummary; subcontractor?: SubSummary;
   activities: Activity[];
 }
@@ -58,6 +64,8 @@ interface JobFormState {
   subcontractorId?: string; subPaymentType: string;
   subPaymentAmount?: number; subPaymentPercent?: number;
   materialsCost?: number; otherCosts?: number; targetMargin: number;
+  primarySalesId?: string; primarySalesPct?: number;
+  secondarySalesId?: string; secondarySalesPct?: number; pmId?: string;
 }
 
 function displayContactName(c: ContactSummary) {
@@ -198,6 +206,11 @@ function JobFormModal({ job, onClose }: { job?: CRMJob; onClose: () => void }) {
     targetMargin: job?.targetMargin ?? 25,
     contactId: job?.contact?.id,
     subcontractorId: job?.subcontractorId,
+    primarySalesId: job?.primarySalesId,
+    primarySalesPct: job?.primarySalesPct ?? 100,
+    secondarySalesId: job?.secondarySalesId,
+    secondarySalesPct: job?.secondarySalesPct,
+    pmId: job?.pmId,
   });
   const [contactSearch, setContactSearch] = useState(job ? displayContactName(job.contact) : '');
   const [error, setError] = useState('');
@@ -218,6 +231,11 @@ function JobFormModal({ job, onClose }: { job?: CRMJob; onClose: () => void }) {
       const { data } = await api.get('/subcontractors?limit=100');
       return data;
     },
+  });
+
+  const { data: teamData } = useQuery({
+    queryKey: ['team-members'],
+    queryFn: () => api.get('/users').then(r => r.data.data as Array<{ id: string; firstName: string; lastName: string; role: string }>),
   });
 
   const mutation = useMutation({
@@ -390,6 +408,59 @@ function JobFormModal({ job, onClose }: { job?: CRMJob; onClose: () => void }) {
           {form.executionType === 'subcontracted' && (
             <PaymentCalculator job={form} onChange={updates => setForm(f => ({ ...f, ...updates }))} />
           )}
+
+          {/* Team Credit */}
+          <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 space-y-3">
+            <p className="text-xs font-semibold text-amber-800 flex items-center gap-2">
+              <span>💰</span> Team Credit — Commission Attribution
+            </p>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="block text-xs text-amber-700 mb-1">Primary Salesperson</label>
+                <select value={form.primarySalesId ?? ''} onChange={e => setForm(f => ({ ...f, primarySalesId: e.target.value || undefined }))}
+                  className="w-full px-3 py-2 border border-amber-200 rounded-lg text-sm bg-white focus:outline-none focus:ring-2 focus:ring-amber-400">
+                  <option value="">— None —</option>
+                  {(teamData ?? []).map(u => <option key={u.id} value={u.id}>{u.firstName} {u.lastName} ({u.role})</option>)}
+                </select>
+              </div>
+              <div>
+                <label className="block text-xs text-amber-700 mb-1">Credit % (primary)</label>
+                <input type="number" min="0" max="100" value={form.primarySalesPct ?? 100}
+                  onChange={e => {
+                    const p = +e.target.value;
+                    setForm(f => ({ ...f, primarySalesPct: p, secondarySalesPct: Math.max(0, 100 - p) }));
+                  }}
+                  className="w-full px-3 py-2 border border-amber-200 rounded-lg text-sm bg-white focus:outline-none focus:ring-2 focus:ring-amber-400" />
+              </div>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="block text-xs text-amber-700 mb-1">Secondary Salesperson (split)</label>
+                <select value={form.secondarySalesId ?? ''} onChange={e => setForm(f => ({ ...f, secondarySalesId: e.target.value || undefined }))}
+                  className="w-full px-3 py-2 border border-amber-200 rounded-lg text-sm bg-white focus:outline-none focus:ring-2 focus:ring-amber-400">
+                  <option value="">— None —</option>
+                  {(teamData ?? []).map(u => <option key={u.id} value={u.id}>{u.firstName} {u.lastName}</option>)}
+                </select>
+              </div>
+              <div>
+                <label className="block text-xs text-amber-700 mb-1">Credit % (secondary)</label>
+                <input type="number" min="0" max="100" value={form.secondarySalesPct ?? 0}
+                  onChange={e => setForm(f => ({ ...f, secondarySalesPct: +e.target.value }))}
+                  className="w-full px-3 py-2 border border-amber-200 rounded-lg text-sm bg-white focus:outline-none focus:ring-2 focus:ring-amber-400" />
+              </div>
+            </div>
+            <div>
+              <label className="block text-xs text-amber-700 mb-1">Project Manager (optional)</label>
+              <select value={form.pmId ?? ''} onChange={e => setForm(f => ({ ...f, pmId: e.target.value || undefined }))}
+                className="w-full px-3 py-2 border border-amber-200 rounded-lg text-sm bg-white focus:outline-none focus:ring-2 focus:ring-amber-400">
+                <option value="">— None —</option>
+                {(teamData ?? []).map(u => <option key={u.id} value={u.id}>{u.firstName} {u.lastName}</option>)}
+              </select>
+            </div>
+            {(form.primarySalesPct ?? 0) + (form.secondarySalesPct ?? 0) !== 100 && form.secondarySalesId && (
+              <p className="text-xs text-red-600">⚠️ Primary + secondary credit must equal 100%</p>
+            )}
+          </div>
 
           {error && <p className="text-red-600 text-sm">{error}</p>}
         </div>
