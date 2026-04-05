@@ -131,6 +131,8 @@ model Tenant {
   portalUsers      PortalUser[]
   portalWorkRequests PortalWorkRequest[]
   portalMessages   PortalMessage[]
+  properties       Property[]
+  pmTenants        PMTenant[]
 
   @@map("tenants")
 }
@@ -188,6 +190,7 @@ model User {
   primarySalesJobs    CRMJob[]      @relation("PrimarySales")
   secondarySalesJobs  CRMJob[]      @relation("SecondarySales")
   pmJobs              CRMJob[]      @relation("PMJobs")
+  contractorBadges    ContractorBadge[]
 
   @@unique([tenantId, email])
   @@index([tenantId, role])
@@ -485,23 +488,59 @@ model SalesGoal {
 // ─── Job Review ───────────────────────────────────────────────────────────────
 
 model JobReview {
-  id           String    @id @default(cuid())
-  tenantId     String
-  jobId        String    @unique
-  customerId   String
-  technicianId String?
-  rating       Int?
-  comment      String?
-  reviewToken  String    @unique @default(cuid())
-  submittedAt  DateTime?
-  createdAt    DateTime  @default(now())
+  id              String    @id @default(cuid())
+  tenantId        String
+  jobId           String    @unique
+  customerId      String
+  technicianId    String?
+  rating          Int?      // overall 1-5
+  qualityScore    Int?      // 1-5
+  punctualityScore Int?     // 1-5
+  communicationScore Int?   // 1-5
+  valueScore      Int?      // 1-5
+  comment         String?
+  reviewerName    String?
+  isVerified      Boolean   @default(false)
+  isPublic        Boolean   @default(true)
+  isFlagged       Boolean   @default(false)
+  reviewToken     String    @unique @default(cuid())
+  submittedAt     DateTime?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
 
-  job        Job  @relation(fields: [jobId], references: [id], onDelete: Cascade)
-  technician User? @relation("TechnicianReviews", fields: [technicianId], references: [id])
+  job             Job       @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  technician      User?     @relation("TechnicianReviews", fields: [technicianId], references: [id])
+  response        ReviewResponse?
 
   @@index([tenantId])
   @@index([technicianId])
   @@map("job_reviews")
+}
+
+model ReviewResponse {
+  id          String    @id @default(cuid())
+  reviewId    String    @unique
+  body        String
+  respondedBy String?
+  createdAt   DateTime  @default(now())
+
+  review      JobReview @relation(fields: [reviewId], references: [id], onDelete: Cascade)
+
+  @@map("review_responses")
+}
+
+model ContractorBadge {
+  id          String   @id @default(cuid())
+  tenantId    String
+  userId      String
+  badgeType   String   // top_rated | fast_responder | perfect_score | veteran | most_reviewed
+  awardedAt   DateTime @default(now())
+  expiresAt   DateTime?
+
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId, userId])
+  @@map("contractor_badges")
 }
 
 // ─── SMS Messages ─────────────────────────────────────────────────────────────
@@ -911,6 +950,226 @@ model SalesTarget {
 
   @@index([tenantId, userId])
   @@map("sales_targets")
+}
+
+// ─── Property Management Suite (Phase 2) ─────────────────────────────────────
+
+enum PropertyType {
+  residential
+  commercial
+  multi_family
+  hoa
+  short_term_rental
+}
+
+enum LeaseStatus {
+  draft
+  active
+  expired
+  terminated
+  renewed
+}
+
+enum RentLedgerType {
+  charge
+  payment
+  credit
+  late_fee
+  deposit
+  refund
+}
+
+enum RentLedgerStatus {
+  pending
+  paid
+  overdue
+  waived
+}
+
+model Property {
+  id              String       @id @default(cuid())
+  tenantId        String
+  name            String
+  type            PropertyType @default(residential)
+  street          String
+  city            String
+  state           String
+  zip             String
+  country         String       @default("US")
+  lat             Float?
+  lng             Float?
+  totalUnits      Int          @default(1)
+  yearBuilt       Int?
+  notes           String?
+  isArchived      Boolean      @default(false)
+  createdAt       DateTime     @default(now())
+  updatedAt       DateTime     @updatedAt
+
+  tenant          Tenant       @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  units           Unit[]
+  expenses        Expense[]
+  ownerContacts   OwnerContact[]
+
+  @@index([tenantId])
+  @@map("properties")
+}
+
+model Unit {
+  id              String   @id @default(cuid())
+  propertyId      String
+  unitNumber      String
+  bedrooms        Float    @default(0)
+  bathrooms       Float    @default(0)
+  sqft            Int?
+  marketRent      Decimal? @db.Decimal(10, 2)
+  isAvailable     Boolean  @default(true)
+  notes           String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  property        Property @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  leases          Lease[]
+  listings        RentalListing[]
+
+  @@unique([propertyId, unitNumber])
+  @@index([propertyId])
+  @@map("units")
+}
+
+model PMTenant {
+  id                String   @id @default(cuid())
+  tenantId          String   // FSP tenant, not rental tenant
+  firstName         String
+  lastName          String
+  email             String?
+  phone             String?
+  emergencyName     String?
+  emergencyPhone    String?
+  notes             String?
+  isArchived        Boolean  @default(false)
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  fspTenant         Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  leases            Lease[]
+
+  @@index([tenantId])
+  @@map("pm_tenants")
+}
+
+model Lease {
+  id              String      @id @default(cuid())
+  unitId          String
+  pmTenantId      String
+  status          LeaseStatus @default(active)
+  startDate       DateTime
+  endDate         DateTime?
+  rentAmount      Decimal     @db.Decimal(10, 2)
+  depositAmount   Decimal     @default(0) @db.Decimal(10, 2)
+  depositPaid     Boolean     @default(false)
+  lateFeePct      Decimal?    @db.Decimal(5, 2)
+  lateFeeGrace    Int?        // days before late fee kicks in
+  notes           String?
+  documentUrl     String?
+  createdAt       DateTime    @default(now())
+  updatedAt       DateTime    @updatedAt
+
+  unit            Unit        @relation(fields: [unitId], references: [id])
+  pmTenant        PMTenant    @relation(fields: [pmTenantId], references: [id])
+  ledgerEntries   RentLedger[]
+
+  @@index([unitId])
+  @@index([pmTenantId])
+  @@map("leases")
+}
+
+model RentLedger {
+  id          String            @id @default(cuid())
+  leaseId     String
+  type        RentLedgerType
+  status      RentLedgerStatus  @default(pending)
+  amount      Decimal           @db.Decimal(10, 2)
+  dueDate     DateTime?
+  paidAt      DateTime?
+  notes       String?
+  createdAt   DateTime          @default(now())
+
+  lease       Lease             @relation(fields: [leaseId], references: [id], onDelete: Cascade)
+
+  @@index([leaseId])
+  @@map("rent_ledger")
+}
+
+model Expense {
+  id          String   @id @default(cuid())
+  propertyId  String
+  category    String   // maintenance | utilities | insurance | taxes | management | other
+  vendor      String?
+  amount      Decimal  @db.Decimal(10, 2)
+  date        DateTime @db.Date
+  description String?
+  receiptUrl  String?
+  createdAt   DateTime @default(now())
+
+  property    Property @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+
+  @@index([propertyId])
+  @@map("expenses")
+}
+
+model OwnerContact {
+  id          String   @id @default(cuid())
+  propertyId  String
+  name        String
+  email       String?
+  phone       String?
+  isPrimary   Boolean  @default(false)
+  notes       String?
+  createdAt   DateTime @default(now())
+
+  property    Property @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+
+  @@index([propertyId])
+  @@map("owner_contacts")
+}
+
+model RentalListing {
+  id            String   @id @default(cuid())
+  unitId        String
+  listingPrice  Decimal  @db.Decimal(10, 2)
+  availableFrom DateTime
+  description   String?
+  isActive      Boolean  @default(true)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  unit          Unit     @relation(fields: [unitId], references: [id], onDelete: Cascade)
+  applications  RentalApplication[]
+
+  @@index([unitId])
+  @@map("rental_listings")
+}
+
+model RentalApplication {
+  id            String   @id @default(cuid())
+  listingId     String
+  firstName     String
+  lastName      String
+  email         String
+  phone         String?
+  currentAddress String?
+  employer      String?
+  monthlyIncome Decimal? @db.Decimal(10, 2)
+  creditScore   Int?
+  message       String?
+  status        String   @default("pending") // pending | approved | rejected | withdrawn
+  appliedAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  listing       RentalListing @relation(fields: [listingId], references: [id], onDelete: Cascade)
+
+  @@index([listingId])
+  @@map("rental_applications")
 }
 
 // ─── FieldOps Connect ─────────────────────────────────────────────────────────

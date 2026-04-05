@@ -19,6 +19,8 @@ import {
   HardHat,
   ClipboardList,
   Globe,
+  Building2,
+  Star,
 } from 'lucide-react';
 import { useAuthStore } from '../store/authStore';
 import { DashboardPage } from '../pages/DashboardPage';
@@ -38,10 +40,12 @@ import { ContactsPage } from '../pages/ContactsPage';
 import { CRMJobsPage } from '../pages/CRMJobsPage';
 import { SubsPage } from '../pages/SubsPage';
 import { ConnectPage } from '../pages/ConnectPage';
+import { PropertyManagementPage } from '../pages/PropertyManagementPage';
+import { ReviewsPage } from '../pages/ReviewsPage';
 import { AIAssistant } from '../components/AIAssistant';
 import { useLocationSharing } from '../hooks/useLocationSharing';
 
-type Page = 'dashboard' | 'customers' | 'jobs' | 'schedule' | 'map' | 'invoices' | 'estimates' | 'team' | 'payroll' | 'billing' | 'settings' | 'contacts' | 'crm-jobs' | 'subs' | 'connect';
+type Page = 'dashboard' | 'customers' | 'jobs' | 'schedule' | 'map' | 'invoices' | 'estimates' | 'team' | 'payroll' | 'billing' | 'settings' | 'contacts' | 'crm-jobs' | 'subs' | 'connect' | 'properties' | 'reviews';
 type ViewAs = 'owner' | 'technician' | 'sales' | 'dispatcher';
 
 const VIEW_OPTIONS: Array<{ id: ViewAs; label: string; desc: string; color: string }> = [
@@ -64,9 +68,11 @@ const NAV_ITEMS: Array<{ id: Page; label: string; icon: React.ElementType }> = [
   { id: 'contacts',  label: 'Contacts',   icon: BookUser },
   { id: 'crm-jobs',  label: 'CRM Jobs',   icon: ClipboardList },
   { id: 'subs',      label: 'Subs',       icon: HardHat },
-  { id: 'connect',   label: 'Connect',    icon: Globe },
-  { id: 'billing',   label: 'Billing',    icon: CreditCard },
-  { id: 'settings',  label: 'Settings',   icon: Settings },
+  { id: 'connect',     label: 'Connect',    icon: Globe },
+  { id: 'properties',  label: 'Properties', icon: Building2 },
+  { id: 'reviews',     label: 'Reviews',    icon: Star },
+  { id: 'billing',     label: 'Billing',    icon: CreditCard },
+  { id: 'settings',    label: 'Settings',   icon: Settings },
 ];
 
 function LogoMark({ size = 28 }: { size?: number }) {
@@ -141,8 +147,10 @@ export function DashboardLayout() {
       case 'contacts':   return <ContactsPage />;
       case 'crm-jobs':   return <CRMJobsPage />;
       case 'subs':       return <SubsPage />;
-      case 'connect':    return <ConnectPage />;
-      case 'billing':    return <BillingPage />;
+      case 'connect':     return <ConnectPage />;
+      case 'properties':  return <PropertyManagementPage />;
+      case 'reviews':     return <ReviewsPage />;
+      case 'billing':     return <BillingPage />;
       case 'settings':   return <SettingsPage />;
     }
   };

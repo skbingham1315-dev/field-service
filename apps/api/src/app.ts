@@ -31,6 +31,7 @@ import { crmJobsRouter } from './routes/crm-jobs';
 import { subcontractorsRouter } from './routes/subcontractors';
 import { compensationRouter } from './routes/compensation';
 import { portalRouter } from './routes/portal';
+import { propertiesRouter } from './routes/properties';
 
 export const app = express();
 
@@ -96,6 +97,7 @@ apiV1.use('/crm-jobs', crmJobsRouter);
 apiV1.use('/subcontractors', subcontractorsRouter);
 apiV1.use('/compensation', compensationRouter);
 apiV1.use('/portal', portalRouter);
+apiV1.use('/properties', propertiesRouter);
 
 app.use('/api/v1', apiV1);
 app.use('/webhooks', webhooksRouter);

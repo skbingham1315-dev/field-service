@@ -44,9 +44,35 @@ const RATING_LABELS: Record<number, string> = {
   5: 'Excellent!',
 };
 
+function CategoryScore({ label, value, onChange }: { label: string; value: number; onChange: (v: number) => void }) {
+  return (
+    <div className="flex items-center gap-3">
+      <span className="text-sm text-gray-600 w-32 flex-shrink-0">{label}</span>
+      <div className="flex gap-1">
+        {[1, 2, 3, 4, 5].map((s) => (
+          <button
+            key={s}
+            type="button"
+            onClick={() => onChange(s)}
+            className="transition-transform hover:scale-110"
+          >
+            <Star className={`h-5 w-5 transition-colors ${s <= value ? 'fill-yellow-400 text-yellow-400' : 'text-gray-200'}`} />
+          </button>
+        ))}
+      </div>
+      {value > 0 && <span className="text-xs text-gray-400">{value}/5</span>}
+    </div>
+  );
+}
+
 export function ReviewPage({ token }: { token: string }) {
   const [rating, setRating] = useState(0);
   const [comment, setComment] = useState('');
+  const [reviewerName, setReviewerName] = useState('');
+  const [qualityScore, setQualityScore] = useState(0);
+  const [punctualityScore, setPunctualityScore] = useState(0);
+  const [communicationScore, setCommunicationScore] = useState(0);
+  const [valueScore, setValueScore] = useState(0);
   const [submitted, setSubmitted] = useState(false);
 
   const { data, isLoading, isError } = useQuery<ReviewData>({
@@ -59,7 +85,15 @@ export function ReviewPage({ token }: { token: string }) {
   });
 
   const { mutate: submit, isPending } = useMutation({
-    mutationFn: () => api.post(`/reviews/public/${token}`, { rating, comment: comment.trim() || undefined }),
+    mutationFn: () => api.post(`/reviews/public/${token}`, {
+      rating,
+      comment: comment.trim() || undefined,
+      reviewerName: reviewerName.trim() || undefined,
+      qualityScore: qualityScore || undefined,
+      punctualityScore: punctualityScore || undefined,
+      communicationScore: communicationScore || undefined,
+      valueScore: valueScore || undefined,
+    }),
     onSuccess: () => setSubmitted(true),
   });
 
@@ -124,19 +158,42 @@ export function ReviewPage({ token }: { token: string }) {
           )}
         </div>
 
-        <div className="space-y-6">
+        <div className="space-y-5">
           <div>
+            <p className="text-sm font-medium text-gray-700 mb-2 text-center">Overall Rating</p>
             <StarRating value={rating} onChange={setRating} />
             {rating > 0 && (
-              <p className="text-center mt-2 text-sm font-semibold text-blue-600 animate-pulse-once">
+              <p className="text-center mt-2 text-sm font-semibold text-blue-600">
                 {RATING_LABELS[rating]}
               </p>
             )}
           </div>
 
+          {rating > 0 && (
+            <div className="bg-gray-50 rounded-xl p-4 space-y-3">
+              <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Rate specific areas</p>
+              <CategoryScore label="Quality of work" value={qualityScore} onChange={setQualityScore} />
+              <CategoryScore label="Punctuality" value={punctualityScore} onChange={setPunctualityScore} />
+              <CategoryScore label="Communication" value={communicationScore} onChange={setCommunicationScore} />
+              <CategoryScore label="Value for money" value={valueScore} onChange={setValueScore} />
+            </div>
+          )}
+
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1.5">
-              Any comments? <span className="text-gray-400 font-normal">(optional)</span>
+              Your name <span className="text-gray-400 font-normal">(optional)</span>
+            </label>
+            <input
+              value={reviewerName}
+              onChange={(e) => setReviewerName(e.target.value)}
+              placeholder="Jane S."
+              className="w-full border border-gray-300 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+            />
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1.5">
+              Comments <span className="text-gray-400 font-normal">(optional)</span>
             </label>
             <textarea
               rows={3}
