@@ -127,6 +127,10 @@ model Tenant {
   payComponents    PayComponent[]
   commissionEntries CommissionEntry[]
   salesTargets     SalesTarget[]
+  portalConfig     PortalConfig?
+  portalUsers      PortalUser[]
+  portalWorkRequests PortalWorkRequest[]
+  portalMessages   PortalMessage[]
 
   @@map("tenants")
 }
@@ -211,6 +215,7 @@ model Customer {
   jobs             Job[]
   invoices         Invoice[]
   smsMessages      SmsMessage[]
+  portalUsers      PortalUser[]
 
   @@index([tenantId])
   @@index([tenantId, email])
@@ -906,4 +911,130 @@ model SalesTarget {
 
   @@index([tenantId, userId])
   @@map("sales_targets")
+}
+
+// ─── FieldOps Connect ─────────────────────────────────────────────────────────
+
+enum ConnectPlan {
+  none
+  starter
+  growth
+  pro
+  enterprise
+}
+
+model PortalConfig {
+  id                  String      @id @default(cuid())
+  tenantId            String      @unique
+  connectPlan         ConnectPlan @default(none)
+  isEnabled           Boolean     @default(false)
+
+  // Branding
+  portalName          String      @default("Customer Portal")
+  logoUrl             String?
+  primaryColor        String      @default("#2563eb")
+  customDomain        String?
+
+  // Feature flags
+  enableBilling       Boolean     @default(true)
+  enableWorkRequests  Boolean     @default(true)
+  enableMessaging     Boolean     @default(true)
+  enableDocuments     Boolean     @default(false)
+
+  // Auth settings
+  allowMagicLink      Boolean     @default(true)
+  allowSmsOtp         Boolean     @default(false)
+
+  // Notification settings
+  notifyOnJobUpdate   Boolean     @default(true)
+  notifyOnInvoice     Boolean     @default(true)
+  notifyOnMessage     Boolean     @default(true)
+
+  createdAt           DateTime    @default(now())
+  updatedAt           DateTime    @updatedAt
+
+  tenant              Tenant      @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@map("portal_configs")
+}
+
+model PortalUser {
+  id              String    @id @default(cuid())
+  tenantId        String
+  customerId      String?
+  email           String
+  phone           String?
+  displayName     String?
+  isActive        Boolean   @default(true)
+  lastLoginAt     DateTime?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  tenant          Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  customer        Customer? @relation(fields: [customerId], references: [id], onDelete: SetNull)
+  sessions        PortalSession[]
+  workRequests    PortalWorkRequest[]
+  messages        PortalMessage[]
+
+  @@unique([tenantId, email])
+  @@index([tenantId])
+  @@map("portal_users")
+}
+
+model PortalSession {
+  id            String    @id @default(cuid())
+  portalUserId  String
+  token         String    @unique @default(cuid())
+  type          String    // magic_link | otp | session
+  otp           String?
+  expiresAt     DateTime
+  usedAt        DateTime?
+  createdAt     DateTime  @default(now())
+
+  portalUser    PortalUser @relation(fields: [portalUserId], references: [id], onDelete: Cascade)
+
+  @@index([portalUserId])
+  @@index([token])
+  @@map("portal_sessions")
+}
+
+model PortalWorkRequest {
+  id             String    @id @default(cuid())
+  tenantId       String
+  portalUserId   String
+  crmJobId       String?
+  title          String
+  description    String
+  serviceAddress String?
+  category       String?
+  urgency        String    @default("normal") // low | normal | high | emergency
+  status         String    @default("submitted") // submitted | reviewing | scheduled | in_progress | completed | cancelled
+  photoUrls      String[]
+  notes          String?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  tenant         Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  portalUser     PortalUser @relation(fields: [portalUserId], references: [id])
+
+  @@index([tenantId, status])
+  @@index([portalUserId])
+  @@map("portal_work_requests")
+}
+
+model PortalMessage {
+  id             String    @id @default(cuid())
+  tenantId       String
+  portalUserId   String
+  fromPortal     Boolean   @default(true) // true = from customer, false = from team
+  senderName     String?
+  body           String
+  isRead         Boolean   @default(false)
+  createdAt      DateTime  @default(now())
+
+  tenant         Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  portalUser     PortalUser @relation(fields: [portalUserId], references: [id])
+
+  @@index([tenantId, portalUserId])
+  @@map("portal_messages")
 }

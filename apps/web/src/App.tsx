@@ -4,6 +4,7 @@ import { LoginPage } from './pages/LoginPage';
 import { SignupPage } from './pages/SignupPage';
 import { DashboardLayout } from './layouts/DashboardLayout';
 import { ReviewPage } from './pages/ReviewPage';
+import { PortalApp } from './pages/PortalApp';
 import { CheckCircle, X } from 'lucide-react';
 
 function BillingSuccessBanner({ onDismiss }: { onDismiss: () => void }) {
@@ -32,8 +33,14 @@ export function App() {
     }
   }, []);
 
-  // Public review route — no auth required
+  // Public routes — no auth required
   const path = window.location.pathname;
+
+  // Customer portal: /portal/:tenantSlug/*
+  if (path.startsWith('/portal/')) {
+    return <PortalApp />;
+  }
+
   const reviewMatch = path.match(/^\/review\/([^/]+)$/);
   if (reviewMatch) {
     return <ReviewPage token={reviewMatch[1]} />;

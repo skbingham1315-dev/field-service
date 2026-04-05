@@ -18,6 +18,7 @@ import {
   BookUser,
   HardHat,
   ClipboardList,
+  Globe,
 } from 'lucide-react';
 import { useAuthStore } from '../store/authStore';
 import { DashboardPage } from '../pages/DashboardPage';
@@ -36,10 +37,11 @@ import { PayrollPage } from '../pages/PayrollPage';
 import { ContactsPage } from '../pages/ContactsPage';
 import { CRMJobsPage } from '../pages/CRMJobsPage';
 import { SubsPage } from '../pages/SubsPage';
+import { ConnectPage } from '../pages/ConnectPage';
 import { AIAssistant } from '../components/AIAssistant';
 import { useLocationSharing } from '../hooks/useLocationSharing';
 
-type Page = 'dashboard' | 'customers' | 'jobs' | 'schedule' | 'map' | 'invoices' | 'estimates' | 'team' | 'payroll' | 'billing' | 'settings' | 'contacts' | 'crm-jobs' | 'subs';
+type Page = 'dashboard' | 'customers' | 'jobs' | 'schedule' | 'map' | 'invoices' | 'estimates' | 'team' | 'payroll' | 'billing' | 'settings' | 'contacts' | 'crm-jobs' | 'subs' | 'connect';
 type ViewAs = 'owner' | 'technician' | 'sales' | 'dispatcher';
 
 const VIEW_OPTIONS: Array<{ id: ViewAs; label: string; desc: string; color: string }> = [
@@ -62,6 +64,7 @@ const NAV_ITEMS: Array<{ id: Page; label: string; icon: React.ElementType }> = [
   { id: 'contacts',  label: 'Contacts',   icon: BookUser },
   { id: 'crm-jobs',  label: 'CRM Jobs',   icon: ClipboardList },
   { id: 'subs',      label: 'Subs',       icon: HardHat },
+  { id: 'connect',   label: 'Connect',    icon: Globe },
   { id: 'billing',   label: 'Billing',    icon: CreditCard },
   { id: 'settings',  label: 'Settings',   icon: Settings },
 ];
@@ -138,6 +141,7 @@ export function DashboardLayout() {
       case 'contacts':   return <ContactsPage />;
       case 'crm-jobs':   return <CRMJobsPage />;
       case 'subs':       return <SubsPage />;
+      case 'connect':    return <ConnectPage />;
       case 'billing':    return <BillingPage />;
       case 'settings':   return <SettingsPage />;
     }
