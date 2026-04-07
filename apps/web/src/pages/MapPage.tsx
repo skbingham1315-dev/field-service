@@ -127,16 +127,18 @@ export function MapPage() {
       </div>
 
       {/* Map */}
-      <div className="flex-1">
+      <div className="flex-1" style={{ minHeight: 0 }}>
         <MapContainer
           center={center}
           zoom={11}
-          style={{ width: '100%', height: '100%' }}
+          style={{ width: '100%', height: '100%', minHeight: '400px' }}
           scrollWheelZoom={true}
         >
           <TileLayer
-            attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
-            url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+            attribution='&copy; <a href="https://carto.com/">CARTO</a>'
+            url="https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png"
+            subdomains="abcd"
+            maxZoom={19}
           />
           <MapCenter center={center} />
 
