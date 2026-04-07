@@ -29,11 +29,11 @@ authRouter.post('/login', async (req, res) => {
     throw new AppError('email, password, and tenantSlug are required', 400, 'VALIDATION_ERROR');
   }
 
-  const tenant = await prisma.tenant.findUnique({ where: { slug: tenantSlug } });
+  const tenant = await prisma.tenant.findUnique({ where: { slug: tenantSlug.toLowerCase().trim() } });
   if (!tenant) throw new AppError('Tenant not found', 404, 'TENANT_NOT_FOUND');
 
   const user = await prisma.user.findUnique({
-    where: { tenantId_email: { tenantId: tenant.id, email } },
+    where: { tenantId_email: { tenantId: tenant.id, email: email.toLowerCase().trim() } },
   });
   if (!user) throw new AppError('Invalid credentials', 401, 'INVALID_CREDENTIALS');
 

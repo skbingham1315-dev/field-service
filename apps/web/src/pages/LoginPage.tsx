@@ -98,7 +98,11 @@ export function LoginPage({ onSignup }: { onSignup?: () => void }) {
                 required
                 placeholder="my-pool-company"
                 value={form.tenantSlug}
-                onChange={(e) => setForm((f) => ({ ...f, tenantSlug: e.target.value }))}
+                onChange={(e) => setForm((f) => ({ ...f, tenantSlug: e.target.value.toLowerCase().trim() }))}
+                autoCapitalize="none"
+                autoCorrect="off"
+                autoComplete="off"
+                spellCheck={false}
                 className="w-full px-4 py-3 bg-white border border-gray-200 rounded-xl text-sm text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-violet-500/50 focus:border-violet-400 transition-all shadow-sm"
               />
             </div>
@@ -111,7 +115,10 @@ export function LoginPage({ onSignup }: { onSignup?: () => void }) {
                 required
                 placeholder="you@company.com"
                 value={form.email}
-                onChange={(e) => setForm((f) => ({ ...f, email: e.target.value }))}
+                onChange={(e) => setForm((f) => ({ ...f, email: e.target.value.trim() }))}
+                autoCapitalize="none"
+                autoCorrect="off"
+                spellCheck={false}
                 className="w-full px-4 py-3 bg-white border border-gray-200 rounded-xl text-sm text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-violet-500/50 focus:border-violet-400 transition-all shadow-sm"
               />
             </div>
