@@ -43,15 +43,21 @@ export function initSocket(httpServer: HttpServer) {
     socket.on('technician:location', async (data: { lat: number; lng: number; heading?: number; speed?: number }) => {
       // Persist to DB
       try {
-        await prisma.technicianLocation.create({
-          data: {
-            technicianId: user.sub,
-            lat: data.lat,
-            lng: data.lng,
-            heading: data.heading,
-            speed: data.speed,
-          },
-        });
+        await Promise.all([
+          prisma.technicianLocation.create({
+            data: {
+              technicianId: user.sub,
+              lat: data.lat,
+              lng: data.lng,
+              heading: data.heading,
+              speed: data.speed,
+            },
+          }),
+          prisma.user.update({
+            where: { id: user.sub },
+            data: { lastLat: data.lat, lastLng: data.lng, lastLocationAt: new Date() },
+          }),
+        ]);
       } catch {
         // non-critical
       }
