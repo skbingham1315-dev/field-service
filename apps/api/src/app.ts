@@ -39,7 +39,27 @@ export const app = express();
 app.set('trust proxy', 1);
 
 // ─── Security ────────────────────────────────────────────────────────────────
-app.use(helmet());
+app.use(helmet({
+  contentSecurityPolicy: {
+    directives: {
+      defaultSrc: ["'self'"],
+      scriptSrc: ["'self'", "'unsafe-inline'", "'unsafe-eval'"],
+      styleSrc: ["'self'", "'unsafe-inline'"],
+      imgSrc: [
+        "'self'",
+        "data:",
+        "blob:",
+        "https://*.basemaps.cartocdn.com",
+        "https://*.tile.openstreetmap.org",
+        "https://unpkg.com",
+      ],
+      connectSrc: ["'self'", "wss:", "ws:", "https:"],
+      fontSrc: ["'self'", "data:", "https:"],
+      workerSrc: ["'self'", "blob:"],
+      frameSrc: ["'self'", "https://www.google.com"],
+    },
+  },
+}));
 app.use(
   cors({
     origin: process.env.WEB_URL ?? 'http://localhost:5173',
