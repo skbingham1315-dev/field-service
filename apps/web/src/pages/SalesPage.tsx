@@ -3,8 +3,9 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   Plus, Phone, MapPin, Calendar, CheckCircle, Clock,
   ChevronDown, ChevronUp, User, LogOut, X, Search, Lock,
-  DoorOpen, UserCheck, FileText, Target, Briefcase, TrendingUp,
+  DoorOpen, UserCheck, FileText, Target, Briefcase, TrendingUp, BookUser,
 } from 'lucide-react';
+import { ContactsPage } from './ContactsPage';
 import { api } from '../lib/api';
 import { useAuthStore } from '../store/authStore';
 import { useTenantPermissions } from '../lib/permissions';
@@ -603,7 +604,7 @@ function ActivityTab() {
 export function SalesPage() {
   const { user, logout } = useAuthStore();
   const [showNewLead, setShowNewLead] = useState(false);
-  const [tab, setTab] = useState<'appointments' | 'leads' | 'activity'>('appointments');
+  const [tab, setTab] = useState<'appointments' | 'leads' | 'activity' | 'contacts'>('appointments');
   const [search, setSearch] = useState('');
   const { data: permissions } = useTenantPermissions();
   const canCreateJobs = permissions?.sales.createJobs ?? true;
@@ -690,7 +691,7 @@ export function SalesPage() {
       {/* Tabs */}
       <div className="bg-white border-b border-gray-100">
         <div className="max-w-lg mx-auto flex">
-          {([['appointments', Calendar, 'Appointments'], ['leads', User, 'Leads'], ['activity', TrendingUp, 'Activity']] as const).map(([id, Icon, label]) => (
+          {([['appointments', Calendar, 'Appointments'], ['leads', User, 'Leads'], ['contacts', BookUser, 'Contacts'], ['activity', TrendingUp, 'Activity']] as const).map(([id, Icon, label]) => (
             <button
               key={id}
               onClick={() => setTab(id)}
@@ -751,6 +752,12 @@ export function SalesPage() {
         )}
 
         {tab === 'activity' && <ActivityTab />}
+
+        {tab === 'contacts' && (
+          <div className="-mx-4 -mt-4">
+            <ContactsPage />
+          </div>
+        )}
 
       {tab === 'leads' && (
           <>
