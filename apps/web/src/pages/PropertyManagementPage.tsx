@@ -195,7 +195,16 @@ const STATUS_BADGE: Record<string, 'default' | 'success' | 'warning' | 'destruct
 
 // ─── Import Modal ─────────────────────────────────────────────────────────────
 
-type ImportType = 'properties' | 'tenants';
+type ImportType = 'properties' | 'tenants' | 'units' | 'listings' | 'leases' | 'ledger';
+
+const IMPORT_LABELS: Record<ImportType, string> = {
+  properties: 'Properties',
+  tenants: 'Tenants',
+  units: 'Units',
+  listings: 'Listings',
+  leases: 'Leases',
+  ledger: 'Rent Ledger',
+};
 
 const IMPORT_TEMPLATES: Record<ImportType, { headers: string[]; example: string[] }> = {
   properties: {
@@ -205,6 +214,22 @@ const IMPORT_TEMPLATES: Record<ImportType, { headers: string[]; example: string[
   tenants: {
     headers: ['first_name', 'last_name', 'email', 'phone', 'emergency_name', 'emergency_phone', 'notes'],
     example: ['Jane', 'Smith', 'jane@email.com', '555-0100', 'John Smith', '555-0101', ''],
+  },
+  units: {
+    headers: ['property_name', 'unit_number', 'bedrooms', 'bathrooms', 'sqft', 'market_rent', 'is_available'],
+    example: ['Sunset Apartments', '101', '2', '1', '850', '1200', 'true'],
+  },
+  listings: {
+    headers: ['property_name', 'unit_number', 'listing_price', 'available_from', 'description'],
+    example: ['Sunset Apartments', '101', '1200', '2026-05-01', 'Newly renovated 2BR unit'],
+  },
+  leases: {
+    headers: ['property_name', 'unit_number', 'tenant_email', 'tenant_first_name', 'tenant_last_name', 'start_date', 'end_date', 'rent_amount', 'deposit_amount'],
+    example: ['Sunset Apartments', '101', 'jane@email.com', 'Jane', 'Smith', '2026-01-01', '2026-12-31', '1200', '2400'],
+  },
+  ledger: {
+    headers: ['property_name', 'unit_number', 'type', 'amount', 'due_date', 'paid_at', 'status', 'notes'],
+    example: ['Sunset Apartments', '101', 'payment', '1200', '2026-03-01', '2026-03-02', 'paid', 'March rent'],
   },
 };
 
@@ -218,7 +243,7 @@ function ImportModal({ type, onClose, onDone }: { type: ImportType; onClose: () 
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
 
   const template = IMPORT_TEMPLATES[type];
-  const label = type === 'properties' ? 'Properties' : 'Tenants';
+  const label = IMPORT_LABELS[type];
 
   function downloadTemplate() {
     const csv = [template.headers.join(','), template.example.join(',')].join('\n');
@@ -263,8 +288,7 @@ function ImportModal({ type, onClose, onDone }: { type: ImportType; onClose: () 
       const form = new FormData();
       form.append('file', selectedFile);
       const token = useAuthStore.getState().accessToken ?? '';
-      const endpoint = type === 'properties' ? 'properties' : 'tenants';
-      const res = await fetch(`/api/v1/properties/import/${endpoint}`, {
+      const res = await fetch(`/api/v1/properties/import/${type}`, {
         method: 'POST',
         headers: { Authorization: `Bearer ${token}` },
         body: form,
@@ -420,7 +444,7 @@ function ImportModal({ type, onClose, onDone }: { type: ImportType; onClose: () 
             </div>
             {result.skipped > 0 && (
               <p className="text-xs text-slate-400 text-center">
-                Skipped rows were missing required fields (name/address for properties, first name for tenants).
+                Skipped rows were missing required fields or could not be matched to existing records.
               </p>
             )}
             <div className="flex justify-end">
@@ -876,7 +900,7 @@ function UnitDetailPanel({ unit, pmTenants, onBack }: { unit: Unit; pmTenants: P
 function PropertiesTab() {
   const qc = useQueryClient();
   const [showAdd, setShowAdd] = useState(false);
-  const [showImport, setShowImport] = useState(false);
+  const [showImport, setShowImport] = useState<ImportType | null>(null);
   const [selectedProperty, setSelectedProperty] = useState<Property | null>(null);
   const [selectedUnit, setSelectedUnit] = useState<Unit | null>(null);
 
@@ -979,8 +1003,11 @@ function PropertiesTab() {
       <div className="flex items-center justify-between">
         <p className="text-sm text-slate-500">{properties.length} propert{properties.length !== 1 ? 'ies' : 'y'}</p>
         <div className="flex gap-2">
-          <Button variant="outline" onClick={() => setShowImport(true)} className="flex items-center gap-1.5">
-            <Upload className="h-4 w-4" /> Import
+          <Button variant="outline" onClick={() => setShowImport('units')} className="flex items-center gap-1.5">
+            <Upload className="h-4 w-4" /> Import Units
+          </Button>
+          <Button variant="outline" onClick={() => setShowImport('properties')} className="flex items-center gap-1.5">
+            <Upload className="h-4 w-4" /> Import Properties
           </Button>
           <Button onClick={() => setShowAdd(true)} className="flex items-center gap-1.5">
             <Plus className="h-4 w-4" /> Add Property
@@ -1033,9 +1060,9 @@ function PropertiesTab() {
       )}
       {showImport && (
         <ImportModal
-          type="properties"
-          onClose={() => setShowImport(false)}
-          onDone={() => qc.invalidateQueries({ queryKey: ['pm-properties'] })}
+          type={showImport}
+          onClose={() => setShowImport(null)}
+          onDone={() => { qc.invalidateQueries({ queryKey: ['pm-properties'] }); setShowImport(null); }}
         />
       )}
     </div>
@@ -1047,7 +1074,7 @@ function PropertiesTab() {
 function TenantsTab() {
   const qc = useQueryClient();
   const [showAdd, setShowAdd] = useState(false);
-  const [showImport, setShowImport] = useState(false);
+  const [showImport, setShowImport] = useState<ImportType | null>(null);
   const [form, setForm] = useState({ firstName: '', lastName: '', email: '', phone: '', emergencyName: '', emergencyPhone: '', notes: '' });
   const f = (k: keyof typeof form) => (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => setForm((v) => ({ ...v, [k]: e.target.value }));
 
@@ -1068,7 +1095,7 @@ function TenantsTab() {
       <div className="flex items-center justify-between">
         <p className="text-sm text-slate-500">{tenants.length} tenant{tenants.length !== 1 ? 's' : ''}</p>
         <div className="flex gap-2">
-          <Button variant="outline" onClick={() => setShowImport(true)} className="flex items-center gap-1.5">
+          <Button variant="outline" onClick={() => setShowImport('tenants')} className="flex items-center gap-1.5">
             <Upload className="h-4 w-4" /> Import
           </Button>
           <Button onClick={() => setShowAdd(true)} className="flex items-center gap-1.5">
@@ -1152,9 +1179,9 @@ function TenantsTab() {
       )}
       {showImport && (
         <ImportModal
-          type="tenants"
-          onClose={() => setShowImport(false)}
-          onDone={() => qc.invalidateQueries({ queryKey: ['pm-tenants'] })}
+          type={showImport}
+          onClose={() => setShowImport(null)}
+          onDone={() => { qc.invalidateQueries({ queryKey: ['pm-tenants'] }); setShowImport(null); }}
         />
       )}
     </div>
@@ -1164,6 +1191,8 @@ function TenantsTab() {
 // ─── Listings Tab ─────────────────────────────────────────────────────────────
 
 function ListingsTab() {
+  const queryClient = useQueryClient();
+  const [showImport, setShowImport] = useState<ImportType | null>(null);
   const { data: listings = [], isLoading } = useQuery<RentalListing[]>({
     queryKey: ['pm-listings'],
     queryFn: () => api.get('/properties/listings').then((r) => r.data),
@@ -1175,6 +1204,17 @@ function ListingsTab() {
     <div className="space-y-4">
       <div className="flex items-center justify-between">
         <h3 className="font-semibold text-slate-800">Active Listings</h3>
+        <div className="flex gap-2">
+          <Button variant="outline" onClick={() => setShowImport('listings')} className="flex items-center gap-1.5">
+            <Upload className="h-4 w-4" /> Import Listings
+          </Button>
+          <Button variant="outline" onClick={() => setShowImport('leases')} className="flex items-center gap-1.5">
+            <Upload className="h-4 w-4" /> Import Leases
+          </Button>
+          <Button variant="outline" onClick={() => setShowImport('ledger')} className="flex items-center gap-1.5">
+            <Upload className="h-4 w-4" /> Import Ledger
+          </Button>
+        </div>
       </div>
       {listings.length === 0 ? (
         <div className="bg-white rounded-2xl border border-slate-200 p-10 text-center">
@@ -1200,6 +1240,13 @@ function ListingsTab() {
             </div>
           ))}
         </div>
+      )}
+      {showImport && (
+        <ImportModal
+          type={showImport}
+          onClose={() => setShowImport(null)}
+          onDone={() => { queryClient.invalidateQueries({ queryKey: ['pm-listings'] }); setShowImport(null); }}
+        />
       )}
     </div>
   );

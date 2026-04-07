@@ -563,3 +563,263 @@ propertiesRouter.post('/import/tenants', upload.single('file'), async (req, res)
   }
   res.json({ imported, updated, skipped, total: data.length });
 });
+
+// ─── Import: Units ────────────────────────────────────────────────────────────
+// Matches property by name. Columns:
+//   property_name, unit_number, bedrooms, bathrooms, sqft, market_rent, notes
+
+propertiesRouter.post('/import/units', upload.single('file'), async (req, res) => {
+  if (!req.file) { res.status(400).json({ error: 'No file uploaded' }); return; }
+  const tenantId = req.user!.tenantId;
+  const text = bufferToCsvText(req.file.buffer, req.file.mimetype, req.file.originalname);
+  const { data } = Papa.parse<Record<string, string>>(text, { header: true, skipEmptyLines: true });
+
+  // Cache property lookups
+  const propertyCache = new Map<string, string>();
+  async function findProperty(name: string): Promise<string | null> {
+    const key = name.toLowerCase().trim();
+    if (propertyCache.has(key)) return propertyCache.get(key)!;
+    const prop = await prisma.property.findFirst({
+      where: { tenantId, name: { contains: name.trim(), mode: 'insensitive' } },
+    });
+    if (prop) propertyCache.set(key, prop.id);
+    return prop?.id ?? null;
+  }
+
+  let imported = 0, updated = 0, skipped = 0;
+  for (const row of data) {
+    const propName = pick(row, 'property_name', 'property', 'Property', 'Property Name');
+    const unitNumber = pick(row, 'unit_number', 'unit', 'Unit', 'Unit Number', 'unit_no');
+    if (!propName || !unitNumber) { skipped++; continue; }
+
+    const propertyId = await findProperty(propName);
+    if (!propertyId) { skipped++; continue; }
+
+    const bedrooms = parseFloat(pick(row, 'bedrooms', 'beds', 'Bedrooms', 'Beds') || '0') || 0;
+    const bathrooms = parseFloat(pick(row, 'bathrooms', 'baths', 'Bathrooms', 'Baths') || '0') || 0;
+    const sqftRaw = pick(row, 'sqft', 'sq_ft', 'square_feet', 'SQFT');
+    const sqft = sqftRaw ? parseInt(sqftRaw) || undefined : undefined;
+    const rentRaw = pick(row, 'market_rent', 'rent', 'Rent', 'Market Rent', 'monthly_rent');
+    const marketRent = rentRaw ? parseFloat(rentRaw.replace(/[$,]/g, '')) || undefined : undefined;
+
+    try {
+      const existing = await prisma.unit.findFirst({ where: { propertyId, unitNumber } });
+      if (existing) {
+        await prisma.unit.update({
+          where: { id: existing.id },
+          data: { bedrooms, bathrooms, sqft, marketRent, notes: pick(row, 'notes', 'Notes') || existing.notes },
+        });
+        updated++;
+      } else {
+        await prisma.unit.create({
+          data: { propertyId, unitNumber, bedrooms, bathrooms, sqft, marketRent, notes: pick(row, 'notes', 'Notes') || undefined },
+        });
+        imported++;
+      }
+    } catch { skipped++; }
+  }
+  res.json({ imported, updated, skipped, total: data.length });
+});
+
+// ─── Import: Listings ─────────────────────────────────────────────────────────
+// Matches property + unit by name/number. Columns:
+//   property_name, unit_number, listing_price, available_from, description
+
+propertiesRouter.post('/import/listings', upload.single('file'), async (req, res) => {
+  if (!req.file) { res.status(400).json({ error: 'No file uploaded' }); return; }
+  const tenantId = req.user!.tenantId;
+  const text = bufferToCsvText(req.file.buffer, req.file.mimetype, req.file.originalname);
+  const { data } = Papa.parse<Record<string, string>>(text, { header: true, skipEmptyLines: true });
+
+  let imported = 0, skipped = 0;
+  for (const row of data) {
+    const propName = pick(row, 'property_name', 'property', 'Property', 'Property Name');
+    const unitNumber = pick(row, 'unit_number', 'unit', 'Unit', 'Unit Number');
+    const priceRaw = pick(row, 'listing_price', 'price', 'rent', 'Price', 'Listing Price', 'Asking Rent');
+    if (!propName || !unitNumber || !priceRaw) { skipped++; continue; }
+
+    const listingPrice = parseFloat(priceRaw.replace(/[$,]/g, ''));
+    if (!listingPrice) { skipped++; continue; }
+
+    const property = await prisma.property.findFirst({
+      where: { tenantId, name: { contains: propName.trim(), mode: 'insensitive' } },
+    });
+    if (!property) { skipped++; continue; }
+
+    const unit = await prisma.unit.findFirst({ where: { propertyId: property.id, unitNumber } });
+    if (!unit) { skipped++; continue; }
+
+    const availableFromRaw = pick(row, 'available_from', 'available', 'date_available', 'Available From', 'Available');
+    const availableFrom = availableFromRaw ? new Date(availableFromRaw) : new Date();
+    if (isNaN(availableFrom.getTime())) { skipped++; continue; }
+
+    try {
+      // Deactivate existing listing for this unit first
+      await prisma.rentalListing.updateMany({ where: { unitId: unit.id, isActive: true }, data: { isActive: false } });
+      await prisma.rentalListing.create({
+        data: {
+          unitId: unit.id,
+          listingPrice,
+          availableFrom,
+          description: pick(row, 'description', 'Description', 'notes', 'Notes') || undefined,
+          isActive: true,
+        },
+      });
+      await prisma.unit.update({ where: { id: unit.id }, data: { isAvailable: true } });
+      imported++;
+    } catch { skipped++; }
+  }
+  res.json({ imported, skipped, total: data.length });
+});
+
+// ─── Import: Leases ───────────────────────────────────────────────────────────
+// Matches property + unit + tenant by name/email. Columns:
+//   property_name, unit_number, tenant_email (or tenant_first+last),
+//   start_date, end_date, rent_amount, deposit_amount
+
+propertiesRouter.post('/import/leases', upload.single('file'), async (req, res) => {
+  if (!req.file) { res.status(400).json({ error: 'No file uploaded' }); return; }
+  const tenantId = req.user!.tenantId;
+  const text = bufferToCsvText(req.file.buffer, req.file.mimetype, req.file.originalname);
+  const { data } = Papa.parse<Record<string, string>>(text, { header: true, skipEmptyLines: true });
+
+  let imported = 0, skipped = 0;
+  for (const row of data) {
+    const propName = pick(row, 'property_name', 'property', 'Property', 'Property Name');
+    const unitNumber = pick(row, 'unit_number', 'unit', 'Unit', 'Unit Number');
+    const startDateRaw = pick(row, 'start_date', 'lease_start', 'Start Date', 'Lease Start');
+    const rentRaw = pick(row, 'rent_amount', 'rent', 'Rent', 'Monthly Rent', 'Rent Amount');
+    if (!propName || !unitNumber || !startDateRaw || !rentRaw) { skipped++; continue; }
+
+    const startDate = new Date(startDateRaw);
+    const rentAmount = parseFloat(rentRaw.replace(/[$,]/g, ''));
+    if (isNaN(startDate.getTime()) || !rentAmount) { skipped++; continue; }
+
+    const property = await prisma.property.findFirst({
+      where: { tenantId, name: { contains: propName.trim(), mode: 'insensitive' } },
+    });
+    if (!property) { skipped++; continue; }
+
+    const unit = await prisma.unit.findFirst({ where: { propertyId: property.id, unitNumber } });
+    if (!unit) { skipped++; continue; }
+
+    // Find tenant by email, or first+last name
+    const tenantEmail = pick(row, 'tenant_email', 'email', 'Email', 'Tenant Email');
+    let firstName = pick(row, 'tenant_first', 'first_name', 'First Name', 'Tenant First');
+    let lastName = pick(row, 'tenant_last', 'last_name', 'Last Name', 'Tenant Last');
+    const fullName = pick(row, 'tenant_name', 'tenant', 'Tenant', 'Tenant Name');
+    if (!firstName && fullName) {
+      const parts = fullName.trim().split(/\s+/);
+      firstName = parts[0] ?? '';
+      lastName = parts.slice(1).join(' ') || '';
+    }
+
+    let pmTenant = tenantEmail
+      ? await prisma.pMTenant.findFirst({ where: { tenantId, email: tenantEmail } })
+      : firstName
+      ? await prisma.pMTenant.findFirst({ where: { tenantId, firstName, lastName } })
+      : null;
+
+    // Auto-create tenant if not found and we have enough info
+    if (!pmTenant && firstName) {
+      pmTenant = await prisma.pMTenant.create({
+        data: { tenantId, firstName, lastName, email: tenantEmail || undefined },
+      });
+    }
+    if (!pmTenant) { skipped++; continue; }
+
+    const endDateRaw = pick(row, 'end_date', 'lease_end', 'End Date', 'Lease End');
+    const endDate = endDateRaw ? new Date(endDateRaw) : undefined;
+    const depositRaw = pick(row, 'deposit_amount', 'deposit', 'Deposit', 'Security Deposit');
+    const depositAmount = depositRaw ? parseFloat(depositRaw.replace(/[$,]/g, '')) || 0 : 0;
+
+    try {
+      // Expire any current active lease for this unit
+      await prisma.lease.updateMany({ where: { unitId: unit.id, status: 'active' as any }, data: { status: 'expired' as any } });
+      await prisma.lease.create({
+        data: {
+          unitId: unit.id,
+          pmTenantId: pmTenant.id,
+          startDate,
+          endDate: endDate && !isNaN(endDate.getTime()) ? endDate : undefined,
+          rentAmount,
+          depositAmount,
+          status: 'active' as any,
+        },
+      });
+      await prisma.unit.update({ where: { id: unit.id }, data: { isAvailable: false } });
+      imported++;
+    } catch { skipped++; }
+  }
+  res.json({ imported, skipped, total: data.length });
+});
+
+// ─── Import: Rent Ledger ──────────────────────────────────────────────────────
+// Imports historical payment records. Columns:
+//   property_name, unit_number, type, amount, due_date, paid_date, status, notes
+
+propertiesRouter.post('/import/ledger', upload.single('file'), async (req, res) => {
+  if (!req.file) { res.status(400).json({ error: 'No file uploaded' }); return; }
+  const tenantId = req.user!.tenantId;
+  const text = bufferToCsvText(req.file.buffer, req.file.mimetype, req.file.originalname);
+  const { data } = Papa.parse<Record<string, string>>(text, { header: true, skipEmptyLines: true });
+
+  let imported = 0, skipped = 0;
+  for (const row of data) {
+    const propName = pick(row, 'property_name', 'property', 'Property', 'Property Name');
+    const unitNumber = pick(row, 'unit_number', 'unit', 'Unit', 'Unit Number');
+    const amountRaw = pick(row, 'amount', 'Amount');
+    if (!propName || !unitNumber || !amountRaw) { skipped++; continue; }
+
+    const amount = parseFloat(amountRaw.replace(/[$,]/g, ''));
+    if (!amount) { skipped++; continue; }
+
+    const property = await prisma.property.findFirst({
+      where: { tenantId, name: { contains: propName.trim(), mode: 'insensitive' } },
+    });
+    if (!property) { skipped++; continue; }
+
+    const unit = await prisma.unit.findFirst({ where: { propertyId: property.id, unitNumber } });
+    if (!unit) { skipped++; continue; }
+
+    const lease = await prisma.lease.findFirst({
+      where: { unitId: unit.id },
+      orderBy: { createdAt: 'desc' },
+    });
+    if (!lease) { skipped++; continue; }
+
+    const typeRaw = pick(row, 'type', 'Type', 'entry_type').toLowerCase();
+    const typeMap: Record<string, string> = {
+      payment: 'payment', charge: 'charge', credit: 'credit',
+      late_fee: 'late_fee', 'late fee': 'late_fee', deposit: 'deposit', refund: 'refund',
+    };
+    const type = typeMap[typeRaw] ?? 'charge';
+
+    const statusRaw = pick(row, 'status', 'Status').toLowerCase();
+    const statusMap: Record<string, string> = {
+      paid: 'paid', pending: 'pending', overdue: 'overdue', waived: 'waived', '': 'paid',
+    };
+    const status = statusMap[statusRaw] ?? (type === 'payment' ? 'paid' : 'pending');
+
+    const dueDateRaw = pick(row, 'due_date', 'due', 'Due Date');
+    const paidDateRaw = pick(row, 'paid_date', 'paid_at', 'date_paid', 'Paid Date', 'Date Paid');
+    const dueDate = dueDateRaw ? new Date(dueDateRaw) : undefined;
+    const paidAt = paidDateRaw ? new Date(paidDateRaw) : (status === 'paid' ? new Date() : undefined);
+
+    try {
+      await prisma.rentLedger.create({
+        data: {
+          leaseId: lease.id,
+          type: type as any,
+          status: status as any,
+          amount,
+          dueDate: dueDate && !isNaN(dueDate.getTime()) ? dueDate : undefined,
+          paidAt: paidAt && !isNaN(paidAt.getTime()) ? paidAt : undefined,
+          notes: pick(row, 'notes', 'Notes', 'description') || undefined,
+        },
+      });
+      imported++;
+    } catch { skipped++; }
+  }
+  res.json({ imported, skipped, total: data.length });
+});
