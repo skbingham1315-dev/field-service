@@ -1,6 +1,6 @@
 import { useState, useRef } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { MapPin, Navigation, ChevronDown, ChevronUp, Clock, Phone, DollarSign, LogOut, CheckCircle, Timer } from 'lucide-react';
+import { MapPin, Navigation, ChevronDown, ChevronUp, Clock, Phone, DollarSign, LogOut, CheckCircle, Timer, Map } from 'lucide-react';
 import { TimeTrackingPage } from './TimeTrackingPage';
 import { Badge } from '@fsp/ui';
 import { api } from '../lib/api';
@@ -228,7 +228,7 @@ function JobCard({
 }
 
 export function TechnicianPage() {
-  const [activeTab, setActiveTab] = useState<'jobs' | 'time'>('jobs');
+  const [activeTab, setActiveTab] = useState<'jobs' | 'map' | 'time'>('jobs');
   const { user, logout } = useAuthStore();
   const qc = useQueryClient();
   const [tracking, setTracking] = useState(false);
@@ -346,7 +346,7 @@ export function TechnicianPage() {
         </div>
         {/* Tab bar */}
         <div className="flex border-t border-gray-100">
-          {([['jobs', 'Jobs', CheckCircle], ['time', 'Time', Timer]] as const).map(([id, label, Icon]) => (
+          {([['jobs', 'Jobs', CheckCircle], ['map', 'Map', Map], ['time', 'Time', Timer]] as const).map(([id, label, Icon]) => (
             <button key={id} onClick={() => setActiveTab(id)}
               className={`flex-1 flex items-center justify-center gap-1.5 py-2.5 text-sm font-medium transition-colors ${
                 activeTab === id ? 'text-indigo-600 border-b-2 border-indigo-600' : 'text-gray-500 hover:text-gray-700'
@@ -358,6 +358,53 @@ export function TechnicianPage() {
       </header>
 
       {activeTab === 'time' && <TimeTrackingPage />}
+
+      {activeTab === 'map' && (
+        <div className="flex flex-col gap-3 px-4 py-4 max-w-2xl mx-auto w-full">
+          {jobs.length === 0 ? (
+            <div className="text-center py-16 text-gray-400">No jobs to show on map.</div>
+          ) : (
+            jobs.map((job) => {
+              const addr = job.serviceAddress
+                ? [job.serviceAddress.street, job.serviceAddress.city, job.serviceAddress.state].filter(Boolean).join(', ')
+                : null;
+              if (!addr) return null;
+              const mapsUrl = `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(addr)}`;
+              const embedUrl = `https://www.google.com/maps/embed/v1/place?key=${import.meta.env.VITE_GOOGLE_MAPS_API_KEY}&q=${encodeURIComponent(addr)}`;
+              return (
+                <div key={job.id} className="bg-white rounded-xl border border-gray-100 shadow-sm overflow-hidden">
+                  <div className="px-4 py-3 border-b border-gray-100 flex items-center justify-between gap-2">
+                    <div className="min-w-0">
+                      <p className="font-semibold text-gray-900 text-sm truncate">{job.title}</p>
+                      <p className="text-xs text-gray-400 flex items-center gap-1 mt-0.5">
+                        <MapPin className="h-3 w-3 flex-shrink-0" />{addr}
+                      </p>
+                    </div>
+                    <a
+                      href={mapsUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="flex items-center gap-1.5 px-3 py-2 bg-blue-600 text-white rounded-xl text-xs font-semibold whitespace-nowrap hover:bg-blue-700 flex-shrink-0"
+                    >
+                      <Navigation className="h-3.5 w-3.5" />Navigate
+                    </a>
+                  </div>
+                  <iframe
+                    title={job.title}
+                    src={embedUrl}
+                    width="100%"
+                    height="200"
+                    style={{ border: 0, display: 'block' }}
+                    allowFullScreen
+                    loading="lazy"
+                    referrerPolicy="no-referrer-when-downgrade"
+                  />
+                </div>
+              );
+            })
+          )}
+        </div>
+      )}
 
       {activeTab === 'jobs' && completedToast && (
         <div className="mx-4 mt-3 p-3 bg-green-50 border border-green-200 rounded-xl flex items-start gap-2 animate-pulse-once">

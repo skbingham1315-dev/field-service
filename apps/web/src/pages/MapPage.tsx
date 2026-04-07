@@ -3,7 +3,6 @@ import {
   APIProvider,
   Map,
   AdvancedMarker,
-  Pin,
   InfoWindow,
 } from '@vis.gl/react-google-maps';
 import { api } from '../lib/api';
@@ -128,7 +127,6 @@ export function MapPage() {
           <Map
             defaultCenter={center}
             defaultZoom={11}
-            mapId="fsp-map"
             style={{ width: '100%', height: '100%' }}
             gestureHandling="greedy"
             disableDefaultUI={false}
@@ -140,10 +138,9 @@ export function MapPage() {
                 position={{ lat: job.serviceAddress!.lat!, lng: job.serviceAddress!.lng! }}
                 onClick={() => { setSelectedJob(job); setSelectedTech(null); }}
               >
-                <Pin
-                  background={STATUS_COLORS[job.status] ?? '#6b7280'}
-                  borderColor="white"
-                  glyphColor="white"
+                <div
+                  style={{ backgroundColor: STATUS_COLORS[job.status] ?? '#6b7280' }}
+                  className="h-4 w-4 rounded-full border-2 border-white shadow-md"
                 />
               </AdvancedMarker>
             ))}
