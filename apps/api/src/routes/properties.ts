@@ -45,11 +45,34 @@
  */
 
 import { Router } from 'express';
+import multer from 'multer';
+import Papa from 'papaparse';
+import * as XLSX from 'xlsx';
 import { prisma } from '@fsp/db';
 import { authenticate } from '../middleware/authenticate';
 
 export const propertiesRouter = Router();
 propertiesRouter.use(authenticate);
+
+const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024 } });
+
+function bufferToCsvText(buffer: Buffer, mimetype: string, originalname: string): string {
+  const isXlsx = mimetype.includes('spreadsheet') || mimetype.includes('excel') || originalname.match(/\.xlsx?$/i);
+  if (isXlsx) {
+    const wb = XLSX.read(buffer, { type: 'buffer' });
+    const ws = wb.Sheets[wb.SheetNames[0]];
+    return XLSX.utils.sheet_to_csv(ws);
+  }
+  return buffer.toString('utf-8');
+}
+
+function pick(row: Record<string, string>, ...keys: string[]): string {
+  for (const k of keys) {
+    const val = row[k]?.trim();
+    if (val) return val;
+  }
+  return '';
+}
 
 // ─── Properties ───────────────────────────────────────────────────────────────
 
@@ -418,4 +441,125 @@ propertiesRouter.get('/dashboard', async (req, res) => {
       leaseEnd: l.endDate,
     })),
   });
+});
+
+// ─── Import: Properties ───────────────────────────────────────────────────────
+// Expected columns (flexible matching):
+//   name, type, street/address, city, state, zip, total_units, year_built, notes
+
+propertiesRouter.post('/import/preview', upload.single('file'), async (req, res) => {
+  if (!req.file) { res.status(400).json({ error: 'No file uploaded' }); return; }
+  const text = bufferToCsvText(req.file.buffer, req.file.mimetype, req.file.originalname);
+  const { data, errors } = Papa.parse<Record<string, string>>(text, { header: true, skipEmptyLines: true });
+  if (errors.length && !data.length) { res.status(400).json({ error: 'Failed to parse file' }); return; }
+  res.json({ headers: Object.keys(data[0] ?? {}), rows: data.slice(0, 5), total: data.length });
+});
+
+propertiesRouter.post('/import/properties', upload.single('file'), async (req, res) => {
+  if (!req.file) { res.status(400).json({ error: 'No file uploaded' }); return; }
+  const tenantId = req.user!.tenantId;
+  const text = bufferToCsvText(req.file.buffer, req.file.mimetype, req.file.originalname);
+  const { data } = Papa.parse<Record<string, string>>(text, { header: true, skipEmptyLines: true });
+
+  let imported = 0, skipped = 0;
+  for (const row of data) {
+    const name = pick(row, 'name', 'property_name', 'Property Name', 'Name');
+    const street = pick(row, 'street', 'address', 'street_address', 'Address', 'Street');
+    const city = pick(row, 'city', 'City');
+    const state = pick(row, 'state', 'State');
+    if (!name || !street) { skipped++; continue; }
+    const typeRaw = pick(row, 'type', 'property_type', 'Type').toLowerCase();
+    const typeMap: Record<string, string> = {
+      residential: 'residential', commercial: 'commercial',
+      multi_family: 'multi_family', multifamily: 'multi_family', 'multi-family': 'multi_family',
+      hoa: 'hoa', short_term_rental: 'short_term_rental', 'short-term': 'short_term_rental',
+    };
+    const type = typeMap[typeRaw] ?? 'residential';
+    const totalUnitsRaw = pick(row, 'total_units', 'units', 'Total Units', 'Units');
+    const totalUnits = totalUnitsRaw ? parseInt(totalUnitsRaw) || 1 : 1;
+    const yearBuiltRaw = pick(row, 'year_built', 'year', 'Year Built');
+    const yearBuilt = yearBuiltRaw ? parseInt(yearBuiltRaw) || undefined : undefined;
+
+    try {
+      await prisma.property.create({
+        data: {
+          tenantId,
+          name,
+          type: type as any,
+          street,
+          city: city || '',
+          state: state || '',
+          zip: pick(row, 'zip', 'zip_code', 'postal_code', 'Zip', 'ZIP') || '',
+          totalUnits,
+          yearBuilt,
+          notes: pick(row, 'notes', 'Notes'),
+        },
+      });
+      imported++;
+    } catch { skipped++; }
+  }
+  res.json({ imported, skipped, total: data.length });
+});
+
+// ─── Import: PM Tenants ───────────────────────────────────────────────────────
+// Expected columns:
+//   first_name, last_name, email, phone, emergency_name, emergency_phone, notes
+
+propertiesRouter.post('/import/tenants', upload.single('file'), async (req, res) => {
+  if (!req.file) { res.status(400).json({ error: 'No file uploaded' }); return; }
+  const tenantId = req.user!.tenantId;
+  const text = bufferToCsvText(req.file.buffer, req.file.mimetype, req.file.originalname);
+  const { data } = Papa.parse<Record<string, string>>(text, { header: true, skipEmptyLines: true });
+
+  let imported = 0, updated = 0, skipped = 0;
+  for (const row of data) {
+    // Support "Full Name" column or split first/last
+    let firstName = pick(row, 'first_name', 'firstname', 'First Name', 'FirstName');
+    let lastName = pick(row, 'last_name', 'lastname', 'Last Name', 'LastName');
+    const fullName = pick(row, 'full_name', 'name', 'Full Name', 'Name', 'Tenant Name');
+    if (!firstName && fullName) {
+      const parts = fullName.trim().split(/\s+/);
+      firstName = parts[0] ?? '';
+      lastName = parts.slice(1).join(' ') || '';
+    }
+    if (!firstName) { skipped++; continue; }
+
+    const email = pick(row, 'email', 'Email', 'email_address');
+    const phone = pick(row, 'phone', 'Phone', 'phone_number', 'mobile');
+
+    // Update if same email already exists
+    if (email) {
+      const existing = await prisma.pMTenant.findFirst({ where: { tenantId, email } });
+      if (existing) {
+        await prisma.pMTenant.update({
+          where: { id: existing.id },
+          data: {
+            firstName, lastName, phone: phone || existing.phone,
+            emergencyName: pick(row, 'emergency_name', 'emergency_contact', 'Emergency Name') || existing.emergencyName,
+            emergencyPhone: pick(row, 'emergency_phone', 'Emergency Phone') || existing.emergencyPhone,
+            notes: pick(row, 'notes', 'Notes') || existing.notes,
+          },
+        });
+        updated++;
+        continue;
+      }
+    }
+
+    try {
+      await prisma.pMTenant.create({
+        data: {
+          tenantId,
+          firstName,
+          lastName,
+          email: email || undefined,
+          phone: phone || undefined,
+          emergencyName: pick(row, 'emergency_name', 'emergency_contact', 'Emergency Name') || undefined,
+          emergencyPhone: pick(row, 'emergency_phone', 'Emergency Phone') || undefined,
+          notes: pick(row, 'notes', 'Notes') || undefined,
+        },
+      });
+      imported++;
+    } catch { skipped++; }
+  }
+  res.json({ imported, updated, skipped, total: data.length });
 });

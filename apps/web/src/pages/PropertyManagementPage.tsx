@@ -4,6 +4,8 @@
  */
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useAuthStore } from '../store/authStore';
+import { useRef } from 'react';
 import {
   Building2,
   Home,
@@ -18,6 +20,8 @@ import {
   X,
   CheckCircle2,
   AlertTriangle,
+  Upload,
+  Download,
   Clock,
   Edit2,
   Trash2,
@@ -188,6 +192,246 @@ const STATUS_BADGE: Record<string, 'default' | 'success' | 'warning' | 'destruct
   overdue: 'destructive',
   waived: 'secondary',
 };
+
+// ─── Import Modal ─────────────────────────────────────────────────────────────
+
+type ImportType = 'properties' | 'tenants';
+
+const IMPORT_TEMPLATES: Record<ImportType, { headers: string[]; example: string[] }> = {
+  properties: {
+    headers: ['name', 'type', 'street', 'city', 'state', 'zip', 'total_units', 'year_built', 'notes'],
+    example: ['Sunset Apartments', 'multi_family', '123 Main St', 'Tampa', 'FL', '33601', '4', '1998', ''],
+  },
+  tenants: {
+    headers: ['first_name', 'last_name', 'email', 'phone', 'emergency_name', 'emergency_phone', 'notes'],
+    example: ['Jane', 'Smith', 'jane@email.com', '555-0100', 'John Smith', '555-0101', ''],
+  },
+};
+
+function ImportModal({ type, onClose, onDone }: { type: ImportType; onClose: () => void; onDone: () => void }) {
+  const fileRef = useRef<HTMLInputElement>(null);
+  const [step, setStep] = useState<'upload' | 'preview' | 'result'>('upload');
+  const [preview, setPreview] = useState<{ headers: string[]; rows: Record<string, string>[]; total: number } | null>(null);
+  const [result, setResult] = useState<{ imported: number; updated?: number; skipped: number; total: number } | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
+  const [selectedFile, setSelectedFile] = useState<File | null>(null);
+
+  const template = IMPORT_TEMPLATES[type];
+  const label = type === 'properties' ? 'Properties' : 'Tenants';
+
+  function downloadTemplate() {
+    const csv = [template.headers.join(','), template.example.join(',')].join('\n');
+    const blob = new Blob([csv], { type: 'text/csv' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `${type}_import_template.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+  }
+
+  async function handleFile(file: File) {
+    setSelectedFile(file);
+    setLoading(true);
+    setError('');
+    try {
+      const form = new FormData();
+      form.append('file', file);
+      const token = useAuthStore.getState().accessToken ?? '';
+      const res = await fetch('/api/v1/properties/import/preview', {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}` },
+        body: form,
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error ?? 'Preview failed');
+      setPreview(data);
+      setStep('preview');
+    } catch (e: any) {
+      setError(e.message);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function runImport() {
+    if (!selectedFile) return;
+    setLoading(true);
+    setError('');
+    try {
+      const form = new FormData();
+      form.append('file', selectedFile);
+      const token = useAuthStore.getState().accessToken ?? '';
+      const endpoint = type === 'properties' ? 'properties' : 'tenants';
+      const res = await fetch(`/api/v1/properties/import/${endpoint}`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}` },
+        body: form,
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error ?? 'Import failed');
+      setResult(data);
+      setStep('result');
+      onDone();
+    } catch (e: any) {
+      setError(e.message);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
+      <div className="bg-white rounded-2xl w-full max-w-lg shadow-2xl p-6 mx-4">
+        <div className="flex items-center justify-between mb-5">
+          <h2 className="text-lg font-bold text-slate-900">Import {label}</h2>
+          <button onClick={onClose}><X className="h-5 w-5 text-slate-400" /></button>
+        </div>
+
+        {step === 'upload' && (
+          <div className="space-y-4">
+            {/* Template download */}
+            <div className="bg-slate-50 rounded-xl p-4">
+              <p className="text-sm font-medium text-slate-700 mb-1">Step 1 — Download the template</p>
+              <p className="text-xs text-slate-500 mb-3">
+                Fill it in with your data. Column headers must match — extra columns are ignored.
+                Accepts <strong>.csv</strong>, <strong>.xlsx</strong>, or <strong>.xls</strong>.
+              </p>
+              <button
+                onClick={downloadTemplate}
+                className="flex items-center gap-1.5 text-sm text-blue-600 hover:text-blue-800 font-medium"
+              >
+                <Download className="h-4 w-4" /> Download template CSV
+              </button>
+              <div className="mt-3 overflow-x-auto">
+                <table className="text-[11px] border-collapse">
+                  <thead>
+                    <tr>
+                      {template.headers.map((h) => (
+                        <th key={h} className="border border-slate-200 px-2 py-1 bg-slate-100 text-slate-600 font-medium whitespace-nowrap">{h}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr>
+                      {template.example.map((v, i) => (
+                        <td key={i} className="border border-slate-200 px-2 py-1 text-slate-500 whitespace-nowrap">{v || '—'}</td>
+                      ))}
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            {/* File drop zone */}
+            <div>
+              <p className="text-sm font-medium text-slate-700 mb-2">Step 2 — Upload your file</p>
+              <label
+                className="flex flex-col items-center justify-center border-2 border-dashed border-slate-300 rounded-xl py-8 cursor-pointer hover:border-blue-400 hover:bg-blue-50 transition-colors"
+                onDragOver={(e) => e.preventDefault()}
+                onDrop={(e) => {
+                  e.preventDefault();
+                  const file = e.dataTransfer.files[0];
+                  if (file) handleFile(file);
+                }}
+              >
+                {loading ? (
+                  <Loader2 className="h-7 w-7 animate-spin text-blue-500 mb-2" />
+                ) : (
+                  <Upload className="h-7 w-7 text-slate-400 mb-2" />
+                )}
+                <span className="text-sm text-slate-500">
+                  {loading ? 'Reading file…' : 'Drop file here or click to browse'}
+                </span>
+                <span className="text-xs text-slate-400 mt-1">.csv, .xlsx, .xls</span>
+                <input
+                  ref={fileRef}
+                  type="file"
+                  accept=".csv,.xlsx,.xls"
+                  className="hidden"
+                  onChange={(e) => { const f = e.target.files?.[0]; if (f) handleFile(f); }}
+                />
+              </label>
+            </div>
+            {error && <p className="text-sm text-red-600 flex items-center gap-1.5"><AlertTriangle className="h-4 w-4" />{error}</p>}
+          </div>
+        )}
+
+        {step === 'preview' && preview && (
+          <div className="space-y-4">
+            <div className="bg-emerald-50 rounded-xl px-4 py-3 text-sm text-emerald-800">
+              Found <strong>{preview.total}</strong> row{preview.total !== 1 ? 's' : ''} ready to import
+            </div>
+            <div>
+              <p className="text-xs font-medium text-slate-500 mb-2">Preview (first 5 rows):</p>
+              <div className="overflow-x-auto rounded-xl border border-slate-200">
+                <table className="text-xs w-full">
+                  <thead className="bg-slate-50">
+                    <tr>
+                      {preview.headers.map((h) => (
+                        <th key={h} className="px-3 py-2 text-left font-medium text-slate-500 whitespace-nowrap">{h}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {preview.rows.map((row, i) => (
+                      <tr key={i} className="border-t border-slate-100">
+                        {preview.headers.map((h) => (
+                          <td key={h} className="px-3 py-2 text-slate-700 whitespace-nowrap max-w-[160px] truncate">{row[h] || '—'}</td>
+                        ))}
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+            {error && <p className="text-sm text-red-600 flex items-center gap-1.5"><AlertTriangle className="h-4 w-4" />{error}</p>}
+            <div className="flex gap-2 justify-end">
+              <Button variant="outline" onClick={() => setStep('upload')}>Back</Button>
+              <Button onClick={runImport} disabled={loading}>
+                {loading ? <><Loader2 className="h-4 w-4 animate-spin mr-1" />Importing…</> : `Import ${preview.total} ${label}`}
+              </Button>
+            </div>
+          </div>
+        )}
+
+        {step === 'result' && result && (
+          <div className="space-y-4">
+            <div className="flex justify-center py-4">
+              <CheckCircle2 className="h-14 w-14 text-emerald-500" />
+            </div>
+            <h3 className="text-center font-bold text-slate-800 text-lg">Import Complete</h3>
+            <div className="grid grid-cols-3 gap-3 text-center">
+              <div className="bg-emerald-50 rounded-xl p-3">
+                <p className="text-2xl font-bold text-emerald-700">{result.imported}</p>
+                <p className="text-xs text-emerald-600 mt-0.5">Imported</p>
+              </div>
+              {result.updated !== undefined && (
+                <div className="bg-blue-50 rounded-xl p-3">
+                  <p className="text-2xl font-bold text-blue-700">{result.updated}</p>
+                  <p className="text-xs text-blue-600 mt-0.5">Updated</p>
+                </div>
+              )}
+              <div className="bg-slate-50 rounded-xl p-3">
+                <p className="text-2xl font-bold text-slate-600">{result.skipped}</p>
+                <p className="text-xs text-slate-500 mt-0.5">Skipped</p>
+              </div>
+            </div>
+            {result.skipped > 0 && (
+              <p className="text-xs text-slate-400 text-center">
+                Skipped rows were missing required fields (name/address for properties, first name for tenants).
+              </p>
+            )}
+            <div className="flex justify-end">
+              <Button onClick={onClose}>Done</Button>
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
 
 // ─── Dashboard Tab ────────────────────────────────────────────────────────────
 
@@ -632,6 +876,7 @@ function UnitDetailPanel({ unit, pmTenants, onBack }: { unit: Unit; pmTenants: P
 function PropertiesTab() {
   const qc = useQueryClient();
   const [showAdd, setShowAdd] = useState(false);
+  const [showImport, setShowImport] = useState(false);
   const [selectedProperty, setSelectedProperty] = useState<Property | null>(null);
   const [selectedUnit, setSelectedUnit] = useState<Unit | null>(null);
 
@@ -733,9 +978,14 @@ function PropertiesTab() {
     <div className="space-y-4">
       <div className="flex items-center justify-between">
         <p className="text-sm text-slate-500">{properties.length} propert{properties.length !== 1 ? 'ies' : 'y'}</p>
-        <Button onClick={() => setShowAdd(true)} className="flex items-center gap-1.5">
-          <Plus className="h-4 w-4" /> Add Property
-        </Button>
+        <div className="flex gap-2">
+          <Button variant="outline" onClick={() => setShowImport(true)} className="flex items-center gap-1.5">
+            <Upload className="h-4 w-4" /> Import
+          </Button>
+          <Button onClick={() => setShowAdd(true)} className="flex items-center gap-1.5">
+            <Plus className="h-4 w-4" /> Add Property
+          </Button>
+        </div>
       </div>
 
       {properties.length === 0 ? (
@@ -781,6 +1031,13 @@ function PropertiesTab() {
           onSaved={() => qc.invalidateQueries({ queryKey: ['pm-properties'] })}
         />
       )}
+      {showImport && (
+        <ImportModal
+          type="properties"
+          onClose={() => setShowImport(false)}
+          onDone={() => qc.invalidateQueries({ queryKey: ['pm-properties'] })}
+        />
+      )}
     </div>
   );
 }
@@ -790,6 +1047,7 @@ function PropertiesTab() {
 function TenantsTab() {
   const qc = useQueryClient();
   const [showAdd, setShowAdd] = useState(false);
+  const [showImport, setShowImport] = useState(false);
   const [form, setForm] = useState({ firstName: '', lastName: '', email: '', phone: '', emergencyName: '', emergencyPhone: '', notes: '' });
   const f = (k: keyof typeof form) => (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => setForm((v) => ({ ...v, [k]: e.target.value }));
 
@@ -809,9 +1067,14 @@ function TenantsTab() {
     <div className="space-y-4">
       <div className="flex items-center justify-between">
         <p className="text-sm text-slate-500">{tenants.length} tenant{tenants.length !== 1 ? 's' : ''}</p>
-        <Button onClick={() => setShowAdd(true)} className="flex items-center gap-1.5">
-          <Plus className="h-4 w-4" /> Add Tenant
-        </Button>
+        <div className="flex gap-2">
+          <Button variant="outline" onClick={() => setShowImport(true)} className="flex items-center gap-1.5">
+            <Upload className="h-4 w-4" /> Import
+          </Button>
+          <Button onClick={() => setShowAdd(true)} className="flex items-center gap-1.5">
+            <Plus className="h-4 w-4" /> Add Tenant
+          </Button>
+        </div>
       </div>
 
       {showAdd && (
@@ -886,6 +1149,13 @@ function TenantsTab() {
             );
           })}
         </div>
+      )}
+      {showImport && (
+        <ImportModal
+          type="tenants"
+          onClose={() => setShowImport(false)}
+          onDone={() => qc.invalidateQueries({ queryKey: ['pm-tenants'] })}
+        />
       )}
     </div>
   );
