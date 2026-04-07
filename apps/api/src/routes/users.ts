@@ -214,6 +214,65 @@ usersRouter.delete('/:userId', requireRole('owner', 'admin'), async (req, res) =
   res.json({ success: true, data: { message: 'User deactivated' } } satisfies ApiResponse);
 });
 
+// GET /api/v1/users/:userId/today — owner view of member's activity today
+usersRouter.get('/:userId/today', requireRole('owner', 'admin', 'dispatcher'), async (req, res) => {
+  const { userId } = req.params;
+
+  const target = await prisma.user.findUnique({ where: { id: userId } });
+  if (!target || target.tenantId !== req.user!.tenantId) {
+    throw new AppError('User not found', 404, 'NOT_FOUND');
+  }
+
+  const startOfDay = new Date();
+  startOfDay.setHours(0, 0, 0, 0);
+  const endOfDay = new Date();
+  endOfDay.setHours(23, 59, 59, 999);
+
+  const [jobs, locationTrail] = await Promise.all([
+    prisma.job.findMany({
+      where: {
+        technicianId: userId,
+        tenantId: req.user!.tenantId,
+        scheduledStart: { gte: startOfDay, lte: endOfDay },
+      },
+      include: {
+        customer: { select: { firstName: true, lastName: true, phone: true } },
+        serviceAddress: { select: { street: true, city: true, state: true } },
+      },
+      orderBy: { scheduledStart: 'asc' },
+    }),
+    prisma.technicianLocation.findMany({
+      where: {
+        technicianId: userId,
+        recordedAt: { gte: startOfDay },
+      },
+      orderBy: { recordedAt: 'asc' },
+      // Sample every 5th point to keep payload manageable
+      ...({}),
+    }),
+  ]);
+
+  // Sample location trail — every 5th point
+  const sampledTrail = locationTrail.filter((_, i) => i % 5 === 0 || i === locationTrail.length - 1);
+
+  res.json({
+    success: true,
+    data: {
+      member: {
+        id: target.id,
+        firstName: target.firstName,
+        lastName: target.lastName,
+        role: target.role,
+        lastLat: target.lastLat,
+        lastLng: target.lastLng,
+        lastLocationAt: target.lastLocationAt,
+      },
+      jobs,
+      locationTrail: sampledTrail,
+    },
+  });
+});
+
 // POST /api/v1/users/me/location — tech/sales update their GPS position
 usersRouter.post('/me/location', async (req, res) => {
   const { lat, lng, heading, speed } = req.body as { lat: number; lng: number; heading?: number; speed?: number };

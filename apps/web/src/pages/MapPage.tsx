@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { MapContainer, TileLayer, Marker, Popup, useMap } from 'react-leaflet';
+import { MemberActivityDrawer } from '../components/MemberActivityDrawer';
 import L from 'leaflet';
 import { api } from '../lib/api';
 import { MapPin, User, RefreshCw } from 'lucide-react';
@@ -71,6 +72,7 @@ export function MapPage() {
   const [techs, setTechs] = useState<TechLocation[]>([]);
   const [loading, setLoading] = useState(true);
   const [lastRefresh, setLastRefresh] = useState(new Date());
+  const [selectedMember, setSelectedMember] = useState<{ id: string; name: string } | null>(null);
 
   const load = useCallback(async () => {
     try {
@@ -187,6 +189,7 @@ export function MapPage() {
               key={tech.id}
               position={[tech.lastLat, tech.lastLng]}
               icon={makeTechIcon(`${tech.firstName[0]}${tech.lastName[0]}`)}
+              eventHandlers={{ click: () => setSelectedMember({ id: tech.id, name: `${tech.firstName} ${tech.lastName}` }) }}
             >
               <Popup>
                 <div className="min-w-[140px]">
@@ -195,15 +198,26 @@ export function MapPage() {
                   <p className="text-xs text-gray-500 mt-1">
                     Last seen: {new Date(tech.lastLocationAt).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}
                   </p>
-                  <p className={`text-xs mt-1 font-medium ${tech.isAvailable ? 'text-emerald-600' : 'text-gray-400'}`}>
-                    {tech.isAvailable ? 'Available' : 'Unavailable'}
-                  </p>
+                  <button
+                    onClick={() => setSelectedMember({ id: tech.id, name: `${tech.firstName} ${tech.lastName}` })}
+                    className="mt-2 w-full text-xs text-indigo-600 font-semibold hover:underline text-left"
+                  >
+                    View today's activity →
+                  </button>
                 </div>
               </Popup>
             </Marker>
           ))}
         </MapContainer>
       </div>
+
+      {selectedMember && (
+        <MemberActivityDrawer
+          userId={selectedMember.id}
+          name={selectedMember.name}
+          onClose={() => setSelectedMember(null)}
+        />
+      )}
 
       {/* No coords notice */}
       {jobs.length > 0 && jobsWithCoords.length < jobs.length && (

@@ -3,8 +3,9 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from '../lib/api';
 import {
   Plus, Users, Edit2, DollarSign, Shield, X, Loader2, CheckCircle,
-  ChevronDown, ChevronUp, Trash2, TrendingUp, AlertCircle, Lock,
+  ChevronDown, ChevronUp, Trash2, TrendingUp, AlertCircle, Lock, Activity,
 } from 'lucide-react';
+import { MemberActivityDrawer } from '../components/MemberActivityDrawer';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -852,6 +853,7 @@ export function TeamPage() {
   const [showAdd, setShowAdd] = useState(false);
   const [editing, setEditing] = useState<TeamMember | null>(null);
   const [payDrawer, setPayDrawer] = useState<TeamMember | null>(null);
+  const [activityMember, setActivityMember] = useState<TeamMember | null>(null);
   const [expandedRoles, setExpandedRoles] = useState<Record<string, boolean>>({});
 
   const { data, isLoading } = useQuery({
@@ -925,6 +927,12 @@ export function TeamPage() {
                         {member.status}
                       </span>
                       <button
+                        onClick={() => setActivityMember(member)}
+                        title="Today's Activity"
+                        className="p-1.5 text-gray-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-colors">
+                        <Activity className="h-4 w-4" />
+                      </button>
+                      <button
                         onClick={() => setPayDrawer(member)}
                         title="Pay Structure"
                         className="p-1.5 text-gray-400 hover:text-emerald-600 hover:bg-emerald-50 rounded-lg transition-colors">
@@ -955,6 +963,13 @@ export function TeamPage() {
       {showAdd && <AddMemberModal onClose={() => setShowAdd(false)} onSaved={() => { setShowAdd(false); refresh(); }} />}
       {editing && <EditMemberModal member={editing} onClose={() => setEditing(null)} onSaved={() => { setEditing(null); refresh(); }} />}
       {payDrawer && <PayStructureDrawer member={payDrawer} onClose={() => setPayDrawer(null)} />}
+      {activityMember && (
+        <MemberActivityDrawer
+          userId={activityMember.id}
+          name={`${activityMember.firstName} ${activityMember.lastName}`}
+          onClose={() => setActivityMember(null)}
+        />
+      )}
     </div>
   );
 }
