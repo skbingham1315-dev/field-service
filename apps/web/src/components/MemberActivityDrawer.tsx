@@ -1,7 +1,7 @@
 import { useEffect } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { MapContainer, TileLayer, Polyline, CircleMarker, Tooltip } from 'react-leaflet';
-import { X, MapPin, Clock, CheckCircle, Briefcase, AlertCircle } from 'lucide-react';
+import { X, MapPin, Clock, CheckCircle, Briefcase, AlertCircle, BookUser, Users } from 'lucide-react';
 import { api } from '../lib/api';
 
 interface Props {
@@ -43,6 +43,10 @@ export function MemberActivityDrawer({ userId, name, onClose }: Props) {
           serviceAddress: { street: string; city: string; state: string } | null;
         }>;
         locationTrail: Array<{ lat: number; lng: number; recordedAt: string }>;
+        contactActivities: Array<{
+          id: string; type: string; note: string | null; createdAt: string;
+          contact: { fullName: string | null; businessName: string | null; phone: string | null } | null;
+        }>;
       };
     },
   });
@@ -56,6 +60,7 @@ export function MemberActivityDrawer({ userId, name, onClose }: Props) {
 
   const jobs = data?.jobs ?? [];
   const completed = jobs.filter(j => j.status === 'completed').length;
+  const contactActivities = data?.contactActivities ?? [];
 
   return (
     <>
@@ -81,18 +86,22 @@ export function MemberActivityDrawer({ userId, name, onClose }: Props) {
           <div className="flex-1 overflow-y-auto">
 
             {/* Stats strip */}
-            <div className="flex gap-4 px-5 py-3 border-b border-gray-100 bg-gray-50">
+            <div className="flex gap-4 px-5 py-3 border-b border-gray-100 bg-gray-50 flex-wrap">
               <div className="text-center">
                 <p className="text-xl font-bold text-gray-900">{jobs.length}</p>
-                <p className="text-xs text-gray-500">Jobs Today</p>
+                <p className="text-xs text-gray-500">Jobs</p>
               </div>
               <div className="text-center">
                 <p className="text-xl font-bold text-green-600">{completed}</p>
                 <p className="text-xs text-gray-500">Completed</p>
               </div>
               <div className="text-center">
+                <p className="text-xl font-bold text-indigo-600">{contactActivities.length}</p>
+                <p className="text-xs text-gray-500">CRM Edits</p>
+              </div>
+              <div className="text-center">
                 <p className="text-xl font-bold text-blue-600">{trail.length > 0 ? trail.length * 5 : 0}</p>
-                <p className="text-xs text-gray-500">Location Pings</p>
+                <p className="text-xs text-gray-500">GPS Pings</p>
               </div>
               {data?.member.lastLocationAt && (
                 <div className="text-center ml-auto">
@@ -195,6 +204,53 @@ export function MemberActivityDrawer({ userId, name, onClose }: Props) {
                 </div>
               )}
             </div>
+
+            {/* Contact / CRM activity */}
+            <div className="px-5 pt-3 pb-6">
+              <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3 flex items-center gap-1.5">
+                <BookUser className="h-3.5 w-3.5" /> Contact & CRM Activity Today
+              </p>
+
+              {contactActivities.length === 0 ? (
+                <div className="text-center py-6 text-sm text-gray-400">
+                  <Users className="h-7 w-7 mx-auto mb-2 text-gray-300" />
+                  No contact edits today
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  {contactActivities.map(a => {
+                    const contactName = a.contact?.fullName ?? a.contact?.businessName ?? 'Unknown Contact';
+                    const typeLabel: Record<string, string> = {
+                      status_change: 'Status Changed',
+                      note: 'Note Added',
+                      call: 'Call Logged',
+                      email: 'Email Logged',
+                      visit: 'Visit Logged',
+                      text: 'Text Logged',
+                      estimate_sent: 'Estimate Sent',
+                      job_completed: 'Job Completed',
+                      follow_up_set: 'Follow-up Set',
+                    };
+                    return (
+                      <div key={a.id} className="flex items-start gap-3 bg-gray-50 border border-gray-100 rounded-xl p-3">
+                        <div className="h-7 w-7 rounded-full bg-indigo-100 flex items-center justify-center flex-shrink-0 mt-0.5">
+                          <BookUser className="h-3.5 w-3.5 text-indigo-600" />
+                        </div>
+                        <div className="min-w-0 flex-1">
+                          <div className="flex items-center justify-between gap-2">
+                            <p className="text-xs font-semibold text-gray-700">{typeLabel[a.type] ?? a.type}</p>
+                            <p className="text-xs text-gray-400 flex-shrink-0">{fmt(a.createdAt)}</p>
+                          </div>
+                          <p className="text-xs text-gray-500 mt-0.5">{contactName}</p>
+                          {a.note && <p className="text-xs text-gray-400 mt-1 italic">"{a.note}"</p>}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+
           </div>
         )}
       </div>

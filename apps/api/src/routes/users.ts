@@ -228,7 +228,7 @@ usersRouter.get('/:userId/today', requireRole('owner', 'admin', 'dispatcher'), a
   const endOfDay = new Date();
   endOfDay.setHours(23, 59, 59, 999);
 
-  const [jobs, locationTrail] = await Promise.all([
+  const [jobs, locationTrail, contactActivities] = await Promise.all([
     prisma.job.findMany({
       where: {
         technicianId: userId,
@@ -242,17 +242,16 @@ usersRouter.get('/:userId/today', requireRole('owner', 'admin', 'dispatcher'), a
       orderBy: { scheduledStart: 'asc' },
     }),
     prisma.technicianLocation.findMany({
-      where: {
-        technicianId: userId,
-        recordedAt: { gte: startOfDay },
-      },
+      where: { technicianId: userId, recordedAt: { gte: startOfDay } },
       orderBy: { recordedAt: 'asc' },
-      // Sample every 5th point to keep payload manageable
-      ...({}),
+    }),
+    prisma.contactActivity.findMany({
+      where: { createdBy: target.email, createdAt: { gte: startOfDay } },
+      include: { contact: { select: { fullName: true, businessName: true, phone: true } } },
+      orderBy: { createdAt: 'desc' },
     }),
   ]);
 
-  // Sample location trail — every 5th point
   const sampledTrail = locationTrail.filter((_, i) => i % 5 === 0 || i === locationTrail.length - 1);
 
   res.json({
@@ -263,12 +262,14 @@ usersRouter.get('/:userId/today', requireRole('owner', 'admin', 'dispatcher'), a
         firstName: target.firstName,
         lastName: target.lastName,
         role: target.role,
+        email: target.email,
         lastLat: target.lastLat,
         lastLng: target.lastLng,
         lastLocationAt: target.lastLocationAt,
       },
       jobs,
       locationTrail: sampledTrail,
+      contactActivities,
     },
   });
 });
