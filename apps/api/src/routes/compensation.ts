@@ -488,15 +488,23 @@ compensationRouter.post('/payroll/preview', requireRole('owner', 'admin'), async
     });
     const hours = Number(timeEntries._sum?.hoursWorked ?? 0);
 
-    // Hourly pay from time entries
+    // Hourly pay from time entries — use pay component rate if configured,
+    // otherwise fall back to the simple user.payRate field
     const hourlyComp = user.payComponents.find(c => c.type === 'hourly');
-    if (hourlyComp && hours > 0) {
-      const cfg = hourlyComp.config as { rate?: number; overtimeThreshold?: number; overtimeMultiplier?: number };
-      const otThreshold = cfg.overtimeThreshold ?? 40;
-      const otMult = cfg.overtimeMultiplier ?? 1.5;
-      const regularHrs = Math.min(hours, otThreshold * weeks);
-      const otHrs = Math.max(0, hours - regularHrs);
-      basePay += regularHrs * (cfg.rate ?? 0) + otHrs * (cfg.rate ?? 0) * otMult;
+    if (hours > 0) {
+      if (hourlyComp) {
+        const cfg = hourlyComp.config as { rate?: number; overtimeThreshold?: number; overtimeMultiplier?: number };
+        const otThreshold = cfg.overtimeThreshold ?? 40;
+        const otMult = cfg.overtimeMultiplier ?? 1.5;
+        const regularHrs = Math.min(hours, otThreshold * weeks);
+        const otHrs = Math.max(0, hours - regularHrs);
+        basePay += regularHrs * (cfg.rate ?? 0) + otHrs * (cfg.rate ?? 0) * otMult;
+      } else if (user.payRate && (user.payType === 'hourly' || !user.payType)) {
+        // Fall back to simple payRate field on user record
+        const regularHrs = Math.min(hours, 40 * weeks);
+        const otHrs = Math.max(0, hours - regularHrs);
+        basePay += regularHrs * user.payRate + otHrs * user.payRate * 1.5;
+      }
     }
 
     return {
