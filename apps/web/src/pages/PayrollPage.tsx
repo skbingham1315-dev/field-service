@@ -790,15 +790,17 @@ function parseSheetData(rows: Record<string, string>[], team: TeamMember[]): Par
       if (canonical) (mapped as unknown as Record<string, string>)[canonical] = String(value ?? '').trim();
     }
 
-    // Try to match employee by name
+    // Try to match employee by name (case-insensitive, also partial last-name match)
     const fullName = mapped.name ?? `${mapped.firstName ?? ''} ${mapped.lastName ?? ''}`.trim();
     if (fullName) {
-      const lower = fullName.toLowerCase();
-      const match = team.find(u =>
-        `${u.firstName} ${u.lastName}`.toLowerCase() === lower ||
-        u.firstName.toLowerCase() === lower ||
-        u.lastName.toLowerCase() === lower
-      );
+      const lower = fullName.toLowerCase().replace(/\s+/g, ' ');
+      const match = team.find(u => {
+        const full = `${u.firstName} ${u.lastName}`.toLowerCase();
+        const first = u.firstName.toLowerCase();
+        const last = u.lastName.toLowerCase();
+        return full === lower || first === lower || last === lower ||
+          lower.includes(last) || lower.includes(first);
+      });
       if (match) mapped.matchedUserId = match.id;
     }
 
@@ -974,7 +976,30 @@ function SpreadsheetImportModal({ team, onClose, onImported }: {
           {/* Preview table */}
           {rows.length > 0 && (
             <>
-              <p className="text-xs text-gray-500">{rows.length} rows found · {readyCount} ready to import</p>
+              <div className="flex items-center gap-3 flex-wrap">
+                <p className="text-xs text-gray-500">{rows.length} rows found · {readyCount} ready to import</p>
+                {rows.some((_, i) => !userMap[i]) && (
+                  <div className="ml-auto flex items-center gap-2">
+                    <span className="text-xs text-gray-500 whitespace-nowrap">Apply to all unmatched:</span>
+                    <select
+                      defaultValue=""
+                      onChange={e => {
+                        if (!e.target.value) return;
+                        setUserMap(m => {
+                          const next = { ...m };
+                          rows.forEach((_, i) => { if (!next[i]) next[i] = e.target.value; });
+                          return next;
+                        });
+                        e.target.value = '';
+                      }}
+                      className="px-2 py-1.5 border border-indigo-300 rounded-lg text-xs bg-white focus:outline-none focus:ring-1 focus:ring-indigo-500 text-indigo-700 font-medium"
+                    >
+                      <option value="">— select employee —</option>
+                      {team.map(u => <option key={u.id} value={u.id}>{u.firstName} {u.lastName}</option>)}
+                    </select>
+                  </div>
+                )}
+              </div>
               <div className="rounded-xl border border-gray-200 overflow-hidden">
                 <div className="overflow-x-auto">
                   <table className="w-full text-xs">
