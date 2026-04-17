@@ -44,6 +44,7 @@ export interface AuthTokenPayload {
   sub: string;       // userId
   tenantId: string;
   role: UserRole;
+  secondaryRoles: string[];
   email: string;
   iat: number;
   exp: number;

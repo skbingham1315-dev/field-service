@@ -22,6 +22,7 @@ usersRouter.get('/', requireRole('owner', 'admin', 'dispatcher'), async (req, re
       lastName: true,
       phone: true,
       role: true,
+      secondaryRoles: true,
       status: true,
       avatarUrl: true,
       isAvailable: true,
@@ -80,8 +81,9 @@ usersRouter.patch('/me', async (req, res) => {
 
 // POST /api/v1/users — owner/admin: directly create a team member with password
 usersRouter.post('/', requireRole('owner', 'admin'), async (req, res) => {
-  const { email, firstName, lastName, role, phone, password, payRate, payType, customPermissions } = req.body as {
+  const { email, firstName, lastName, role, secondaryRoles, phone, password, payRate, payType, customPermissions } = req.body as {
     email: string; firstName: string; lastName: string; role: string;
+    secondaryRoles?: string[];
     phone?: string; password: string;
     payRate?: number; payType?: string; customPermissions?: Record<string, unknown>;
   };
@@ -105,6 +107,7 @@ usersRouter.post('/', requireRole('owner', 'admin'), async (req, res) => {
       email, firstName, lastName,
       phone: phone || null,
       role: role as never,
+      secondaryRoles: secondaryRoles ?? [],
       status: 'active',
       passwordHash,
       payRate: payRate ?? null,
@@ -113,7 +116,7 @@ usersRouter.post('/', requireRole('owner', 'admin'), async (req, res) => {
     },
     select: {
       id: true, email: true, firstName: true, lastName: true, phone: true,
-      role: true, status: true, payRate: true, payType: true, customPermissions: true, createdAt: true,
+      role: true, secondaryRoles: true, status: true, payRate: true, payType: true, customPermissions: true, createdAt: true,
     },
   });
 
@@ -165,8 +168,8 @@ usersRouter.patch('/:userId', requireRole('owner', 'admin'), async (req, res) =>
     throw new AppError('User not found', 404, 'NOT_FOUND');
   }
 
-  const { role, status, firstName, lastName, phone, payRate, payType, customPermissions } = req.body as {
-    role?: string; status?: string; firstName?: string; lastName?: string; phone?: string;
+  const { role, secondaryRoles, status, firstName, lastName, phone, payRate, payType, customPermissions } = req.body as {
+    role?: string; secondaryRoles?: string[]; status?: string; firstName?: string; lastName?: string; phone?: string;
     payRate?: number | null; payType?: string; customPermissions?: Record<string, unknown> | null;
   };
 
@@ -178,6 +181,7 @@ usersRouter.patch('/:userId', requireRole('owner', 'admin'), async (req, res) =>
     where: { id: userId },
     data: {
       ...(role ? { role: role as never } : {}),
+      ...(secondaryRoles !== undefined ? { secondaryRoles } : {}),
       ...(status ? { status: status as never } : {}),
       firstName, lastName, phone,
       ...(payRate !== undefined ? { payRate } : {}),
@@ -186,7 +190,7 @@ usersRouter.patch('/:userId', requireRole('owner', 'admin'), async (req, res) =>
     },
     select: {
       id: true, email: true, firstName: true, lastName: true, phone: true,
-      role: true, status: true, payRate: true, payType: true, customPermissions: true, updatedAt: true,
+      role: true, secondaryRoles: true, status: true, payRate: true, payType: true, customPermissions: true, updatedAt: true,
     },
   });
 

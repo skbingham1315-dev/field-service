@@ -28,7 +28,8 @@ export function authenticate(req: Request, _res: Response, next: NextFunction) {
 export function requireRole(...roles: UserRole[]) {
   return (req: Request, _res: Response, next: NextFunction) => {
     if (!req.user) throw new AppError('Unauthorized', 401, 'UNAUTHORIZED');
-    if (!roles.includes(req.user.role)) {
+    const allRoles = [req.user.role, ...(req.user.secondaryRoles ?? [])] as UserRole[];
+    if (!allRoles.some(r => roles.includes(r))) {
       throw new AppError('Forbidden', 403, 'FORBIDDEN');
     }
     next();

@@ -170,6 +170,7 @@ model User {
   lastLat           Float?
   lastLng           Float?
   lastLocationAt    DateTime?
+  secondaryRoles    String[]   @default([])
   createdAt         DateTime   @default(now())
   updatedAt         DateTime   @updatedAt
 

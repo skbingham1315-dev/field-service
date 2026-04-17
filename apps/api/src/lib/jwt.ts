@@ -26,12 +26,14 @@ export function buildTokenPayload(user: {
   id: string;
   tenantId: string;
   role: UserRole;
+  secondaryRoles?: string[];
   email: string;
 }): Omit<AuthTokenPayload, 'iat' | 'exp'> {
   return {
     sub: user.id,
     tenantId: user.tenantId,
     role: user.role,
+    secondaryRoles: user.secondaryRoles ?? [],
     email: user.email,
   };
 }

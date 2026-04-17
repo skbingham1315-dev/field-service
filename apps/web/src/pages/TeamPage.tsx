@@ -16,6 +16,7 @@ interface TeamMember {
   email: string;
   phone?: string;
   role: string;
+  secondaryRoles?: string[];
   status: string;
   payRate?: number;
   payType?: string;
@@ -570,12 +571,15 @@ function PayStructureDrawer({ member, onClose }: { member: TeamMember; onClose: 
 
 // ── Add Member Modal ──────────────────────────────────────────────────────────
 
+const SECONDARY_ROLE_OPTIONS = ['technician', 'sales', 'dispatcher', 'admin'];
+
 function AddMemberModal({ onClose, onSaved }: { onClose: () => void; onSaved: () => void }) {
   const [form, setForm] = useState({
     firstName: '', lastName: '', email: '', phone: '', password: '',
     role: 'technician', payRate: '', payType: 'hourly',
     employmentType: 'w2', territory: '',
   });
+  const [secondaryRoles, setSecondaryRoles] = useState<string[]>([]);
   const [permissions, setPermissions] = useState<Record<string, boolean>>({});
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
@@ -592,6 +596,7 @@ function AddMemberModal({ onClose, onSaved }: { onClose: () => void; onSaved: ()
     try {
       await api.post('/users', {
         ...form,
+        secondaryRoles,
         payRate: form.payRate ? Number(form.payRate) : null,
         customPermissions: Object.keys(permissions).length ? permissions : undefined,
       });
@@ -659,6 +664,21 @@ function AddMemberModal({ onClose, onSaved }: { onClose: () => void; onSaved: ()
             <input value={form.territory} onChange={set('territory')} placeholder="e.g. East Valley, Phoenix North" className={inp} />
           </div>
 
+          <div className="border border-gray-200 rounded-xl p-4 space-y-2">
+            <p className="text-xs font-medium text-gray-700">Additional Roles (optional)</p>
+            <p className="text-xs text-gray-400">Give this member access to features from other roles.</p>
+            <div className="flex flex-wrap gap-2 pt-1">
+              {SECONDARY_ROLE_OPTIONS.filter(r => r !== form.role).map(r => (
+                <label key={r} className="flex items-center gap-1.5 cursor-pointer">
+                  <input type="checkbox" checked={secondaryRoles.includes(r)}
+                    onChange={e => setSecondaryRoles(prev => e.target.checked ? [...prev, r] : prev.filter(x => x !== r))}
+                    className="rounded border-gray-300 text-indigo-600 focus:ring-indigo-500" />
+                  <span className={`text-xs px-2 py-0.5 rounded-full font-medium capitalize ${ROLE_COLORS[r] ?? 'bg-gray-100 text-gray-600'}`}>{r}</span>
+                </label>
+              ))}
+            </div>
+          </div>
+
           <div className="bg-gray-50 rounded-xl p-4 space-y-3">
             <p className="text-xs font-medium text-gray-600 flex items-center gap-2"><DollarSign className="h-3.5 w-3.5" /> Base Compensation</p>
             <div className="grid grid-cols-2 gap-3">
@@ -720,6 +740,7 @@ function EditMemberModal({ member, onClose, onSaved }: { member: TeamMember; onC
     employmentType: member.employmentType ?? 'w2',
     territory: member.territory ?? '',
   });
+  const [secondaryRoles, setSecondaryRoles] = useState<string[]>(member.secondaryRoles ?? []);
   const [permissions, setPermissions] = useState<Record<string, boolean>>(member.customPermissions ?? {});
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
@@ -735,6 +756,7 @@ function EditMemberModal({ member, onClose, onSaved }: { member: TeamMember; onC
     try {
       await api.patch(`/users/${member.id}`, {
         ...form,
+        secondaryRoles,
         payRate: form.payRate ? Number(form.payRate) : null,
         customPermissions: permissions,
       });
@@ -793,6 +815,21 @@ function EditMemberModal({ member, onClose, onSaved }: { member: TeamMember; onC
             <div>
               <label className="block text-xs font-medium text-gray-700 mb-1">Territory</label>
               <input value={form.territory} onChange={set('territory')} placeholder="e.g. East Valley" className={inp} />
+            </div>
+          </div>
+
+          <div className="border border-gray-200 rounded-xl p-4 space-y-2">
+            <p className="text-xs font-medium text-gray-700">Additional Roles</p>
+            <p className="text-xs text-gray-400">Give this member access to features from other roles.</p>
+            <div className="flex flex-wrap gap-2 pt-1">
+              {SECONDARY_ROLE_OPTIONS.filter(r => r !== form.role).map(r => (
+                <label key={r} className="flex items-center gap-1.5 cursor-pointer">
+                  <input type="checkbox" checked={secondaryRoles.includes(r)}
+                    onChange={e => setSecondaryRoles(prev => e.target.checked ? [...prev, r] : prev.filter(x => x !== r))}
+                    className="rounded border-gray-300 text-indigo-600 focus:ring-indigo-500" />
+                  <span className={`text-xs px-2 py-0.5 rounded-full font-medium capitalize ${ROLE_COLORS[r] ?? 'bg-gray-100 text-gray-600'}`}>{r}</span>
+                </label>
+              ))}
             </div>
           </div>
 
@@ -923,6 +960,11 @@ export function TeamPage() {
                       <span className={`text-xs px-2 py-1 rounded-full font-medium capitalize ${ROLE_COLORS[member.role] ?? 'bg-gray-100 text-gray-600'}`}>
                         {member.role}
                       </span>
+                      {member.secondaryRoles?.map(r => (
+                        <span key={r} className={`text-xs px-2 py-1 rounded-full font-medium capitalize ${ROLE_COLORS[r] ?? 'bg-gray-100 text-gray-600'}`}>
+                          +{r}
+                        </span>
+                      ))}
                       <span className={`text-xs px-2 py-1 rounded-full font-medium ${member.status === 'active' ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-500'}`}>
                         {member.status}
                       </span>

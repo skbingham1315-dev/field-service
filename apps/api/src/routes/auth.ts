@@ -50,6 +50,7 @@ authRouter.post('/login', async (req, res) => {
     id: user.id,
     tenantId: user.tenantId,
     role: user.role as UserRole,
+    secondaryRoles: user.secondaryRoles,
     email: user.email,
   });
   const accessToken = signAccessToken(payload);
@@ -143,6 +144,7 @@ authRouter.post('/register', async (req, res) => {
     id: user.id,
     tenantId: user.tenantId,
     role: user.role as UserRole,
+    secondaryRoles: [],
     email: user.email,
   });
   const accessToken = signAccessToken(tokenPayload);
@@ -219,6 +221,7 @@ authRouter.post('/refresh', async (req, res) => {
     id: user.id,
     tenantId: user.tenantId,
     role: user.role as UserRole,
+    secondaryRoles: user.secondaryRoles,
     email: user.email,
   });
   const newAccessToken = signAccessToken(tokenPayload);

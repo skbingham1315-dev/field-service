@@ -1,0 +1,1 @@
+ALTER TABLE "users" ADD COLUMN IF NOT EXISTS "secondaryRoles" TEXT[] NOT NULL DEFAULT '{}';
