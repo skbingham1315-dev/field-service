@@ -1,6 +1,6 @@
 [build]
 builder = "NIXPACKS"
-buildCommand = "npm ci --workspace=apps/api --workspace=packages/db --workspace=packages/types --workspace=packages/ui && npm run db:generate && cd apps/api && npx tsc -p tsconfig.json"
+buildCommand = "npm ci --workspace=apps/api --workspace=apps/web --workspace=packages/db --workspace=packages/types --workspace=packages/ui && npm run db:generate && cd apps/api && npx tsc -p tsconfig.json && cd ../web && npx vite build"
 
 [deploy]
 startCommand = "cd apps/api && sh start.sh"
