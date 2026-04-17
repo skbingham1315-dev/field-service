@@ -110,7 +110,7 @@ payrollRouter.post('/import', async (req, res) => {
     res.status(400).json({ success: false, message: 'runs array is required' }); return;
   }
 
-  const created = [];
+  const created: string[] = [];
   for (const run of runs) {
     if (!run.periodStart || !run.periodEnd || !run.entries?.length) continue;
     const totalGross = Math.round(run.entries.reduce((s, e) => s + (e.grossPay ?? 0), 0) * 100) / 100;
