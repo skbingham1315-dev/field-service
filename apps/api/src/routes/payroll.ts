@@ -84,6 +84,65 @@ payrollRouter.post('/', async (req, res) => {
   res.status(201).json({ success: true, data: run } satisfies ApiResponse);
 });
 
+// POST /api/v1/payroll/import — bulk import historical pay runs (status = paid)
+payrollRouter.post('/import', async (req, res) => {
+  const { tenantId, sub: userId } = req.user!;
+
+  interface ImportEntry {
+    userId: string;
+    regularHours?: number;
+    overtimeHours?: number;
+    payRate?: number;
+    payType?: string;
+    grossPay: number;
+    notes?: string;
+  }
+  interface ImportRun {
+    periodStart: string;
+    periodEnd: string;
+    paidAt?: string;
+    notes?: string;
+    entries: ImportEntry[];
+  }
+
+  const { runs } = req.body as { runs: ImportRun[] };
+  if (!Array.isArray(runs) || runs.length === 0) {
+    res.status(400).json({ success: false, message: 'runs array is required' }); return;
+  }
+
+  const created = [];
+  for (const run of runs) {
+    if (!run.periodStart || !run.periodEnd || !run.entries?.length) continue;
+    const totalGross = Math.round(run.entries.reduce((s, e) => s + (e.grossPay ?? 0), 0) * 100) / 100;
+    const record = await prisma.payrollRun.create({
+      data: {
+        tenantId,
+        periodStart: new Date(run.periodStart),
+        periodEnd: new Date(run.periodEnd),
+        status: 'paid',
+        totalGross,
+        notes: run.notes || 'Imported historical run',
+        paidAt: run.paidAt ? new Date(run.paidAt) : new Date(run.periodEnd),
+        createdById: userId,
+        entries: {
+          create: run.entries.map(e => ({
+            userId: e.userId,
+            regularHours: e.regularHours ?? 0,
+            overtimeHours: e.overtimeHours ?? 0,
+            payRate: e.payRate ?? 0,
+            payType: e.payType ?? 'hourly',
+            grossPay: e.grossPay,
+            notes: e.notes || null,
+          })),
+        },
+      },
+    });
+    created.push(record.id);
+  }
+
+  res.status(201).json({ success: true, data: { imported: created.length } } satisfies ApiResponse);
+});
+
 // PATCH /api/v1/payroll/:id/entries/:entryId — edit a single payroll entry
 payrollRouter.patch('/:id/entries/:entryId', async (req, res) => {
   const { tenantId } = req.user!;

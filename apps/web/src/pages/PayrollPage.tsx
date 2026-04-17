@@ -111,6 +111,7 @@ const STATUS_STYLES: Record<string, string> = {
 function PayRunTab() {
   const qc = useQueryClient();
   const [showNew, setShowNew] = useState(false);
+  const [showImportRuns, setShowImportRuns] = useState(false);
   const [expanded, setExpanded] = useState<string | null>(null);
   const [editEntry, setEditEntry] = useState<{ runId: string; entry: PayrollEntry } | null>(null);
 
@@ -119,12 +120,21 @@ function PayRunTab() {
     queryFn: () => api.get('/payroll').then(r => r.data.data as PayrollRun[]),
   });
 
+  const { data: team = [] } = useQuery({
+    queryKey: ['team-payrun'],
+    queryFn: () => api.get('/users').then(r => r.data.data as TeamMember[]),
+  });
+
   const today = new Date().toISOString().split('T')[0];
   const twoWeeksAgo = new Date(Date.now() - 14 * 86400000).toISOString().split('T')[0];
 
   return (
     <div className="space-y-4">
-      <div className="flex justify-end">
+      <div className="flex items-center gap-2 justify-end">
+        <button onClick={() => setShowImportRuns(true)}
+          className="flex items-center gap-2 bg-white border border-gray-300 hover:bg-gray-50 text-gray-700 text-sm font-medium px-4 py-2.5 rounded-xl transition-colors">
+          <FileSpreadsheet className="h-4 w-4" /> Import Past Pay Runs
+        </button>
         <button onClick={() => setShowNew(true)}
           className="flex items-center gap-2 bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-semibold px-4 py-2.5 rounded-xl transition-colors">
           <Plus className="h-4 w-4" /> New Pay Run
@@ -200,6 +210,13 @@ function PayRunTab() {
           defaultEnd={today}
           onClose={() => setShowNew(false)}
           onCreated={() => { setShowNew(false); qc.invalidateQueries({ queryKey: ['payroll-runs'] }); }}
+        />
+      )}
+      {showImportRuns && (
+        <ImportPayRunsModal
+          team={team}
+          onClose={() => setShowImportRuns(false)}
+          onImported={() => { setShowImportRuns(false); qc.invalidateQueries({ queryKey: ['payroll-runs'] }); }}
         />
       )}
       {editEntry && (
@@ -674,6 +691,351 @@ function TargetFormModal({ team, onClose, onSaved }: {
             </button>
           </div>
         </form>
+      </div>
+    </div>
+  );
+}
+
+// ── Import Past Pay Runs Modal ────────────────────────────────────────────────
+
+const PR_COLUMN_MAP: Record<string, string> = {
+  periodstart: 'periodStart', paystartdate: 'periodStart', startdate: 'periodStart', start: 'periodStart',
+  periodend: 'periodEnd', payenddate: 'periodEnd', enddate: 'periodEnd', end: 'periodEnd',
+  paydate: 'periodEnd', date: 'periodEnd', paiddate: 'paidAt', datepaid: 'paidAt', paymentdate: 'paidAt',
+  employee: 'name', employeename: 'name', name: 'name',
+  firstname: 'firstName', lastname: 'lastName',
+  regularhours: 'regularHours', reghours: 'regularHours',
+  overtimehours: 'overtimeHours', othours: 'overtimeHours', overtime: 'overtimeHours',
+  hours: 'totalHours', hoursworked: 'totalHours', totalhours: 'totalHours',
+  payrate: 'payRate', rate: 'payRate', hourlyrate: 'payRate',
+  paytype: 'payType', type: 'payType',
+  grosspay: 'grossPay', amount: 'grossPay', amountpaid: 'grossPay', totalpay: 'grossPay', gross: 'grossPay', total: 'grossPay',
+  notes: 'notes', description: 'notes',
+  period: 'period',
+};
+
+interface PRRow {
+  raw: Record<string, string>;
+  periodStart?: string;
+  periodEnd?: string;
+  paidAt?: string;
+  name?: string;
+  firstName?: string;
+  lastName?: string;
+  regularHours?: string;
+  overtimeHours?: string;
+  totalHours?: string;
+  payRate?: string;
+  payType?: string;
+  grossPay?: string;
+  notes?: string;
+  period?: string;
+  matchedUserId?: string;
+  error?: string;
+}
+
+interface PRGroup {
+  periodStart: string;
+  periodEnd: string;
+  paidAt?: string;
+  rows: Array<PRRow & { userId?: string }>;
+}
+
+function parsePeriodField(val: string): { start: string; end: string } | null {
+  // "1/1/2026 - 1/15/2026" or "Jan 1 - Jan 15, 2026" etc.
+  const parts = val.split(/[-–—]/).map(s => s.trim());
+  if (parts.length >= 2) {
+    const a = new Date(parts[0]);
+    // If second part lacks year, append year from first
+    let bStr = parts[1];
+    if (!/\d{4}/.test(bStr) && /\d{4}/.test(parts[0])) {
+      bStr += `, ${parts[0].match(/\d{4}/)![0]}`;
+    }
+    const b = new Date(bStr);
+    if (!isNaN(a.getTime()) && !isNaN(b.getTime())) {
+      return { start: a.toISOString().split('T')[0], end: b.toISOString().split('T')[0] };
+    }
+  }
+  return null;
+}
+
+function parsePRRows(data: Record<string, string>[], team: TeamMember[]): PRRow[] {
+  return data.map(raw => {
+    const mapped: PRRow = { raw };
+    for (const [rawKey, value] of Object.entries(raw)) {
+      const canonical = PR_COLUMN_MAP[normaliseKey(rawKey)];
+      if (canonical) (mapped as unknown as Record<string, string>)[canonical] = String(value ?? '').trim();
+    }
+
+    // If "period" column has a range like "1/1/2026 - 1/15/2026", split it
+    if (mapped.period && !mapped.periodStart) {
+      const parsed = parsePeriodField(mapped.period);
+      if (parsed) { mapped.periodStart = parsed.start; mapped.periodEnd = parsed.end; }
+    }
+    // If only one date col (e.g. "Pay Date"), use it as both start and end
+    if (!mapped.periodStart && mapped.periodEnd) mapped.periodStart = mapped.periodEnd;
+
+    // Normalise dates
+    if (mapped.periodStart) mapped.periodStart = parseDateValue(mapped.periodStart);
+    if (mapped.periodEnd) mapped.periodEnd = parseDateValue(mapped.periodEnd);
+    if (mapped.paidAt) mapped.paidAt = parseDateValue(mapped.paidAt);
+
+    // Match employee
+    const fullName = mapped.name ?? `${mapped.firstName ?? ''} ${mapped.lastName ?? ''}`.trim();
+    if (fullName) {
+      const lower = fullName.toLowerCase().replace(/\s+/g, ' ');
+      const match = team.find(u => {
+        const full = `${u.firstName} ${u.lastName}`.toLowerCase();
+        const first = u.firstName.toLowerCase();
+        const last = u.lastName.toLowerCase();
+        return full === lower || first === lower || last === lower ||
+          lower.includes(last) || lower.includes(first);
+      });
+      if (match) mapped.matchedUserId = match.id;
+    }
+
+    if (!mapped.periodStart || !mapped.periodEnd) mapped.error = 'Missing pay period';
+    else if (!mapped.grossPay) mapped.error = 'Missing gross pay amount';
+
+    return mapped;
+  }).filter(r => Object.values(r.raw).some(v => v !== ''));
+}
+
+function groupPRRows(rows: PRRow[], userMap: Record<number, string>): PRGroup[] {
+  const groups: Record<string, PRGroup> = {};
+  rows.forEach((row, i) => {
+    if (!row.periodStart || !row.periodEnd) return;
+    const key = `${row.periodStart}|${row.periodEnd}`;
+    if (!groups[key]) groups[key] = { periodStart: row.periodStart, periodEnd: row.periodEnd, paidAt: row.paidAt, rows: [] };
+    groups[key].rows.push({ ...row, userId: userMap[i] });
+  });
+  return Object.values(groups).sort((a, b) => b.periodStart.localeCompare(a.periodStart));
+}
+
+function ImportPayRunsModal({ team, onClose, onImported }: {
+  team: TeamMember[];
+  onClose: () => void;
+  onImported: () => void;
+}) {
+  const [rows, setRows] = useState<PRRow[]>([]);
+  const [userMap, setUserMap] = useState<Record<number, string>>({});
+  const [dragging, setDragging] = useState(false);
+  const [fileName, setFileName] = useState('');
+  const [parseError, setParseError] = useState('');
+  const [submitting, setSubmitting] = useState(false);
+  const [submitError, setSubmitError] = useState('');
+  const fileRef = useRef<HTMLInputElement>(null);
+
+  const processFile = (file: File) => {
+    setParseError(''); setRows([]); setUserMap({});
+    setFileName(file.name);
+    const isExcel = file.name.match(/\.xlsx?$/i);
+    const handle = (data: Record<string, string>[]) => {
+      const parsed = parsePRRows(data, team);
+      setRows(parsed);
+      const map: Record<number, string> = {};
+      parsed.forEach((r, i) => { if (r.matchedUserId) map[i] = r.matchedUserId; });
+      setUserMap(map);
+    };
+    if (isExcel) {
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        try {
+          const wb = XLSX.read(e.target!.result, { type: 'array', cellDates: false });
+          const ws = wb.Sheets[wb.SheetNames[0]];
+          handle(XLSX.utils.sheet_to_json<Record<string, string>>(ws, { defval: '', raw: false }));
+        } catch { setParseError('Could not read Excel file.'); }
+      };
+      reader.readAsArrayBuffer(file);
+    } else {
+      Papa.parse<Record<string, string>>(file, {
+        header: true, skipEmptyLines: true,
+        complete: r => handle(r.data),
+        error: () => setParseError('Could not parse CSV.'),
+      });
+    }
+  };
+
+  const onDrop = useCallback((e: React.DragEvent) => {
+    e.preventDefault(); setDragging(false);
+    const f = e.dataTransfer.files[0]; if (f) processFile(f);
+  }, [team]);
+
+  const groups = groupPRRows(rows, userMap);
+  const readyGroups = groups.filter(g => g.rows.every(r => r.userId && !r.error));
+  const totalReady = readyGroups.reduce((s, g) => s + g.rows.length, 0);
+  const unmatched = rows.filter((_, i) => !userMap[i]).length;
+
+  const handleSubmit = async () => {
+    setSubmitting(true); setSubmitError('');
+    try {
+      const payload = readyGroups.map(g => ({
+        periodStart: g.periodStart,
+        periodEnd: g.periodEnd,
+        paidAt: g.paidAt ?? g.periodEnd,
+        notes: 'Imported historical run',
+        entries: g.rows.map(r => ({
+          userId: r.userId!,
+          regularHours: r.regularHours ? Number(r.regularHours) : (r.totalHours ? Math.min(Number(r.totalHours), 40) : 0),
+          overtimeHours: r.overtimeHours ? Number(r.overtimeHours) : (r.totalHours ? Math.max(Number(r.totalHours) - 40, 0) : 0),
+          payRate: r.payRate ? Number(r.payRate) : 0,
+          payType: r.payType ?? 'hourly',
+          grossPay: Number(r.grossPay),
+          notes: r.notes || undefined,
+        })),
+      }));
+      await api.post('/payroll/import', { runs: payload });
+      onImported();
+    } catch (e: unknown) {
+      setSubmitError((e as { response?: { data?: { message?: string } } })?.response?.data?.message ?? 'Import failed');
+    } finally { setSubmitting(false); }
+  };
+
+  const inp = 'w-full px-3 py-1.5 border border-gray-300 rounded-lg text-xs focus:outline-none focus:ring-1 focus:ring-indigo-500 bg-white';
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-3xl max-h-[90vh] flex flex-col">
+        <div className="flex items-center justify-between p-5 border-b flex-shrink-0">
+          <h2 className="font-bold text-gray-900 flex items-center gap-2">
+            <FileSpreadsheet className="h-5 w-5 text-indigo-500" /> Import Past Pay Runs
+          </h2>
+          <button onClick={onClose}><X className="h-5 w-5 text-gray-400" /></button>
+        </div>
+
+        <div className="overflow-y-auto flex-1 p-5 space-y-4">
+          {/* Drop zone */}
+          <div
+            onDragOver={e => { e.preventDefault(); setDragging(true); }}
+            onDragLeave={() => setDragging(false)}
+            onDrop={onDrop}
+            onClick={() => fileRef.current?.click()}
+            className={`border-2 border-dashed rounded-xl p-7 text-center cursor-pointer transition-colors ${
+              dragging ? 'border-indigo-400 bg-indigo-50' : 'border-gray-300 hover:border-indigo-400 hover:bg-gray-50'
+            }`}
+          >
+            <Upload className="h-7 w-7 mx-auto text-gray-400 mb-2" />
+            {fileName
+              ? <p className="text-sm font-medium text-indigo-600">{fileName}</p>
+              : <>
+                  <p className="text-sm font-medium text-gray-700">Drop your payroll history file here, or click to browse</p>
+                  <p className="text-xs text-gray-400 mt-1">Supports .csv, .xls, .xlsx · Imported runs are marked as Paid</p>
+                </>
+            }
+            <input ref={fileRef} type="file" accept=".csv,.xls,.xlsx" className="hidden"
+              onChange={e => { const f = e.target.files?.[0]; if (f) processFile(f); }} />
+          </div>
+
+          {parseError && (
+            <div className="bg-red-50 border border-red-200 rounded-xl p-3 text-sm text-red-700 flex items-center gap-2">
+              <AlertTriangle className="h-4 w-4 flex-shrink-0" /> {parseError}
+            </div>
+          )}
+
+          {rows.length === 0 && !parseError && (
+            <div className="bg-gray-50 rounded-xl p-4 text-xs text-gray-500 space-y-1">
+              <p className="font-medium text-gray-700 mb-2">Expected columns (headers required, any order):</p>
+              <div className="grid grid-cols-2 gap-x-6 gap-y-1">
+                <p><span className="font-medium">Period Start + Period End</span> — start and end of pay period</p>
+                <p><span className="font-medium">Period</span> — or a single range like "1/1/2026 – 1/15/2026"</p>
+                <p><span className="font-medium">Pay Date</span> — single column works too (used as both dates)</p>
+                <p><span className="font-medium">Employee / Name</span> — employee full name</p>
+                <p><span className="font-medium">Amount / Gross Pay</span> — total paid (required)</p>
+                <p><span className="font-medium">Hours / Regular Hours / Overtime Hours</span> — optional</p>
+                <p><span className="font-medium">Pay Rate / Pay Type</span> — optional</p>
+                <p><span className="font-medium">Notes</span> — optional</p>
+              </div>
+            </div>
+          )}
+
+          {/* Bulk assign unmatched */}
+          {rows.length > 0 && unmatched > 0 && (
+            <div className="flex items-center gap-3 bg-amber-50 border border-amber-200 rounded-xl px-4 py-2.5">
+              <AlertTriangle className="h-4 w-4 text-amber-500 flex-shrink-0" />
+              <span className="text-xs text-amber-700">{unmatched} rows unmatched</span>
+              <div className="ml-auto flex items-center gap-2">
+                <span className="text-xs text-amber-700 whitespace-nowrap">Apply to all unmatched:</span>
+                <select defaultValue="" onChange={e => {
+                  if (!e.target.value) return;
+                  setUserMap(m => {
+                    const next = { ...m };
+                    rows.forEach((_, i) => { if (!next[i]) next[i] = e.target.value; });
+                    return next;
+                  });
+                  e.target.value = '';
+                }} className="px-2 py-1.5 border border-amber-300 rounded-lg text-xs bg-white focus:outline-none focus:ring-1 focus:ring-indigo-500">
+                  <option value="">— select employee —</option>
+                  {team.map(u => <option key={u.id} value={u.id}>{u.firstName} {u.lastName}</option>)}
+                </select>
+              </div>
+            </div>
+          )}
+
+          {/* Grouped preview */}
+          {groups.length > 0 && groups.map(g => {
+            const key = `${g.periodStart}|${g.periodEnd}`;
+            const groupReady = g.rows.every(r => r.userId && !r.error);
+            return (
+              <div key={key} className={`rounded-xl border overflow-hidden ${groupReady ? 'border-gray-200' : 'border-amber-200'}`}>
+                <div className={`px-4 py-2.5 flex items-center gap-3 text-xs font-semibold ${groupReady ? 'bg-gray-50 text-gray-700' : 'bg-amber-50 text-amber-700'}`}>
+                  <span>{fmtDate(g.periodStart)} – {fmtDate(g.periodEnd)}</span>
+                  <span className="font-normal text-gray-500">·</span>
+                  <span className="font-normal">{g.rows.length} {g.rows.length === 1 ? 'employee' : 'employees'}</span>
+                  <span className="font-normal text-gray-500">·</span>
+                  <span className="font-normal">{fmtUSDCents(g.rows.reduce((s, r) => s + (Number(r.grossPay) || 0), 0))}</span>
+                  {groupReady
+                    ? <span className="ml-auto text-emerald-600 flex items-center gap-1"><CheckCircle className="h-3 w-3" />Ready</span>
+                    : <span className="ml-auto text-amber-600 flex items-center gap-1"><AlertTriangle className="h-3 w-3" />Needs review</span>}
+                </div>
+                <table className="w-full text-xs">
+                  <tbody className="divide-y divide-gray-100">
+                    {g.rows.map((row, ri) => {
+                      const rowIdx = rows.findIndex(r => r === row);
+                      return (
+                        <tr key={ri} className={row.error || !row.userId ? 'bg-red-50' : 'hover:bg-gray-50'}>
+                          <td className="px-4 py-2 w-56">
+                            <select value={userMap[rowIdx] ?? ''} onChange={e => setUserMap(m => ({ ...m, [rowIdx]: e.target.value }))} className={inp}>
+                              <option value="">— select employee —</option>
+                              {team.map(u => <option key={u.id} value={u.id}>{u.firstName} {u.lastName}</option>)}
+                            </select>
+                            {row.name && !userMap[rowIdx] && <p className="text-red-500 mt-0.5 text-[10px]">No match for "{row.name}"</p>}
+                          </td>
+                          <td className="px-4 py-2 text-gray-600">
+                            {row.totalHours ? `${row.totalHours}h` : [row.regularHours && `${row.regularHours}h reg`, row.overtimeHours && `${row.overtimeHours}h OT`].filter(Boolean).join(' + ') || '—'}
+                          </td>
+                          <td className="px-4 py-2 font-semibold text-gray-900">{fmtUSDCents(Number(row.grossPay) || 0)}</td>
+                          <td className="px-4 py-2 text-gray-500 max-w-[120px] truncate">{row.notes ?? ''}</td>
+                          <td className="px-4 py-2">
+                            {row.error
+                              ? <span className="text-red-600 flex items-center gap-1"><AlertTriangle className="h-3 w-3" />{row.error}</span>
+                              : !userMap[rowIdx]
+                              ? <span className="text-amber-600">Unmatched</span>
+                              : <span className="text-emerald-600 flex items-center gap-1"><CheckCircle className="h-3 w-3" />Ready</span>}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            );
+          })}
+
+          {submitError && (
+            <div className="bg-red-50 border border-red-200 rounded-xl p-3 text-sm text-red-700 flex items-center gap-2">
+              <AlertTriangle className="h-4 w-4 flex-shrink-0" /> {submitError}
+            </div>
+          )}
+        </div>
+
+        <div className="flex gap-3 p-5 border-t flex-shrink-0">
+          <button onClick={onClose} className="flex-1 px-4 py-2.5 border border-gray-300 rounded-xl text-sm font-medium text-gray-700 hover:bg-gray-50">Cancel</button>
+          <button onClick={handleSubmit} disabled={submitting || readyGroups.length === 0}
+            className="flex-1 px-4 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-sm font-semibold disabled:opacity-60 flex items-center justify-center gap-2">
+            {submitting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />}
+            Import {readyGroups.length > 0 ? `${readyGroups.length} Pay Run${readyGroups.length > 1 ? 's' : ''} (${totalReady} entries)` : ''}
+          </button>
+        </div>
       </div>
     </div>
   );
