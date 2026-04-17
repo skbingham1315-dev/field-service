@@ -84,6 +84,30 @@ payrollRouter.post('/', async (req, res) => {
   res.status(201).json({ success: true, data: run } satisfies ApiResponse);
 });
 
+// PATCH /api/v1/payroll/:id/entries/:entryId — edit a single payroll entry
+payrollRouter.patch('/:id/entries/:entryId', async (req, res) => {
+  const { tenantId } = req.user!;
+  const run = await prisma.payrollRun.findUnique({ where: { id: req.params.id } });
+  if (!run || run.tenantId !== tenantId) {
+    res.status(404).json({ success: false, message: 'Not found' }); return;
+  }
+  const { regularHours, overtimeHours, grossPay, notes } = req.body as Record<string, unknown>;
+  const data: Record<string, unknown> = {};
+  if (regularHours !== undefined) data.regularHours = Number(regularHours);
+  if (overtimeHours !== undefined) data.overtimeHours = Number(overtimeHours);
+  if (grossPay !== undefined) data.grossPay = Number(grossPay);
+  if (notes !== undefined) data.notes = (notes as string) || null;
+
+  await prisma.payrollEntry.update({ where: { id: req.params.entryId }, data });
+
+  // Recalculate run totalGross
+  const allEntries = await prisma.payrollEntry.findMany({ where: { payrollRunId: run.id } });
+  const newTotal = Math.round(allEntries.reduce((s, e) => s + e.grossPay, 0) * 100) / 100;
+  await prisma.payrollRun.update({ where: { id: run.id }, data: { totalGross: newTotal } });
+
+  res.json({ success: true, data: { message: 'Entry updated' } } satisfies ApiResponse);
+});
+
 // GET /api/v1/payroll/:id
 payrollRouter.get('/:id', async (req, res) => {
   const run = await prisma.payrollRun.findUnique({

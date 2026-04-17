@@ -38,15 +38,19 @@ timeEntriesRouter.get('/', async (req, res) => {
 
 // POST /api/v1/time-entries
 timeEntriesRouter.post('/', async (req, res) => {
-  const { sub: userId, tenantId } = req.user!;
-  const { date, clockIn, clockOut, hoursWorked, jobId, notes } = req.body as {
+  const { sub, role, tenantId } = req.user!;
+  const { date, clockIn, clockOut, hoursWorked, jobId, notes, userId: targetUserId } = req.body as {
     date: string;
     clockIn?: string;
     clockOut?: string;
     hoursWorked?: number;
     jobId?: string;
     notes?: string;
+    userId?: string;
   };
+
+  // Admins/owners/dispatchers can create entries for any team member
+  const userId = (['owner', 'admin', 'dispatcher'].includes(role) && targetUserId) ? targetUserId : sub;
 
   if (!date) { res.status(400).json({ success: false, message: 'date is required' }); return; }
 
