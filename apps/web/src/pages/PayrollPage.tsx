@@ -699,18 +699,30 @@ function TargetFormModal({ team, onClose, onSaved }: {
 // ── Import Past Pay Runs Modal ────────────────────────────────────────────────
 
 const PR_COLUMN_MAP: Record<string, string> = {
+  // Period
   periodstart: 'periodStart', paystartdate: 'periodStart', startdate: 'periodStart', start: 'periodStart',
   periodend: 'periodEnd', payenddate: 'periodEnd', enddate: 'periodEnd', end: 'periodEnd',
-  paydate: 'periodEnd', date: 'periodEnd', paiddate: 'paidAt', datepaid: 'paidAt', paymentdate: 'paidAt',
+  paydate: 'periodEnd', paiddate: 'paidAt', datepaid: 'paidAt', paymentdate: 'paidAt',
+  date: 'periodEnd',
+  // Employee
   employee: 'name', employeename: 'name', name: 'name',
   firstname: 'firstName', lastname: 'lastName',
-  regularhours: 'regularHours', reghours: 'regularHours',
-  overtimehours: 'overtimeHours', othours: 'overtimeHours', overtime: 'overtimeHours',
-  hours: 'totalHours', hoursworked: 'totalHours', totalhours: 'totalHours',
-  payrate: 'payRate', rate: 'payRate', hourlyrate: 'payRate',
+  // Hours
+  regularhours: 'regularHours', reghours: 'regularHours', regrularhours: 'regularHours',
+  overtimehours: 'overtimeHours', othours: 'overtimeHours', overtime: 'overtimeHours', ot: 'overtimeHours',
+  hours: 'totalHours', hoursworked: 'totalHours', totalhours: 'totalHours', hourspaid: 'totalHours',
+  // Pay rate
+  payrate: 'payRate', rate: 'payRate', hourlyrate: 'payRate', wagerate: 'payRate',
   paytype: 'payType', type: 'payType',
-  grosspay: 'grossPay', amount: 'grossPay', amountpaid: 'grossPay', totalpay: 'grossPay', gross: 'grossPay', total: 'grossPay',
-  notes: 'notes', description: 'notes',
+  // Gross pay — many common column names
+  grosspay: 'grossPay', grosswages: 'grossPay', gross: 'grossPay',
+  amount: 'grossPay', amountpaid: 'grossPay', amountearned: 'grossPay',
+  totalpay: 'grossPay', totalwages: 'grossPay', totalearnings: 'grossPay', totalcompensation: 'grossPay',
+  total: 'grossPay', totals: 'grossPay',
+  pay: 'grossPay', wages: 'grossPay', earnings: 'grossPay', compensation: 'grossPay',
+  netpay: 'grossPay', salary: 'grossPay', payment: 'grossPay', paid: 'grossPay',
+  // Notes
+  notes: 'notes', description: 'notes', memo: 'notes', comment: 'notes', comments: 'notes',
   period: 'period',
 };
 
@@ -819,6 +831,7 @@ function ImportPayRunsModal({ team, onClose, onImported }: {
 }) {
   const [rows, setRows] = useState<PRRow[]>([]);
   const [userMap, setUserMap] = useState<Record<number, string>>({});
+  const [detectedCols, setDetectedCols] = useState<Record<string, string>>({});
   const [dragging, setDragging] = useState(false);
   const [fileName, setFileName] = useState('');
   const [parseError, setParseError] = useState('');
@@ -827,10 +840,19 @@ function ImportPayRunsModal({ team, onClose, onImported }: {
   const fileRef = useRef<HTMLInputElement>(null);
 
   const processFile = (file: File) => {
-    setParseError(''); setRows([]); setUserMap({});
+    setParseError(''); setRows([]); setUserMap({}); setDetectedCols({});
     setFileName(file.name);
     const isExcel = file.name.match(/\.xlsx?$/i);
     const handle = (data: Record<string, string>[]) => {
+      // Build detected column map from first row's headers
+      if (data.length > 0) {
+        const detected: Record<string, string> = {};
+        for (const rawKey of Object.keys(data[0])) {
+          const canonical = PR_COLUMN_MAP[normaliseKey(rawKey)];
+          if (canonical) detected[rawKey] = canonical;
+        }
+        setDetectedCols(detected);
+      }
       const parsed = parsePRRows(data, team);
       setRows(parsed);
       const map: Record<number, string> = {};
@@ -940,10 +962,33 @@ function ImportPayRunsModal({ team, onClose, onImported }: {
                 <p><span className="font-medium">Period</span> — or a single range like "1/1/2026 – 1/15/2026"</p>
                 <p><span className="font-medium">Pay Date</span> — single column works too (used as both dates)</p>
                 <p><span className="font-medium">Employee / Name</span> — employee full name</p>
-                <p><span className="font-medium">Amount / Gross Pay</span> — total paid (required)</p>
+                <p><span className="font-medium">Amount / Gross Pay / Wages / Pay / Earnings</span> — total paid (required)</p>
                 <p><span className="font-medium">Hours / Regular Hours / Overtime Hours</span> — optional</p>
                 <p><span className="font-medium">Pay Rate / Pay Type</span> — optional</p>
-                <p><span className="font-medium">Notes</span> — optional</p>
+                <p><span className="font-medium">Notes / Memo</span> — optional</p>
+              </div>
+            </div>
+          )}
+
+          {/* Detected columns summary */}
+          {rows.length > 0 && Object.keys(detectedCols).length > 0 && (
+            <div className="bg-gray-50 rounded-xl p-3">
+              <p className="text-xs font-medium text-gray-600 mb-1.5">Columns detected from your file:</p>
+              <div className="flex flex-wrap gap-1.5">
+                {Object.entries(detectedCols).map(([raw, canonical]) => (
+                  <span key={raw} className={`text-[11px] px-2 py-0.5 rounded-full font-medium ${
+                    canonical === 'grossPay' ? 'bg-emerald-100 text-emerald-700' :
+                    canonical === 'notes' ? 'bg-gray-200 text-gray-600' :
+                    'bg-indigo-50 text-indigo-700'
+                  }`}>
+                    "{raw}" → {canonical}
+                  </span>
+                ))}
+                {!Object.values(detectedCols).includes('grossPay') && (
+                  <span className="text-[11px] px-2 py-0.5 rounded-full font-medium bg-red-100 text-red-700">
+                    ⚠ No pay amount column found — rename it to "Amount", "Gross Pay", "Wages", or "Pay"
+                  </span>
+                )}
               </div>
             </div>
           )}
