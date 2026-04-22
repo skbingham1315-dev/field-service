@@ -60,6 +60,25 @@ async function fetchAllSquareCustomers(): Promise<any[]> {
   return results;
 }
 
+async function batchFetchOrders(orderIds: string[]): Promise<Map<string, any>> {
+  const orderMap = new Map<string, any>();
+  if (orderIds.length === 0) return orderMap;
+
+  // Square batch-retrieve limit is 100 per request
+  for (let i = 0; i < orderIds.length; i += 100) {
+    const chunk = orderIds.slice(i, i + 100);
+    try {
+      const data = await squarePost('/v2/orders/batch-retrieve', { order_ids: chunk });
+      for (const order of data.orders ?? []) {
+        orderMap.set(order.id, order);
+      }
+    } catch {
+      // non-critical — fall back to single-line-item if orders unavailable
+    }
+  }
+  return orderMap;
+}
+
 async function fetchAllSquareInvoices(): Promise<any[]> {
   const locData = await squareGet('/v2/locations');
   const locationIds: string[] = (locData.locations || []).map((l: any) => l.id);
@@ -171,6 +190,10 @@ squareRouter.post('/import', async (req, res) => {
   if (importInvoices || importEstimates) {
     const squareInvoices = await fetchAllSquareInvoices();
 
+    // Batch-fetch all linked orders up front to get real line items
+    const orderIds = squareInvoices.map((si) => si.order_id).filter(Boolean);
+    const orderMap = await batchFetchOrders(orderIds);
+
     for (const si of squareInvoices) {
       const isDraft = si.status === 'DRAFT';
       if (isDraft && !importEstimates) continue;
@@ -182,7 +205,6 @@ squareRouter.post('/import', async (req, res) => {
       if (sqCustId) {
         customerId = sqCustToLocalId.get(sqCustId) || null;
 
-        // If customer wasn't imported this run, look them up by email
         if (!customerId) {
           try {
             const custData = await squareGet(`/v2/customers/${sqCustId}`);
@@ -203,18 +225,7 @@ squareRouter.post('/import', async (req, res) => {
         continue;
       }
 
-      // Calculate amounts from payment_requests (Square stores money in cents)
-      const totalCents: number = (si.payment_requests || []).reduce(
-        (sum: number, pr: any) =>
-          sum + (pr.computed_amount_money?.amount ?? pr.requested_money?.amount ?? 0),
-        0,
-      );
-      const amountPaidCents: number = (si.payment_requests || []).reduce(
-        (sum: number, pr: any) => sum + (pr.total_completed_amount_money?.amount ?? 0),
-        0,
-      );
-
-      // Build invoice number — prefix with SQ to distinguish from native ones
+      // Build invoice number
       const prefix = isDraft ? 'EST-SQ-' : 'INV-SQ-';
       const invoiceNumber = si.invoice_number
         ? `${prefix}${si.invoice_number}`
@@ -227,19 +238,68 @@ squareRouter.post('/import', async (req, res) => {
         continue;
       }
 
+      // Pull real line items from the linked Order
+      const order = si.order_id ? orderMap.get(si.order_id) : null;
+      const orderLineItems: any[] = order?.line_items ?? [];
+
+      let lineItemsData: Array<{ description: string; quantity: number; unitPrice: number; total: number; taxable: boolean }>;
+
+      if (orderLineItems.length > 0) {
+        lineItemsData = orderLineItems.map((li: any) => {
+          const unitPrice: number = li.base_price_money?.amount ?? 0;
+          const qty: number = parseFloat(li.quantity) || 1;
+          const total: number = li.total_money?.amount ?? Math.round(unitPrice * qty);
+          const hasTax = (li.applied_taxes?.length ?? 0) > 0 || (li.total_tax_money?.amount ?? 0) > 0;
+          const desc = [li.name, li.note].filter(Boolean).join(' — ');
+          return {
+            description: desc || 'Service',
+            quantity: qty,
+            unitPrice,
+            total,
+            taxable: hasTax,
+          };
+        });
+      } else {
+        // Fallback: single line item from payment_requests total
+        const fallbackTotal: number = (si.payment_requests || []).reduce(
+          (sum: number, pr: any) =>
+            sum + (pr.computed_amount_money?.amount ?? pr.requested_money?.amount ?? 0),
+          0,
+        );
+        lineItemsData = [{
+          description: si.title || 'Imported from Square',
+          quantity: 1,
+          unitPrice: fallbackTotal,
+          total: fallbackTotal,
+          taxable: false,
+        }];
+      }
+
+      // Totals — use order data when available for accurate subtotal/tax split
+      const subtotalCents: number = order?.total_money?.amount
+        ?? lineItemsData.reduce((s, li) => s + li.total, 0);
+      const taxCents: number = order?.total_tax_money?.amount ?? 0;
+      const discountCents: number = order?.total_discount_money?.amount ?? 0;
+      const totalCents: number = subtotalCents; // order.total_money is already after tax+discount
+      const amountPaidCents: number = (si.payment_requests || []).reduce(
+        (sum: number, pr: any) => sum + (pr.total_completed_amount_money?.amount ?? 0),
+        0,
+      );
+
       const status = mapSquareStatus(si.status);
+
+      // Dates — created_at is the original invoice date; due_date from payment schedule
+      const issuedAt = si.created_at ? new Date(si.created_at) : null;
       const dueDate = si.payment_requests?.[0]?.due_date
         ? new Date(si.payment_requests[0].due_date)
         : null;
-      const issuedAt = si.published_at
-        ? new Date(si.published_at)
-        : si.created_at
-          ? new Date(si.created_at)
-          : null;
       const paidAt =
         status === 'paid' && si.payment_requests?.[0]?.completed_at
           ? new Date(si.payment_requests[0].completed_at)
           : null;
+
+      // Notes: combine Square title + description
+      const notes = [si.title, si.description].filter(Boolean).join('\n') || null;
 
       await prisma.invoice.create({
         data: {
@@ -247,25 +307,17 @@ squareRouter.post('/import', async (req, res) => {
           customerId,
           invoiceNumber,
           status: status as any,
-          subtotal: totalCents,
-          taxAmount: 0,
-          discountAmount: 0,
+          subtotal: subtotalCents - taxCents,
+          taxAmount: taxCents,
+          discountAmount: discountCents,
           total: totalCents,
           amountPaid: amountPaidCents,
           amountDue: totalCents - amountPaidCents,
           dueDate,
           issuedAt,
           paidAt,
-          notes: si.description || null,
-          lineItems: {
-            create: {
-              description: si.title || 'Imported from Square',
-              quantity: 1,
-              unitPrice: totalCents,
-              total: totalCents,
-              taxable: false,
-            },
-          },
+          notes,
+          lineItems: { create: lineItemsData },
         },
       });
 
