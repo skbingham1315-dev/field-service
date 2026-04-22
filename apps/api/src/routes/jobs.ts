@@ -52,9 +52,14 @@ jobsRouter.get('/', async (req, res) => {
   if (req.user!.role === 'technician') {
     const perms = await getTenantPermissions(req.user!.tenantId);
     if (!perms.technician.viewAllJobs) {
-      where.technicianId = req.user!.sub;
+      where.OR = [
+        { technicianId: req.user!.sub },
+        { assignedTechnicians: { some: { userId: req.user!.sub } } },
+      ];
     }
   }
+
+  const techInclude = { select: { id: true, firstName: true, lastName: true, phone: true } };
 
   const [jobs, total] = await Promise.all([
     prisma.job.findMany({
@@ -62,7 +67,8 @@ jobsRouter.get('/', async (req, res) => {
       include: {
         customer: { select: { id: true, firstName: true, lastName: true, phone: true } },
         serviceAddress: true,
-        technician: { select: { id: true, firstName: true, lastName: true, phone: true } },
+        technician: techInclude,
+        assignedTechnicians: { include: { user: techInclude } },
         lineItems: true,
       },
       orderBy: { scheduledStart: 'asc' },
@@ -81,12 +87,15 @@ jobsRouter.get('/', async (req, res) => {
 
 // GET /api/v1/jobs/:id
 jobsRouter.get('/:id', async (req, res) => {
+  const techInclude2 = { select: { id: true, firstName: true, lastName: true, phone: true } };
+
   const job = await prisma.job.findUnique({
     where: { id: req.params.id },
     include: {
       customer: true,
       serviceAddress: true,
-      technician: { select: { id: true, firstName: true, lastName: true, phone: true } },
+      technician: techInclude2,
+      assignedTechnicians: { include: { user: techInclude2 } },
       lineItems: true,
       photos: true,
       notes: { include: { author: { select: { id: true, firstName: true, lastName: true } } } },
@@ -101,7 +110,10 @@ jobsRouter.get('/:id', async (req, res) => {
   // Technician can only view their own job (unless viewAllJobs)
   if (req.user!.role === 'technician') {
     const perms = await getTenantPermissions(req.user!.tenantId);
-    if (!perms.technician.viewAllJobs && job.technicianId !== req.user!.sub) {
+    const isAssigned =
+      job.technicianId === req.user!.sub ||
+      job.assignedTechnicians.some((a) => a.userId === req.user!.sub);
+    if (!perms.technician.viewAllJobs && !isAssigned) {
       throw new AppError('Job not found', 404, 'NOT_FOUND');
     }
   }
@@ -121,7 +133,13 @@ jobsRouter.post('/', async (req, res) => {
     }
   }
 
-  const { lineItems, recurrence, ...jobData } = req.body;
+  const { lineItems, recurrence, technicianIds, ...jobData } = req.body;
+
+  // technicianIds = full list; technicianId = lead tech (first in list or explicit)
+  const allTechIds: string[] = technicianIds ?? (jobData.technicianId ? [jobData.technicianId] : []);
+  if (allTechIds.length > 0 && !jobData.technicianId) {
+    jobData.technicianId = allTechIds[0];
+  }
 
   const job = await prisma.job.create({
     data: {
@@ -130,8 +148,11 @@ jobsRouter.post('/', async (req, res) => {
       createdById: req.user!.sub,
       lineItems: lineItems ? { create: lineItems } : undefined,
       recurrence: recurrence ? { create: recurrence } : undefined,
+      assignedTechnicians: allTechIds.length > 0
+        ? { create: allTechIds.map((userId: string) => ({ userId })) }
+        : undefined,
     },
-    include: { lineItems: true, customer: true, serviceAddress: true },
+    include: { lineItems: true, customer: true, serviceAddress: true, assignedTechnicians: { include: { user: { select: { id: true, firstName: true, lastName: true } } } } },
   });
 
   io?.to(`tenant:${req.user!.tenantId}`).emit('job:created', job);
@@ -148,7 +169,9 @@ jobsRouter.patch('/:id', async (req, res) => {
 
   // Technicians can only update their own jobs, and only allowed fields
   if (req.user!.role === 'technician') {
-    if (existing.technicianId !== req.user!.sub) {
+    const isAssigned = existing.technicianId === req.user!.sub ||
+      await prisma.jobTechnician.findUnique({ where: { jobId_userId: { jobId: req.params.id, userId: req.user!.sub } } }).then(Boolean);
+    if (!isAssigned) {
       throw new AppError('You can only update your own assigned jobs', 403, 'FORBIDDEN');
     }
     // Restrict to status and time fields only
@@ -172,7 +195,21 @@ jobsRouter.patch('/:id', async (req, res) => {
     throw new AppError('Sales reps cannot modify existing jobs', 403, 'FORBIDDEN');
   }
 
-  const { lineItems, ...jobData } = req.body;
+  const { lineItems, technicianIds, ...jobData } = req.body;
+
+  // Sync assignedTechnicians if technicianIds provided
+  if (technicianIds !== undefined) {
+    const allTechIds: string[] = technicianIds;
+    jobData.technicianId = allTechIds[0] ?? null;
+    await prisma.jobTechnician.deleteMany({ where: { jobId: req.params.id } });
+    if (allTechIds.length > 0) {
+      await prisma.jobTechnician.createMany({
+        data: allTechIds.map((userId: string) => ({ jobId: req.params.id, userId })),
+        skipDuplicates: true,
+      });
+    }
+  }
+
   const job = await prisma.job.update({
     where: { id: req.params.id },
     data: jobData,
@@ -180,6 +217,7 @@ jobsRouter.patch('/:id', async (req, res) => {
       lineItems: true,
       customer: { select: { id: true, firstName: true, lastName: true, email: true, phone: true } },
       serviceAddress: true,
+      assignedTechnicians: { include: { user: { select: { id: true, firstName: true, lastName: true } } } },
     },
   });
 

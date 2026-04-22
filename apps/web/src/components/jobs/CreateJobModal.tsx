@@ -16,7 +16,6 @@ export function CreateJobModal({ open, onClose }: Props) {
   const [form, setForm] = useState({
     customerId: '',
     serviceAddressId: '',
-    technicianId: '',
     serviceType: 'pool',
     title: '',
     description: '',
@@ -24,6 +23,7 @@ export function CreateJobModal({ open, onClose }: Props) {
     scheduledStart: '',
     scheduledEnd: '',
   });
+  const [selectedTechIds, setSelectedTechIds] = useState<string[]>([]);
   const [errors, setErrors] = useState<Record<string, string>>({});
 
   const set = (k: string, v: string) => setForm((f) => ({ ...f, [k]: v }));
@@ -56,7 +56,8 @@ export function CreateJobModal({ open, onClose }: Props) {
     mutationFn: async () => {
       const { data } = await api.post('/jobs', {
         ...form,
-        technicianId: form.technicianId || undefined,
+        technicianId: selectedTechIds[0] || undefined,
+        technicianIds: selectedTechIds.length > 0 ? selectedTechIds : undefined,
         scheduledStart: form.scheduledStart ? new Date(form.scheduledStart).toISOString() : undefined,
         scheduledEnd: form.scheduledEnd ? new Date(form.scheduledEnd).toISOString() : undefined,
       });
@@ -79,13 +80,17 @@ export function CreateJobModal({ open, onClose }: Props) {
 
   const handleClose = () => {
     setForm({
-      customerId: '', serviceAddressId: '', technicianId: '',
+      customerId: '', serviceAddressId: '',
       serviceType: 'pool', title: '', description: '',
       priority: 'normal', scheduledStart: '', scheduledEnd: '',
     });
+    setSelectedTechIds([]);
     setErrors({});
     onClose();
   };
+
+  const toggleTech = (id: string) =>
+    setSelectedTechIds((prev) => prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]);
 
   return (
     <Dialog open={open} onOpenChange={(o) => !o && handleClose()}>
@@ -158,18 +163,29 @@ export function CreateJobModal({ open, onClose }: Props) {
             <option value="urgent">Urgent</option>
           </Select>
 
-          <Select
-            label="Assign Technician"
-            value={form.technicianId}
-            onChange={(e) => set('technicianId', e.target.value)}
-            placeholder="Unassigned"
-          >
-            {technicians.map((t) => (
-              <option key={t.id} value={t.id}>{t.firstName} {t.lastName}</option>
-            ))}
-          </Select>
-
-          <div />
+          <div className="col-span-2">
+            <p className="text-sm font-medium text-gray-700 mb-1.5">Assign Technicians</p>
+            {technicians.length === 0 ? (
+              <p className="text-sm text-gray-400">No technicians available</p>
+            ) : (
+              <div className="grid grid-cols-2 gap-1.5">
+                {technicians.map((t) => (
+                  <label key={t.id} className="flex items-center gap-2 cursor-pointer px-3 py-2 rounded-lg border border-gray-200 hover:bg-gray-50 transition-colors">
+                    <input
+                      type="checkbox"
+                      checked={selectedTechIds.includes(t.id)}
+                      onChange={() => toggleTech(t.id)}
+                      className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                    />
+                    <span className="text-sm text-gray-800">{t.firstName} {t.lastName}</span>
+                    {selectedTechIds[0] === t.id && (
+                      <span className="ml-auto text-xs text-blue-600 font-medium">Lead</span>
+                    )}
+                  </label>
+                ))}
+              </div>
+            )}
+          </div>
 
           <Input
             label="Scheduled Start"

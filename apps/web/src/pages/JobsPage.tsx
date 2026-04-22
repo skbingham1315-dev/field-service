@@ -141,10 +141,12 @@ export function JobsPage() {
                           {job.serviceAddress.street}, {job.serviceAddress.city}
                         </span>
                       )}
-                      {job.technician && (
+                      {(job.assignedTechnicians?.length > 0 || job.technician) && (
                         <span className="flex items-center gap-1 text-blue-600">
                           <User className="h-3.5 w-3.5" />
-                          {job.technician.firstName} {job.technician.lastName}
+                          {job.assignedTechnicians?.length > 0
+                            ? job.assignedTechnicians.map((a: any) => `${a.user.firstName} ${a.user.lastName}`).join(', ')
+                            : `${job.technician.firstName} ${job.technician.lastName}`}
                         </span>
                       )}
                     </div>

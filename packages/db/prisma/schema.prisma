@@ -177,6 +177,7 @@ model User {
   tenant              Tenant        @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   assignedJobs        Job[]         @relation("TechnicianJobs")
   createdJobs         Job[]         @relation("CreatedByJobs")
+  jobAssignments      JobTechnician[]
   jobNotes            JobNote[]
   jobPhotos           JobPhoto[]
   technicianLocations TechnicianLocation[]
@@ -286,14 +287,30 @@ model Job {
   notes          JobNote[]
   recurrence     RecurrenceRule?
   invoice        Invoice?       @relation(fields: [invoiceId], references: [id])
-  review         JobReview?
-  timeEntries    TimeEntry[]
+  review              JobReview?
+  timeEntries         TimeEntry[]
+  assignedTechnicians JobTechnician[]
 
   @@index([tenantId, status])
   @@index([tenantId, technicianId])
   @@index([tenantId, scheduledStart])
   @@index([customerId])
   @@map("jobs")
+}
+
+model JobTechnician {
+  id        String   @id @default(cuid())
+  jobId     String
+  userId    String
+  createdAt DateTime @default(now())
+
+  job  Job  @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([jobId, userId])
+  @@index([jobId])
+  @@index([userId])
+  @@map("job_technicians")
 }
 
 model JobLineItem {
