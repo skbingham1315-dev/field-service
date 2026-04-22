@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { Copy, Check, Wrench, TrendingUp, Shield, MessageSquare, Mail, CheckCircle2, AlertTriangle, Send, Loader2, ExternalLink } from 'lucide-react';
+import { Copy, Check, Wrench, TrendingUp, Shield, MessageSquare, Mail, CheckCircle2, AlertTriangle, Send, Loader2, ExternalLink, Download, RefreshCw } from 'lucide-react';
 import { Button, Badge } from '@fsp/ui';
 import { api } from '../lib/api';
 import { useAuthStore } from '../store/authStore';
@@ -53,7 +53,7 @@ const ROLE_LABEL: Record<UserRole, string> = {
   sales: 'Sales Rep',
 };
 
-type Tab = 'profile' | 'team' | 'company' | 'permissions' | 'notifications';
+type Tab = 'profile' | 'team' | 'company' | 'permissions' | 'notifications' | 'integrations';
 
 function ProfileTab() {
   const qc = useQueryClient();
@@ -984,6 +984,175 @@ function NotificationsTab() {
   );
 }
 
+// ── Integrations Tab ──────────────────────────────────────────────────────────
+
+interface SquarePreview {
+  customers: number;
+  invoices: number;
+  estimates: number;
+}
+
+interface SquareImportResults {
+  customers: { imported: number; skipped: number };
+  invoices: { imported: number; skipped: number };
+  estimates: { imported: number; skipped: number };
+}
+
+function IntegrationsTab() {
+  const [options, setOptions] = useState({ importCustomers: true, importInvoices: true, importEstimates: true });
+  const [preview, setPreview] = useState<SquarePreview | null>(null);
+  const [previewing, setPreviewing] = useState(false);
+  const [importing, setImporting] = useState(false);
+  const [results, setResults] = useState<SquareImportResults | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  async function handlePreview() {
+    setPreviewing(true);
+    setError(null);
+    setResults(null);
+    try {
+      const res = await api.get('/square/preview');
+      setPreview(res.data.data);
+    } catch (e: any) {
+      setError(e.response?.data?.message || 'Failed to connect to Square. Make sure SQUARE_ACCESS_TOKEN is set in your server .env.');
+    } finally {
+      setPreviewing(false);
+    }
+  }
+
+  async function handleImport() {
+    setImporting(true);
+    setError(null);
+    setResults(null);
+    try {
+      const res = await api.post('/square/import', options);
+      setResults(res.data.data);
+    } catch (e: any) {
+      setError(e.response?.data?.message || 'Import failed. Check server logs for details.');
+    } finally {
+      setImporting(false);
+    }
+  }
+
+  return (
+    <div className="space-y-6">
+      {/* Square */}
+      <div className="border border-gray-200 rounded-xl overflow-hidden">
+        <div className="flex items-center gap-3 px-5 py-4 bg-gray-50 border-b border-gray-200">
+          <div className="w-8 h-8 bg-black rounded-lg flex items-center justify-center">
+            <span className="text-white font-bold text-xs">SQ</span>
+          </div>
+          <div>
+            <p className="font-semibold text-gray-900 text-sm">Square</p>
+            <p className="text-xs text-gray-500">Import customers, invoices, and estimates</p>
+          </div>
+        </div>
+
+        <div className="p-5 space-y-5">
+          {/* Setup note */}
+          <div className="flex gap-2.5 bg-blue-50 border border-blue-200 rounded-lg p-3.5 text-sm text-blue-800">
+            <AlertTriangle className="w-4 h-4 mt-0.5 shrink-0 text-blue-500" />
+            <div className="space-y-1">
+              <p className="font-medium">Setup required</p>
+              <p className="text-blue-700">
+                Add your Square access token to <code className="bg-blue-100 px-1 rounded font-mono text-xs">apps/api/.env</code>:
+                <br />
+                <code className="font-mono text-xs">SQUARE_ACCESS_TOKEN=your_token_here</code>
+              </p>
+              <a
+                href="https://developer.squareup.com/apps"
+                target="_blank"
+                rel="noreferrer"
+                className="inline-flex items-center gap-1 text-blue-600 underline underline-offset-2 text-xs font-medium"
+              >
+                Get token from Square Developer Dashboard <ExternalLink className="w-3 h-3" />
+              </a>
+            </div>
+          </div>
+
+          {/* Options */}
+          <div className="space-y-2">
+            <p className="text-sm font-medium text-gray-700">What to import</p>
+            {(['importCustomers', 'importInvoices', 'importEstimates'] as const).map((key) => {
+              const labels: Record<typeof key, string> = {
+                importCustomers: 'Customers',
+                importInvoices: 'Invoices',
+                importEstimates: 'Estimates (Square draft invoices)',
+              };
+              return (
+                <label key={key} className="flex items-center gap-2.5 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={options[key]}
+                    onChange={(e) => setOptions((o) => ({ ...o, [key]: e.target.checked }))}
+                    className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                  />
+                  <span className="text-sm text-gray-700">{labels[key]}</span>
+                </label>
+              );
+            })}
+          </div>
+
+          {/* Preview result */}
+          {preview && (
+            <div className="bg-gray-50 rounded-lg border border-gray-200 p-4 text-sm space-y-1">
+              <p className="font-medium text-gray-800 mb-2">Found in Square:</p>
+              <p className="text-gray-600"><span className="font-semibold text-gray-900">{preview.customers}</span> customers</p>
+              <p className="text-gray-600"><span className="font-semibold text-gray-900">{preview.invoices}</span> invoices</p>
+              <p className="text-gray-600"><span className="font-semibold text-gray-900">{preview.estimates}</span> estimates (draft invoices)</p>
+            </div>
+          )}
+
+          {/* Import results */}
+          {results && (
+            <div className="bg-green-50 rounded-lg border border-green-200 p-4 text-sm space-y-1">
+              <div className="flex items-center gap-2 mb-2">
+                <CheckCircle2 className="w-4 h-4 text-green-600" />
+                <p className="font-semibold text-green-800">Import complete</p>
+              </div>
+              {(['customers', 'invoices', 'estimates'] as const).map((k) => (
+                <p key={k} className="text-green-700 capitalize">
+                  {k}: <span className="font-semibold">{results[k].imported} imported</span>
+                  {results[k].skipped > 0 && <span className="text-green-600">, {results[k].skipped} skipped (already exist)</span>}
+                </p>
+              ))}
+            </div>
+          )}
+
+          {/* Error */}
+          {error && (
+            <div className="flex gap-2 bg-red-50 border border-red-200 rounded-lg p-3.5 text-sm text-red-700">
+              <AlertTriangle className="w-4 h-4 mt-0.5 shrink-0 text-red-500" />
+              <p>{error}</p>
+            </div>
+          )}
+
+          {/* Actions */}
+          <div className="flex gap-3">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={handlePreview}
+              disabled={previewing || importing}
+            >
+              {previewing ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <RefreshCw className="w-4 h-4 mr-2" />}
+              Preview
+            </Button>
+            <Button
+              size="sm"
+              onClick={handleImport}
+              disabled={importing || previewing}
+            >
+              {importing ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <Download className="w-4 h-4 mr-2" />}
+              {importing ? 'Importing…' : 'Import Now'}
+            </Button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export function SettingsPage() {
   const { user } = useAuthStore();
   const [tab, setTab] = useState<Tab>('profile');
@@ -998,6 +1167,7 @@ export function SettingsPage() {
     ...(canSeeCompany ? [{ id: 'company' as Tab, label: 'Company' }] : []),
     ...(canSeePermissions ? [{ id: 'permissions' as Tab, label: 'Permissions' }] : []),
     ...(canSeeCompany ? [{ id: 'notifications' as Tab, label: 'Notifications' }] : []),
+    ...(canSeeCompany ? [{ id: 'integrations' as Tab, label: 'Integrations' }] : []),
   ];
 
   return (
@@ -1026,6 +1196,7 @@ export function SettingsPage() {
         {tab === 'company' && canSeeCompany && <CompanyTab />}
         {tab === 'permissions' && canSeePermissions && <PermissionsTab />}
         {tab === 'notifications' && canSeeCompany && <NotificationsTab />}
+        {tab === 'integrations' && canSeeCompany && <IntegrationsTab />}
       </div>
     </div>
   );
