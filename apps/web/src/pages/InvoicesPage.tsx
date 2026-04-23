@@ -27,16 +27,19 @@ interface InvoiceRow {
   customer?: { firstName: string; lastName: string };
 }
 
+const PAGE_LIMIT = 50;
+
 export function InvoicesPage() {
   const [statusFilter, setStatusFilter] = useState('');
   const [search, setSearch] = useState('');
+  const [page, setPage] = useState(1);
   const [showCreate, setShowCreate] = useState(false);
   const [selectedId, setSelectedId] = useState<string | null>(null);
 
   const { data, isLoading } = useQuery({
-    queryKey: ['invoices', statusFilter, search],
+    queryKey: ['invoices', statusFilter, search, page],
     queryFn: async () => {
-      const params = new URLSearchParams({ limit: '50' });
+      const params = new URLSearchParams({ limit: String(PAGE_LIMIT), page: String(page) });
       if (statusFilter) params.set('status', statusFilter);
       if (search) params.set('search', search);
       const { data } = await api.get(`/invoices?${params}`);
@@ -45,8 +48,14 @@ export function InvoicesPage() {
   });
 
   const invoices: InvoiceRow[] = data?.data ?? [];
+  const total: number = data?.meta?.total ?? 0;
+  const totalPages: number = data?.meta?.totalPages ?? 1;
 
-  // Summary stats
+  // Reset to page 1 when filters change
+  const setStatusFilterAndReset = (v: string) => { setStatusFilter(v); setPage(1); };
+  const setSearchAndReset = (v: string) => { setSearch(v); setPage(1); };
+
+  // Summary stats (current page only — use status filter for full accuracy)
   const outstanding = invoices.filter((i) => ['sent', 'viewed', 'overdue'].includes(i.status));
   const totalOutstanding = outstanding.reduce((s, i) => s + i.amountDue, 0);
   const overdue = invoices.filter((i) => i.status === 'overdue');
@@ -124,13 +133,13 @@ export function InvoicesPage() {
             type="text"
             placeholder="Search invoices or customers..."
             value={search}
-            onChange={(e) => setSearch(e.target.value)}
+            onChange={(e) => setSearchAndReset(e.target.value)}
             className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
           />
         </div>
         <select
           value={statusFilter}
-          onChange={(e) => setStatusFilter(e.target.value)}
+          onChange={(e) => setStatusFilterAndReset(e.target.value)}
           className="px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
         >
           <option value="">All Statuses</option>
@@ -207,6 +216,24 @@ export function InvoicesPage() {
               </CardContent>
             </Card>
           ))}
+        </div>
+      )}
+
+      {/* Pagination */}
+      {totalPages > 1 && (
+        <div className="flex items-center justify-between pt-2">
+          <p className="text-sm text-gray-500">
+            Showing {(page - 1) * PAGE_LIMIT + 1}–{Math.min(page * PAGE_LIMIT, total)} of {total} invoices
+          </p>
+          <div className="flex items-center gap-2">
+            <Button variant="outline" size="sm" onClick={() => setPage((p) => p - 1)} disabled={page === 1}>
+              Previous
+            </Button>
+            <span className="text-sm text-gray-600">Page {page} of {totalPages}</span>
+            <Button variant="outline" size="sm" onClick={() => setPage((p) => p + 1)} disabled={page >= totalPages}>
+              Next
+            </Button>
+          </div>
         </div>
       )}
 
