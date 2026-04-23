@@ -1,11 +1,18 @@
 import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Plus, Trash2 } from 'lucide-react';
+import { Plus, Trash2, UserPlus, ChevronDown, ChevronUp } from 'lucide-react';
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter,
   Button, Input, Textarea, Select,
 } from '@fsp/ui';
 import { api } from '../../lib/api';
+
+interface NewCustomerForm {
+  firstName: string;
+  lastName: string;
+  email: string;
+  phone: string;
+}
 
 interface LineItem {
   description: string;
@@ -28,6 +35,9 @@ export function CreateInvoiceModal({ open, onClose }: Props) {
   const [dueDate, setDueDate] = useState('');
   const [notes, setNotes] = useState('');
   const [errors, setErrors] = useState<Record<string, string>>({});
+  const [showNewCustomer, setShowNewCustomer] = useState(false);
+  const [newCust, setNewCust] = useState<NewCustomerForm>({ firstName: '', lastName: '', email: '', phone: '' });
+  const [newCustError, setNewCustError] = useState('');
 
   const { data: customersData } = useQuery({
     queryKey: ['customers', 'all'],
@@ -39,6 +49,30 @@ export function CreateInvoiceModal({ open, onClose }: Props) {
   });
   const customers: Array<{ id: string; firstName: string; lastName: string }> =
     customersData?.data ?? [];
+
+  const { mutate: saveNewCustomer, isPending: savingCust } = useMutation({
+    mutationFn: async () => {
+      const { data } = await api.post('/customers', newCust);
+      return data.data as { id: string; firstName: string; lastName: string };
+    },
+    onSuccess: (created) => {
+      qc.invalidateQueries({ queryKey: ['customers', 'all'] });
+      setCustomerId(created.id);
+      setShowNewCustomer(false);
+      setNewCust({ firstName: '', lastName: '', email: '', phone: '' });
+      setNewCustError('');
+    },
+    onError: (e: any) => setNewCustError(e.response?.data?.message ?? 'Failed to create customer'),
+  });
+
+  const handleSaveNewCustomer = () => {
+    if (!newCust.firstName.trim() || !newCust.lastName.trim()) {
+      setNewCustError('First and last name are required');
+      return;
+    }
+    setNewCustError('');
+    saveNewCustomer();
+  };
 
   const { mutate: createInvoice, isPending } = useMutation({
     mutationFn: async () => {
@@ -83,6 +117,9 @@ export function CreateInvoiceModal({ open, onClose }: Props) {
     setDueDate('');
     setNotes('');
     setErrors({});
+    setShowNewCustomer(false);
+    setNewCust({ firstName: '', lastName: '', email: '', phone: '' });
+    setNewCustError('');
     onClose();
   };
 
@@ -105,19 +142,73 @@ export function CreateInvoiceModal({ open, onClose }: Props) {
 
         <div className="space-y-5">
           {/* Customer */}
-          <Select
-            label="Customer *"
-            value={customerId}
-            onChange={(e) => setCustomerId(e.target.value)}
-            placeholder="Select a customer..."
-            error={errors.customerId}
-          >
-            {customers.map((c) => (
-              <option key={c.id} value={c.id}>
-                {c.firstName} {c.lastName}
-              </option>
-            ))}
-          </Select>
+          <div>
+            <div className="flex items-end gap-2">
+              <div className="flex-1">
+                <Select
+                  label="Customer *"
+                  value={customerId}
+                  onChange={(e) => setCustomerId(e.target.value)}
+                  placeholder="Select a customer..."
+                  error={errors.customerId}
+                >
+                  {customers.map((c) => (
+                    <option key={c.id} value={c.id}>
+                      {c.firstName} {c.lastName}
+                    </option>
+                  ))}
+                </Select>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowNewCustomer((v) => !v)}
+                className="flex items-center gap-1.5 px-3 py-2 text-sm text-blue-600 border border-blue-200 rounded-lg hover:bg-blue-50 transition-colors whitespace-nowrap mb-0.5"
+              >
+                <UserPlus className="h-4 w-4" />
+                New
+                {showNewCustomer ? <ChevronUp className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />}
+              </button>
+            </div>
+
+            {showNewCustomer && (
+              <div className="mt-3 p-4 bg-blue-50 border border-blue-200 rounded-lg space-y-3">
+                <p className="text-xs font-semibold text-blue-700 uppercase tracking-wide">New Customer</p>
+                <div className="grid grid-cols-2 gap-3">
+                  <Input
+                    placeholder="First Name *"
+                    value={newCust.firstName}
+                    onChange={(e) => setNewCust((p) => ({ ...p, firstName: e.target.value }))}
+                  />
+                  <Input
+                    placeholder="Last Name *"
+                    value={newCust.lastName}
+                    onChange={(e) => setNewCust((p) => ({ ...p, lastName: e.target.value }))}
+                  />
+                  <Input
+                    placeholder="Email"
+                    type="email"
+                    value={newCust.email}
+                    onChange={(e) => setNewCust((p) => ({ ...p, email: e.target.value }))}
+                  />
+                  <Input
+                    placeholder="Phone"
+                    type="tel"
+                    value={newCust.phone}
+                    onChange={(e) => setNewCust((p) => ({ ...p, phone: e.target.value }))}
+                  />
+                </div>
+                {newCustError && <p className="text-xs text-red-600">{newCustError}</p>}
+                <div className="flex gap-2">
+                  <Button size="sm" onClick={handleSaveNewCustomer} loading={savingCust}>
+                    Save Customer
+                  </Button>
+                  <Button size="sm" variant="ghost" onClick={() => setShowNewCustomer(false)}>
+                    Cancel
+                  </Button>
+                </div>
+              </div>
+            )}
+          </div>
 
           {/* Due date */}
           <Input

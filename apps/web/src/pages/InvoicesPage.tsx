@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { Plus, Search, TrendingUp, Clock, AlertCircle, CheckCircle2 } from 'lucide-react';
+import { Plus, Search, TrendingUp, Clock, AlertCircle, CheckCircle2, Download } from 'lucide-react';
 import { Button, Badge, Card, CardContent, CardHeader, CardTitle } from '@fsp/ui';
 import { api } from '../lib/api';
 import type { InvoiceStatus } from '@fsp/types';
@@ -29,12 +29,24 @@ interface InvoiceRow {
 
 const PAGE_LIMIT = 50;
 
+async function downloadExport(path: string, filename: string) {
+  const res = await api.get(path, { responseType: 'blob' });
+  const url = URL.createObjectURL(new Blob([res.data], { type: 'text/csv' }));
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
 export function InvoicesPage() {
   const [statusFilter, setStatusFilter] = useState('');
   const [search, setSearch] = useState('');
   const [page, setPage] = useState(1);
   const [showCreate, setShowCreate] = useState(false);
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [showExport, setShowExport] = useState(false);
+  const [exporting, setExporting] = useState<string | null>(null);
 
   const { data, isLoading } = useQuery({
     queryKey: ['invoices', statusFilter, search, page],
@@ -67,10 +79,48 @@ export function InvoicesPage() {
       {/* Header */}
       <div className="flex items-center justify-between">
         <h1 className="text-2xl font-bold text-gray-900">Invoices</h1>
-        <Button onClick={() => setShowCreate(true)}>
-          <Plus className="h-4 w-4 mr-2" />
-          New Invoice
-        </Button>
+        <div className="flex items-center gap-2">
+          {/* QuickBooks Export */}
+          <div className="relative">
+            <Button variant="outline" onClick={() => setShowExport((v) => !v)}>
+              <Download className="h-4 w-4 mr-2" />
+              Export to QuickBooks
+            </Button>
+            {showExport && (
+              <>
+                <div className="fixed inset-0 z-10" onClick={() => setShowExport(false)} />
+                <div className="absolute right-0 mt-1 z-20 bg-white border border-gray-200 rounded-xl shadow-lg py-1 w-56">
+                  <p className="px-4 py-2 text-xs font-semibold text-gray-400 uppercase tracking-wide">Download CSV</p>
+                  {[
+                    { label: 'Customers', path: '/export/quickbooks/customers', file: 'quickbooks_customers.csv' },
+                    { label: 'Invoices', path: '/export/quickbooks/invoices', file: 'quickbooks_invoices.csv' },
+                    { label: 'Estimates', path: '/export/quickbooks/estimates', file: 'quickbooks_estimates.csv' },
+                  ].map(({ label, path, file }) => (
+                    <button
+                      key={label}
+                      disabled={exporting === label}
+                      onClick={async () => {
+                        setExporting(label);
+                        try { await downloadExport(path, file); } finally { setExporting(null); setShowExport(false); }
+                      }}
+                      className="w-full text-left px-4 py-2.5 text-sm text-gray-700 hover:bg-gray-50 flex items-center justify-between disabled:opacity-50"
+                    >
+                      {label}
+                      {exporting === label && <span className="text-xs text-gray-400">Downloading…</span>}
+                    </button>
+                  ))}
+                  <p className="px-4 pt-2 pb-2 text-xs text-gray-400 border-t mt-1">
+                    Import these CSVs in QuickBooks Online under <span className="font-medium">Settings → Import Data</span>
+                  </p>
+                </div>
+              </>
+            )}
+          </div>
+          <Button onClick={() => setShowCreate(true)}>
+            <Plus className="h-4 w-4 mr-2" />
+            New Invoice
+          </Button>
+        </div>
       </div>
 
       {/* Summary cards */}
