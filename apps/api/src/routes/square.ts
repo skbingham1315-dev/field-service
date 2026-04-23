@@ -232,11 +232,6 @@ squareRouter.post('/import', async (req, res) => {
         : `${prefix}${si.id.slice(0, 8).toUpperCase()}`;
 
       const already = await prisma.invoice.findFirst({ where: { tenantId, invoiceNumber } });
-      if (already) {
-        if (isDraft) results.estimates.skipped++;
-        else results.invoices.skipped++;
-        continue;
-      }
 
       // Pull real line items from the linked Order
       const order = si.order_id ? orderMap.get(si.order_id) : null;
@@ -301,28 +296,45 @@ squareRouter.post('/import', async (req, res) => {
       // Notes: combine Square title + description
       const notes = [si.title, si.description].filter(Boolean).join('\n') || null;
 
-      await prisma.invoice.create({
-        data: {
-          tenantId,
-          customerId,
-          invoiceNumber,
-          status: status as any,
-          subtotal: subtotalCents - taxCents,
-          taxAmount: taxCents,
-          discountAmount: discountCents,
-          total: totalCents,
-          amountPaid: amountPaidCents,
-          amountDue: totalCents - amountPaidCents,
-          dueDate,
-          issuedAt,
-          paidAt,
-          notes,
-          lineItems: { create: lineItemsData },
-        },
-      });
+      const invoiceFields = {
+        status: status as any,
+        subtotal: subtotalCents - taxCents,
+        taxAmount: taxCents,
+        discountAmount: discountCents,
+        total: totalCents,
+        amountPaid: amountPaidCents,
+        amountDue: totalCents - amountPaidCents,
+        dueDate,
+        issuedAt,
+        paidAt,
+        notes,
+      };
 
-      if (isDraft) results.estimates.imported++;
-      else results.invoices.imported++;
+      if (already) {
+        // Update existing invoice — replace line items with latest from Square
+        await prisma.invoiceLineItem.deleteMany({ where: { invoiceId: already.id } });
+        await prisma.invoice.update({
+          where: { id: already.id },
+          data: {
+            ...invoiceFields,
+            lineItems: { create: lineItemsData },
+          },
+        });
+        if (isDraft) results.estimates.skipped++;
+        else results.invoices.skipped++;
+      } else {
+        await prisma.invoice.create({
+          data: {
+            tenantId,
+            customerId,
+            invoiceNumber,
+            ...invoiceFields,
+            lineItems: { create: lineItemsData },
+          },
+        });
+        if (isDraft) results.estimates.imported++;
+        else results.invoices.imported++;
+      }
     }
   }
 

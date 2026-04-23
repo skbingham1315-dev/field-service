@@ -1112,8 +1112,8 @@ function IntegrationsTab() {
               </div>
               {(['customers', 'invoices', 'estimates'] as const).map((k) => (
                 <p key={k} className="text-green-700 capitalize">
-                  {k}: <span className="font-semibold">{results[k].imported} imported</span>
-                  {results[k].skipped > 0 && <span className="text-green-600">, {results[k].skipped} skipped (already exist)</span>}
+                  {k}: <span className="font-semibold">{results[k].imported} new</span>
+                  {results[k].skipped > 0 && <span className="text-green-600">, {results[k].skipped} updated</span>}
                 </p>
               ))}
             </div>
