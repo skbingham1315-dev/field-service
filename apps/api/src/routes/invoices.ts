@@ -22,7 +22,9 @@ invoicesRouter.use((req, res, next) => {
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY ?? '', { apiVersion: '2024-04-10' });
 
 async function getNextInvoiceNumber(tenantId: string): Promise<string> {
-  const count = await prisma.invoice.count({ where: { tenantId } });
+  const count = await prisma.invoice.count({
+    where: { tenantId, invoiceNumber: { startsWith: 'INV-' } },
+  });
   return `INV-${String(count + 1).padStart(5, '0')}`;
 }
 
@@ -150,8 +152,8 @@ invoicesRouter.patch('/:id', async (req, res) => {
   if (!existing || existing.tenantId !== req.user!.tenantId) {
     throw new AppError('Invoice not found', 404, 'NOT_FOUND');
   }
-  if (existing.status !== 'draft') {
-    throw new AppError('Only draft invoices can be edited', 400, 'INVALID_STATUS');
+  if (['paid', 'void'].includes(existing.status)) {
+    throw new AppError('Paid and voided invoices cannot be edited', 400, 'INVALID_STATUS');
   }
 
   const { lineItems, dueDate, notes, discountAmount } = req.body;

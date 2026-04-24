@@ -395,16 +395,19 @@ function EstimateDetailModal({
   );
 }
 
+const EST_PAGE_LIMIT = 50;
+
 export function EstimatesPage() {
   const [statusFilter, setStatusFilter] = useState('');
   const [search, setSearch] = useState('');
+  const [page, setPage] = useState(1);
   const [showCreate, setShowCreate] = useState(false);
   const [selectedId, setSelectedId] = useState<string | null>(null);
 
   const { data, isLoading } = useQuery({
-    queryKey: ['estimates', statusFilter, search],
+    queryKey: ['estimates', statusFilter, search, page],
     queryFn: async () => {
-      const params = new URLSearchParams({ limit: '50' });
+      const params = new URLSearchParams({ limit: String(EST_PAGE_LIMIT), page: String(page) });
       if (statusFilter) params.set('status', statusFilter);
       if (search) params.set('search', search);
       const { data } = await api.get(`/estimates?${params}`);
@@ -413,6 +416,11 @@ export function EstimatesPage() {
   });
 
   const estimates: EstimateRow[] = data?.data ?? [];
+  const total: number = data?.meta?.total ?? 0;
+  const totalPages: number = data?.meta?.totalPages ?? 1;
+
+  const setStatusAndReset = (v: string) => { setStatusFilter(v); setPage(1); };
+  const setSearchAndReset = (v: string) => { setSearch(v); setPage(1); };
 
   const draft = estimates.filter((e) => e.status === 'draft');
   const sent = estimates.filter((e) => e.status === 'sent');
@@ -474,13 +482,13 @@ export function EstimatesPage() {
             type="text"
             placeholder="Search estimates or customers..."
             value={search}
-            onChange={(e) => setSearch(e.target.value)}
+            onChange={(e) => setSearchAndReset(e.target.value)}
             className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
           />
         </div>
         <select
           value={statusFilter}
-          onChange={(e) => setStatusFilter(e.target.value)}
+          onChange={(e) => setStatusAndReset(e.target.value)}
           className="px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
         >
           <option value="">All Statuses</option>
@@ -544,6 +552,24 @@ export function EstimatesPage() {
               </CardContent>
             </Card>
           ))}
+        </div>
+      )}
+
+      {/* Pagination */}
+      {totalPages > 1 && (
+        <div className="flex items-center justify-between pt-2">
+          <p className="text-sm text-gray-500">
+            Showing {(page - 1) * EST_PAGE_LIMIT + 1}–{Math.min(page * EST_PAGE_LIMIT, total)} of {total} estimates
+          </p>
+          <div className="flex items-center gap-2">
+            <Button variant="outline" size="sm" onClick={() => setPage((p) => p - 1)} disabled={page === 1}>
+              Previous
+            </Button>
+            <span className="text-sm text-gray-600">Page {page} of {totalPages}</span>
+            <Button variant="outline" size="sm" onClick={() => setPage((p) => p + 1)} disabled={page >= totalPages}>
+              Next
+            </Button>
+          </div>
         </div>
       )}
 

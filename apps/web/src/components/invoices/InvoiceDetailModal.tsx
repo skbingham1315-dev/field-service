@@ -1,16 +1,25 @@
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
-  Send, DollarSign, XCircle, Download, CheckCircle2,
-  Phone, Mail, MapPin, Calendar,
+  Send, DollarSign, XCircle, CheckCircle2,
+  Phone, Mail, Calendar, Pencil, Plus, Trash2, X,
 } from 'lucide-react';
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle,
-  Button, Badge,
+  Button, Badge, Input, Textarea,
 } from '@fsp/ui';
 import { RecordPaymentModal } from './RecordPaymentModal';
 import { api } from '../../lib/api';
 import type { InvoiceStatus } from '@fsp/types';
+import { useAuthStore } from '../../store/authStore';
+
+interface EditLineItem {
+  id?: string;
+  description: string;
+  quantity: string;
+  unitPrice: string;
+  taxable: boolean;
+}
 
 function formatMoney(cents: number) {
   return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(cents / 100);
@@ -31,7 +40,26 @@ interface Props {
 
 export function InvoiceDetailModal({ invoiceId, onClose }: Props) {
   const qc = useQueryClient();
+  const { user } = useAuthStore();
   const [showPayment, setShowPayment] = useState(false);
+  const [editing, setEditing] = useState(false);
+  const [editDueDate, setEditDueDate] = useState('');
+  const [editNotes, setEditNotes] = useState('');
+  const [editItems, setEditItems] = useState<EditLineItem[]>([]);
+
+  const startEdit = () => {
+    if (!invoice) return;
+    setEditDueDate(invoice.dueDate ? invoice.dueDate.slice(0, 10) : '');
+    setEditNotes(invoice.notes ?? '');
+    setEditItems(invoice.lineItems.map((li) => ({
+      id: li.id,
+      description: li.description,
+      quantity: String(li.quantity),
+      unitPrice: (li.unitPrice / 100).toFixed(2),
+      taxable: li.taxable,
+    })));
+    setEditing(true);
+  };
 
   const { data, isLoading } = useQuery({
     queryKey: ['invoices', invoiceId],
@@ -72,9 +100,29 @@ export function InvoiceDetailModal({ invoiceId, onClose }: Props) {
     onSuccess: () => { qc.invalidateQueries({ queryKey: ['invoices'] }); onClose(); },
   });
 
+  const { mutate: saveEdit, isPending: isSaving } = useMutation({
+    mutationFn: () => api.patch(`/invoices/${invoiceId}`, {
+      dueDate: editDueDate || undefined,
+      notes: editNotes || undefined,
+      lineItems: editItems.map((li) => ({
+        description: li.description,
+        quantity: parseFloat(li.quantity) || 1,
+        unitPrice: Math.round(parseFloat(li.unitPrice) * 100),
+        taxable: li.taxable,
+      })),
+    }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['invoices'] });
+      qc.invalidateQueries({ queryKey: ['invoices', invoiceId] });
+      setEditing(false);
+    },
+  });
+
+  const canEdit = invoice && !['paid', 'void'].includes(invoice.status);
   const canSend = invoice && !['paid', 'void'].includes(invoice.status);
   const canPay = invoice && invoice.status !== 'void' && invoice.amountDue > 0;
-  const canVoid = invoice && !['paid', 'void'].includes(invoice.status);
+  const canVoid = invoice && !['paid', 'void'].includes(invoice.status) &&
+    ['owner', 'admin'].includes(user?.role ?? '');
 
   return (
     <>
@@ -95,13 +143,19 @@ export function InvoiceDetailModal({ invoiceId, onClose }: Props) {
             <div className="space-y-6">
               {/* Actions */}
               <div className="flex flex-wrap gap-2">
-                {canSend && (
+                {canEdit && !editing && (
+                  <Button size="sm" variant="outline" onClick={startEdit}>
+                    <Pencil className="h-3.5 w-3.5 mr-1.5" />
+                    Edit
+                  </Button>
+                )}
+                {canSend && !editing && (
                   <Button size="sm" variant="outline" onClick={() => sendInvoice()} loading={isSending}>
                     <Send className="h-3.5 w-3.5 mr-1.5" />
                     {invoice.status === 'draft' ? 'Mark as Sent' : 'Resend'}
                   </Button>
                 )}
-                {canPay && (
+                {canPay && !editing && (
                   <Button size="sm" onClick={() => setShowPayment(true)}>
                     <DollarSign className="h-3.5 w-3.5 mr-1.5" />
                     Record Payment
@@ -114,7 +168,7 @@ export function InvoiceDetailModal({ invoiceId, onClose }: Props) {
                   </div>
                 )}
                 <div className="flex-1" />
-                {canVoid && (
+                {canVoid && !editing && (
                   <Button
                     size="sm"
                     variant="ghost"
@@ -129,6 +183,89 @@ export function InvoiceDetailModal({ invoiceId, onClose }: Props) {
                   </Button>
                 )}
               </div>
+
+              {/* Edit form */}
+              {editing && (
+                <div className="border border-blue-200 rounded-xl bg-blue-50 p-4 space-y-4">
+                  <p className="text-sm font-semibold text-blue-800">Editing Invoice</p>
+
+                  {/* Line items */}
+                  <div className="space-y-2">
+                    <p className="text-xs font-medium text-blue-700 uppercase tracking-wide">Line Items</p>
+                    {editItems.map((li, i) => (
+                      <div key={i} className="grid grid-cols-[1fr_70px_90px_36px_28px] gap-2 items-end">
+                        <Input
+                          placeholder="Description"
+                          value={li.description}
+                          onChange={(e) => setEditItems((p) => p.map((x, idx) => idx === i ? { ...x, description: e.target.value } : x))}
+                        />
+                        <Input
+                          placeholder="Qty"
+                          type="number"
+                          min="0.01"
+                          step="0.01"
+                          value={li.quantity}
+                          onChange={(e) => setEditItems((p) => p.map((x, idx) => idx === i ? { ...x, quantity: e.target.value } : x))}
+                        />
+                        <Input
+                          placeholder="Price ($)"
+                          type="number"
+                          min="0"
+                          step="0.01"
+                          value={li.unitPrice}
+                          onChange={(e) => setEditItems((p) => p.map((x, idx) => idx === i ? { ...x, unitPrice: e.target.value } : x))}
+                        />
+                        <div className="flex items-center justify-center h-9">
+                          <input
+                            type="checkbox"
+                            checked={li.taxable}
+                            onChange={(e) => setEditItems((p) => p.map((x, idx) => idx === i ? { ...x, taxable: e.target.checked } : x))}
+                            title="Taxable"
+                            className="h-4 w-4 rounded border-gray-300"
+                          />
+                        </div>
+                        <button
+                          onClick={() => setEditItems((p) => p.filter((_, idx) => idx !== i))}
+                          disabled={editItems.length === 1}
+                          className="h-9 flex items-center justify-center text-gray-400 hover:text-red-500 disabled:opacity-30"
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </button>
+                      </div>
+                    ))}
+                    <button
+                      onClick={() => setEditItems((p) => [...p, { description: '', quantity: '1', unitPrice: '', taxable: true }])}
+                      className="flex items-center gap-1 text-sm text-blue-600 hover:text-blue-800 font-medium"
+                    >
+                      <Plus className="h-3.5 w-3.5" /> Add Line Item
+                    </button>
+                  </div>
+
+                  {/* Due date + notes */}
+                  <div className="grid grid-cols-2 gap-3">
+                    <Input
+                      label="Due Date"
+                      type="date"
+                      value={editDueDate}
+                      onChange={(e) => setEditDueDate(e.target.value)}
+                    />
+                    <div />
+                  </div>
+                  <Textarea
+                    label="Notes"
+                    value={editNotes}
+                    onChange={(e) => setEditNotes(e.target.value)}
+                    rows={2}
+                  />
+
+                  <div className="flex gap-2">
+                    <Button size="sm" onClick={() => saveEdit()} loading={isSaving}>Save Changes</Button>
+                    <Button size="sm" variant="ghost" onClick={() => setEditing(false)}>
+                      <X className="h-3.5 w-3.5 mr-1" /> Cancel
+                    </Button>
+                  </div>
+                </div>
+              )}
 
               {/* Customer + dates */}
               <div className="grid grid-cols-2 gap-4 p-4 bg-gray-50 rounded-lg text-sm">
