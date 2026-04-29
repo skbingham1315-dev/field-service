@@ -33,6 +33,7 @@ interface JobRow {
   customer?: { firstName: string; lastName: string };
   serviceAddress?: { street: string; city: string };
   technician?: { firstName: string; lastName: string };
+  assignedTechnicians?: Array<{ user: { firstName: string; lastName: string } }>;
 }
 
 export function JobsPage() {
@@ -141,12 +142,12 @@ export function JobsPage() {
                           {job.serviceAddress.street}, {job.serviceAddress.city}
                         </span>
                       )}
-                      {(job.assignedTechnicians?.length > 0 || job.technician) && (
+                      {((job.assignedTechnicians && job.assignedTechnicians.length > 0) || job.technician) && (
                         <span className="flex items-center gap-1 text-blue-600">
                           <User className="h-3.5 w-3.5" />
-                          {job.assignedTechnicians?.length > 0
+                          {job.assignedTechnicians && job.assignedTechnicians.length > 0
                             ? job.assignedTechnicians.map((a: any) => `${a.user.firstName} ${a.user.lastName}`).join(', ')
-                            : `${job.technician.firstName} ${job.technician.lastName}`}
+                            : `${job.technician?.firstName} ${job.technician?.lastName}`}
                         </span>
                       )}
                     </div>

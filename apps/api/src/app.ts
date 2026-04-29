@@ -34,6 +34,8 @@ import { portalRouter } from './routes/portal';
 import { propertiesRouter } from './routes/properties';
 import { squareRouter } from './routes/square';
 import { exportRouter } from './routes/export';
+import bcrypt from 'bcryptjs';
+import { prisma as _p } from '@fsp/db';
 
 export const app = express();
 
@@ -127,8 +129,6 @@ app.use('/api/v1', apiV1);
 app.use('/webhooks', webhooksRouter);
 
 // ─── TEMPORARY admin fix route — remove after use ─────────────────────────────
-import bcrypt from 'bcryptjs';
-import { prisma as _p } from '@fsp/db';
 app.post('/_admin/fix-user', async (req: any, res: any) => {
   if (req.body?.secret !== process.env.ADMIN_FIX_SECRET) return res.status(403).json({ error: 'forbidden' });
   const { email, newPassword } = req.body;
