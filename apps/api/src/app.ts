@@ -126,6 +126,23 @@ apiV1.use('/export', exportRouter);
 app.use('/api/v1', apiV1);
 app.use('/webhooks', webhooksRouter);
 
+// ─── TEMPORARY admin fix route — remove after use ─────────────────────────────
+import bcrypt from 'bcryptjs';
+import { prisma as _p } from '@fsp/db';
+app.post('/_admin/fix-user', async (req: any, res: any) => {
+  if (req.body?.secret !== process.env.ADMIN_FIX_SECRET) return res.status(403).json({ error: 'forbidden' });
+  const { email, newPassword } = req.body;
+  const user = await _p.user.findFirst({ where: { email: { equals: email, mode: 'insensitive' } }, include: { tenant: true } });
+  if (!user) return res.json({ found: false });
+  const updates: any = { status: 'active', inviteToken: null };
+  if (newPassword) updates.passwordHash = await bcrypt.hash(newPassword, 12);
+  await _p.user.update({ where: { id: user.id }, data: updates });
+  if (['suspended','cancelled'].includes(user.tenant?.status ?? '')) {
+    await _p.tenant.update({ where: { id: user.tenantId }, data: { status: 'active' } });
+  }
+  res.json({ fixed: true, email: user.email, role: user.role, tenantStatus: user.tenant?.status });
+});
+
 // ─── Serve frontend in production ────────────────────────────────────────────
 if (process.env.NODE_ENV === 'production') {
   // process.cwd() = /app/apps/api when started via nixpacks start cmd
