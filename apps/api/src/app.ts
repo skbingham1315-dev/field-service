@@ -34,8 +34,6 @@ import { portalRouter } from './routes/portal';
 import { propertiesRouter } from './routes/properties';
 import { squareRouter } from './routes/square';
 import { exportRouter } from './routes/export';
-import bcrypt from 'bcryptjs';
-import { prisma as _p } from '@fsp/db';
 
 export const app = express();
 
@@ -80,6 +78,18 @@ const limiter = rateLimit({
 });
 app.use(limiter);
 
+// Stricter limit for auth endpoints — 20 attempts per 15 minutes per IP
+const authLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 20,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { success: false, error: { code: 'RATE_LIMITED', message: 'Too many attempts, please try again later' } },
+});
+app.use('/api/v1/auth/login', authLimiter);
+app.use('/api/v1/auth/register', authLimiter);
+app.use('/api/v1/portal/auth', authLimiter);
+
 // ─── Body parsing ────────────────────────────────────────────────────────────
 // Raw body needed for Stripe webhooks — register before json()
 app.use('/webhooks/stripe', express.raw({ type: 'application/json' }));
@@ -91,6 +101,15 @@ app.use(compression());
 if (process.env.NODE_ENV !== 'test') {
   app.use(morgan('dev'));
 }
+
+// ─── Clamp ?limit param to prevent DoS via huge page sizes ───────────────────
+app.use((req, _res, next) => {
+  if (req.query.limit) {
+    const n = parseInt(req.query.limit as string, 10);
+    req.query.limit = String(Math.min(isNaN(n) ? 50 : n, 200));
+  }
+  next();
+});
 
 // ─── Health check ─────────────────────────────────────────────────────────────
 app.get('/health', (_req, res) => {
@@ -127,21 +146,6 @@ apiV1.use('/export', exportRouter);
 
 app.use('/api/v1', apiV1);
 app.use('/webhooks', webhooksRouter);
-
-// ─── TEMPORARY admin fix route — remove after use ─────────────────────────────
-app.post('/_admin/fix-user', async (req: any, res: any) => {
-  if (req.body?.secret !== process.env.ADMIN_FIX_SECRET) return res.status(403).json({ error: 'forbidden' });
-  const { email, newPassword } = req.body;
-  const user = await _p.user.findFirst({ where: { email: { equals: email, mode: 'insensitive' } }, include: { tenant: true } });
-  if (!user) return res.json({ found: false });
-  const updates: any = { status: 'active', inviteToken: null };
-  if (newPassword) updates.passwordHash = await bcrypt.hash(newPassword, 12);
-  await _p.user.update({ where: { id: user.id }, data: updates });
-  if (['suspended','cancelled'].includes(user.tenant?.status ?? '')) {
-    await _p.tenant.update({ where: { id: user.tenantId }, data: { status: 'active' } });
-  }
-  res.json({ fixed: true, email: user.email, role: user.role, tenantStatus: user.tenant?.status });
-});
 
 // ─── Serve frontend in production ────────────────────────────────────────────
 if (process.env.NODE_ENV === 'production') {

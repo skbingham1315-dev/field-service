@@ -31,8 +31,9 @@ uploadsRouter.post('/presign', async (req, res) => {
     filename: string;
   };
 
-  if (!contentType.startsWith('image/')) {
-    throw new AppError('Only image uploads are supported', 400, 'INVALID_CONTENT_TYPE');
+  const ALLOWED_TYPES = ['image/jpeg', 'image/png', 'image/webp', 'image/gif', 'image/heic', 'image/heif'];
+  if (!ALLOWED_TYPES.includes(contentType)) {
+    throw new AppError('Only image uploads are supported (jpeg, png, webp, gif, heic)', 400, 'INVALID_CONTENT_TYPE');
   }
 
   const key = `tenants/${req.user!.tenantId}/jobs/${jobId}/${uuidv4()}-${filename}`;
@@ -86,10 +87,12 @@ uploadsRouter.post('/confirm', async (req, res) => {
 
 // GET /api/v1/uploads/signed-url/:key
 uploadsRouter.get('/signed-url/:key(*)', async (req, res) => {
-  const command = new GetObjectCommand({
-    Bucket: BUCKET,
-    Key: req.params.key,
-  });
+  const key = req.params.key;
+  // Ensure the key belongs to the requesting tenant
+  if (!key.startsWith(`tenants/${req.user!.tenantId}/`)) {
+    throw new AppError('Access denied', 403, 'FORBIDDEN');
+  }
+  const command = new GetObjectCommand({ Bucket: BUCKET, Key: key });
   const url = await getSignedUrl(s3, command, { expiresIn: 3600 });
   res.json({ success: true, data: { url } } satisfies ApiResponse);
 });

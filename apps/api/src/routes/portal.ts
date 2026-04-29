@@ -368,9 +368,7 @@ portalRouter.get('/jobs', portalAuth, async (req: Request, res: Response): Promi
     return;
   }
   const jobs = await prisma.cRMJob.findMany({
-    where: {
-      tenantId: portalUser.tenantId,
-    },
+    where: { tenantId: portalUser.tenantId },
     orderBy: { createdAt: 'desc' },
     take: 50,
   });
