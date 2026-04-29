@@ -26,7 +26,7 @@ const FEATURES = [
   'Payroll calculated from logged hours',
 ];
 
-export function LoginPage({ onSignup }: { onSignup?: () => void }) {
+export function LoginPage({ onSignup, onForgotPassword }: { onSignup?: () => void; onForgotPassword?: () => void }) {
   const login = useAuthStore((s) => s.login);
   const [form, setForm] = useState({ email: '', password: '', tenantSlug: '' });
   const [error, setError] = useState('');
@@ -134,6 +134,17 @@ export function LoginPage({ onSignup }: { onSignup?: () => void }) {
                 onChange={(e) => setForm((f) => ({ ...f, password: e.target.value }))}
                 className="w-full px-4 py-3 bg-white border border-gray-200 rounded-xl text-sm text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-violet-500/50 focus:border-violet-400 transition-all shadow-sm"
               />
+              {onForgotPassword && (
+                <div className="text-right mt-1.5">
+                  <button
+                    type="button"
+                    onClick={onForgotPassword}
+                    className="text-xs text-violet-600 hover:text-violet-700 font-medium transition-colors"
+                  >
+                    Forgot password?
+                  </button>
+                </div>
+              )}
             </div>
 
             {error && (

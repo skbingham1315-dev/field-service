@@ -2,6 +2,8 @@ import { useState, useEffect } from 'react';
 import { useAuthStore } from './store/authStore';
 import { LoginPage } from './pages/LoginPage';
 import { SignupPage } from './pages/SignupPage';
+import { ForgotPasswordPage } from './pages/ForgotPasswordPage';
+import { ResetPasswordPage } from './pages/ResetPasswordPage';
 import { DashboardLayout } from './layouts/DashboardLayout';
 import { ReviewPage } from './pages/ReviewPage';
 import { PortalApp } from './pages/PortalApp';
@@ -22,6 +24,7 @@ function BillingSuccessBanner({ onDismiss }: { onDismiss: () => void }) {
 export function App() {
   const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
   const [showSignup, setShowSignup] = useState(false);
+  const [showForgot, setShowForgot] = useState(false);
   const [billingSuccess, setBillingSuccess] = useState(false);
 
   useEffect(() => {
@@ -46,11 +49,18 @@ export function App() {
     return <ReviewPage token={reviewMatch[1]} />;
   }
 
+  if (path === '/reset-password') {
+    return <ResetPasswordPage onLogin={() => { window.history.replaceState({}, '', '/'); window.location.reload(); }} />;
+  }
+
   if (!isAuthenticated) {
     if (showSignup) {
       return <SignupPage onLogin={() => setShowSignup(false)} />;
     }
-    return <LoginPage onSignup={() => setShowSignup(true)} />;
+    if (showForgot) {
+      return <ForgotPasswordPage onBack={() => setShowForgot(false)} />;
+    }
+    return <LoginPage onSignup={() => setShowSignup(true)} onForgotPassword={() => setShowForgot(true)} />;
   }
 
   return (
