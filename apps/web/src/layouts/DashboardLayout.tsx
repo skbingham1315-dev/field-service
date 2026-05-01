@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import {
   LayoutDashboard,
   Users,
@@ -46,6 +46,13 @@ import { AIAssistant } from '../components/AIAssistant';
 import { useLocationSharing } from '../hooks/useLocationSharing';
 
 type Page = 'dashboard' | 'customers' | 'jobs' | 'schedule' | 'map' | 'invoices' | 'estimates' | 'team' | 'payroll' | 'billing' | 'settings' | 'contacts' | 'crm-jobs' | 'subs' | 'connect' | 'properties' | 'reviews';
+
+const VALID_PAGES: Page[] = ['dashboard','customers','jobs','schedule','map','invoices','estimates','team','payroll','contacts','crm-jobs','subs','connect','properties','reviews','billing','settings'];
+
+function pageFromHash(): Page {
+  const hash = window.location.hash.replace('#', '');
+  return (VALID_PAGES.includes(hash as Page) ? hash : 'dashboard') as Page;
+}
 type ViewAs = 'owner' | 'technician' | 'sales' | 'dispatcher';
 
 const VIEW_OPTIONS: Array<{ id: ViewAs; label: string; desc: string; color: string }> = [
@@ -92,13 +99,26 @@ function LogoMark({ size = 28 }: { size?: number }) {
 }
 
 export function DashboardLayout() {
-  const [currentPage, setCurrentPage] = useState<Page>('dashboard');
+  const [currentPage, setCurrentPageState] = useState<Page>(pageFromHash);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [viewAs, setViewAs] = useState<ViewAs>('owner');
   const [viewPickerOpen, setViewPickerOpen] = useState(false);
   const { user, logout } = useAuthStore();
 
   useLocationSharing();
+
+  // Keep hash in sync when navigating programmatically
+  const setCurrentPage = useCallback((page: Page) => {
+    window.location.hash = page;
+    setCurrentPageState(page);
+  }, []);
+
+  // Handle browser back/forward
+  useEffect(() => {
+    const onHashChange = () => setCurrentPageState(pageFromHash());
+    window.addEventListener('hashchange', onHashChange);
+    return () => window.removeEventListener('hashchange', onHashChange);
+  }, []);
 
   const isOwner = user?.role === 'owner' || user?.role === 'admin';
   const activeView = VIEW_OPTIONS.find(v => v.id === viewAs)!;
