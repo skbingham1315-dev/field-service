@@ -750,7 +750,7 @@ interface PRGroup {
   periodStart: string;
   periodEnd: string;
   paidAt?: string;
-  rows: Array<PRRow & { userId?: string }>;
+  rows: Array<PRRow & { userId?: string; _idx: number }>;
 }
 
 function parsePeriodField(val: string): { start: string; end: string } | null {
@@ -819,7 +819,7 @@ function groupPRRows(rows: PRRow[], userMap: Record<number, string>): PRGroup[] 
     if (!row.periodStart || !row.periodEnd) return;
     const key = `${row.periodStart}|${row.periodEnd}`;
     if (!groups[key]) groups[key] = { periodStart: row.periodStart, periodEnd: row.periodEnd, paidAt: row.paidAt, rows: [] };
-    groups[key].rows.push({ ...row, userId: userMap[i] });
+    groups[key].rows.push({ ...row, _idx: i, userId: userMap[i] });
   });
   return Object.values(groups).sort((a, b) => b.periodStart.localeCompare(a.periodStart));
 }
@@ -1035,7 +1035,7 @@ function ImportPayRunsModal({ team, onClose, onImported }: {
                 <table className="w-full text-xs">
                   <tbody className="divide-y divide-gray-100">
                     {g.rows.map((row, ri) => {
-                      const rowIdx = rows.findIndex(r => r === row);
+                      const rowIdx = row._idx;
                       return (
                         <tr key={ri} className={row.error || !row.userId ? 'bg-red-50' : 'hover:bg-gray-50'}>
                           <td className="px-4 py-2 w-56">
