@@ -1,6 +1,6 @@
 import { useState } from 'react';
-import { useQuery } from '@tanstack/react-query';
-import { Plus, Search, MapPin, User, Calendar } from 'lucide-react';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { Plus, Search, MapPin, User, Calendar, Trash2 } from 'lucide-react';
 import { Button, Badge, Card, CardContent } from '@fsp/ui';
 import { api } from '../lib/api';
 import type { JobStatus } from '@fsp/types';
@@ -41,6 +41,14 @@ export function JobsPage() {
   const [statusFilter, setStatusFilter] = useState('');
   const [showCreate, setShowCreate] = useState(false);
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const qc = useQueryClient();
+
+  const handleDelete = async (e: React.MouseEvent, jobId: string) => {
+    e.stopPropagation();
+    if (!confirm('Delete this job? This cannot be undone.')) return;
+    await api.delete(`/jobs/${jobId}`).catch(() => {});
+    qc.invalidateQueries({ queryKey: ['jobs'] });
+  };
 
   const { data, isLoading } = useQuery({
     queryKey: ['jobs', search, statusFilter],
@@ -153,19 +161,28 @@ export function JobsPage() {
                     </div>
                   </div>
 
-                  {job.scheduledStart && (
-                    <div className="text-right text-sm text-gray-400 whitespace-nowrap flex-shrink-0">
-                      <div className="flex items-center gap-1 justify-end">
-                        <Calendar className="h-3.5 w-3.5" />
-                        {new Date(job.scheduledStart).toLocaleDateString()}
+                  <div className="flex items-start gap-3 flex-shrink-0">
+                    {job.scheduledStart && (
+                      <div className="text-right text-sm text-gray-400 whitespace-nowrap">
+                        <div className="flex items-center gap-1 justify-end">
+                          <Calendar className="h-3.5 w-3.5" />
+                          {new Date(job.scheduledStart).toLocaleDateString()}
+                        </div>
+                        <div>
+                          {new Date(job.scheduledStart).toLocaleTimeString([], {
+                            hour: '2-digit', minute: '2-digit',
+                          })}
+                        </div>
                       </div>
-                      <div>
-                        {new Date(job.scheduledStart).toLocaleTimeString([], {
-                          hour: '2-digit', minute: '2-digit',
-                        })}
-                      </div>
-                    </div>
-                  )}
+                    )}
+                    <button
+                      onClick={(e) => handleDelete(e, job.id)}
+                      className="p-1.5 text-gray-300 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors"
+                      title="Delete job"
+                    >
+                      <Trash2 className="h-4 w-4" />
+                    </button>
+                  </div>
                 </div>
               </CardContent>
             </Card>

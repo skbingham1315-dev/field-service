@@ -16,7 +16,7 @@ import {
 import { format, addDays, subDays } from 'date-fns';
 import {
   ChevronLeft, ChevronRight, User, MapPin, Clock,
-  Wifi, WifiOff, Circle, RefreshCw,
+  Wifi, WifiOff, Circle, RefreshCw, Trash2,
 } from 'lucide-react';
 import { Badge, Card, CardContent } from '@fsp/ui';
 import { api } from '../lib/api';
@@ -75,10 +75,12 @@ const STATUS_DOT: Record<JobStatus, string> = {
 function JobCardItem({
   job,
   onClick,
+  onDelete,
   isDragging = false,
 }: {
   job: JobCard;
   onClick?: () => void;
+  onDelete?: (e: React.MouseEvent) => void;
   isDragging?: boolean;
 }) {
   const colorClass = STATUS_COLORS[job.status] ?? STATUS_COLORS.draft;
@@ -121,17 +123,27 @@ function JobCardItem({
             </span>
           )}
         </div>
+        {onDelete && (
+          <button
+            onClick={onDelete}
+            onPointerDown={e => e.stopPropagation()}
+            className="p-1 opacity-30 hover:opacity-80 hover:text-red-600 rounded transition-opacity flex-shrink-0"
+            title="Delete job"
+          >
+            <Trash2 className="h-3 w-3" />
+          </button>
+        )}
       </div>
     </div>
   );
 }
 
-function DraggableJobCard({ job, onClick }: { job: JobCard; onClick: () => void }) {
+function DraggableJobCard({ job, onClick, onDelete }: { job: JobCard; onClick: () => void; onDelete: (e: React.MouseEvent) => void }) {
   const { attributes, listeners, setNodeRef, isDragging } = useDraggable({ id: job.id, data: { job } });
 
   return (
     <div ref={setNodeRef} {...listeners} {...attributes} style={{ opacity: isDragging ? 0.35 : 1 }}>
-      <JobCardItem job={job} onClick={onClick} />
+      <JobCardItem job={job} onClick={onClick} onDelete={onDelete} />
     </div>
   );
 }
@@ -146,6 +158,7 @@ function TechColumn({
   jobs,
   isOver,
   onJobClick,
+  onJobDelete,
 }: {
   techId: string;
   label: string;
@@ -154,6 +167,7 @@ function TechColumn({
   jobs: JobCard[];
   isOver: boolean;
   onJobClick: (id: string) => void;
+  onJobDelete: (e: React.MouseEvent, id: string) => void;
 }) {
   const { setNodeRef } = useDroppable({ id: techId });
 
@@ -206,7 +220,7 @@ function TechColumn({
           </div>
         ) : (
           jobs.map((job) => (
-            <DraggableJobCard key={job.id} job={job} onClick={() => onJobClick(job.id)} />
+            <DraggableJobCard key={job.id} job={job} onClick={() => onJobClick(job.id)} onDelete={(e) => onJobDelete(e, job.id)} />
           ))
         )}
         {isOver && jobs.length > 0 && (
@@ -227,6 +241,13 @@ export function SchedulePage() {
   const [selectedJobId, setSelectedJobId] = useState<string | null>(null);
   const [isConnected, setIsConnected] = useState(false);
   const dateStr = format(currentDate, 'yyyy-MM-dd');
+
+  const handleJobDelete = async (e: React.MouseEvent, jobId: string) => {
+    e.stopPropagation();
+    if (!confirm('Delete this job? This cannot be undone.')) return;
+    await api.delete(`/jobs/${jobId}`).catch(() => {});
+    qc.invalidateQueries({ queryKey: ['schedule'] });
+  };
 
   // ── Data fetching ──────────────────────────────────────────────────────────
   const { data, isLoading, refetch } = useQuery({
@@ -424,6 +445,7 @@ export function SchedulePage() {
                 jobs={unassignedJobs}
                 isOver={overId === 'unassigned'}
                 onJobClick={setSelectedJobId}
+                onJobDelete={handleJobDelete}
               />
 
               {/* Divider */}
@@ -447,6 +469,7 @@ export function SchedulePage() {
                     jobs={jobsByTech(tech.id)}
                     isOver={overId === tech.id}
                     onJobClick={setSelectedJobId}
+                    onJobDelete={handleJobDelete}
                   />
                 ))
               )}

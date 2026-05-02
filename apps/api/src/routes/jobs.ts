@@ -290,3 +290,17 @@ jobsRouter.post('/:id/notes', async (req, res) => {
 
   res.status(201).json({ success: true, data: note } satisfies ApiResponse);
 });
+
+// DELETE /api/v1/jobs/:id
+jobsRouter.delete('/:id', async (req, res) => {
+  const job = await prisma.job.findUnique({ where: { id: req.params.id } });
+  if (!job || job.tenantId !== req.user!.tenantId) {
+    throw new AppError('Job not found', 404, 'NOT_FOUND');
+  }
+  if (req.user!.role === 'technician' || req.user!.role === 'sales') {
+    throw new AppError('Not authorized to delete jobs', 403, 'FORBIDDEN');
+  }
+  await prisma.job.delete({ where: { id: req.params.id } });
+  io?.to(`tenant:${req.user!.tenantId}`).emit('job:deleted', { id: req.params.id });
+  res.json({ success: true, data: { message: 'Job deleted' } } satisfies ApiResponse);
+});
