@@ -111,8 +111,16 @@ payrollRouter.post('/import', async (req, res) => {
   }
 
   const created: string[] = [];
+  const skipped: string[] = [];
   for (const run of runs) {
     if (!run.periodStart || !run.periodEnd || !run.entries?.length) continue;
+
+    // Skip if a run for this exact period already exists
+    const existing = await prisma.payrollRun.findFirst({
+      where: { tenantId, periodStart: new Date(run.periodStart), periodEnd: new Date(run.periodEnd) },
+    });
+    if (existing) { skipped.push(`${run.periodStart}–${run.periodEnd}`); continue; }
+
     const totalGross = Math.round(run.entries.reduce((s, e) => s + (e.grossPay ?? 0), 0) * 100) / 100;
     const record = await prisma.payrollRun.create({
       data: {
@@ -140,7 +148,7 @@ payrollRouter.post('/import', async (req, res) => {
     created.push(record.id);
   }
 
-  res.status(201).json({ success: true, data: { imported: created.length } } satisfies ApiResponse);
+  res.status(201).json({ success: true, data: { imported: created.length, skipped: skipped.length, skippedPeriods: skipped } } satisfies ApiResponse);
 });
 
 // PATCH /api/v1/payroll/:id/entries/:entryId — edit a single payroll entry

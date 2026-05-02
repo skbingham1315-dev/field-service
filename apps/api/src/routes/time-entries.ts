@@ -54,6 +54,14 @@ timeEntriesRouter.post('/', async (req, res) => {
 
   if (!date) { res.status(400).json({ success: false, message: 'date is required' }); return; }
 
+  // Reject duplicate: one entry per employee per day
+  const dayStart = new Date(date); dayStart.setHours(0, 0, 0, 0);
+  const existing = await prisma.timeEntry.findFirst({ where: { tenantId, userId, date: dayStart } });
+  if (existing) {
+    res.status(409).json({ success: false, message: `A time entry for this employee already exists on ${date}. Edit the existing entry instead.` });
+    return;
+  }
+
   // Calculate hours from clock times if not provided
   let hours = hoursWorked ?? 0;
   if (!hours && clockIn && clockOut) {
