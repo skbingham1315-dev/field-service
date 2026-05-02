@@ -1511,6 +1511,20 @@ function HoursTab() {
     refresh();
   };
 
+  const handleApprove = async (id: string) => {
+    await api.patch(`/time-entries/${id}`, { status: 'approved' }).catch(() => {});
+    refresh();
+  };
+
+  const handleApproveAll = async () => {
+    const pending = entries.filter(e => e.status === 'pending');
+    if (!pending.length) return;
+    await Promise.all(pending.map(e => api.patch(`/time-entries/${e.id}`, { status: 'approved' })));
+    refresh();
+  };
+
+  const pendingCount = entries.filter(e => e.status === 'pending').length;
+
   const STATUS_COLOR: Record<string, string> = {
     pending: 'bg-yellow-100 text-yellow-700',
     approved: 'bg-blue-100 text-blue-700',
@@ -1534,6 +1548,12 @@ function HoursTab() {
           {team.map(u => <option key={u.id} value={u.id}>{u.firstName} {u.lastName}</option>)}
         </select>
         <div className="ml-auto flex items-center gap-2">
+          {pendingCount > 0 && (
+            <button onClick={handleApproveAll}
+              className="flex items-center gap-2 bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-semibold px-4 py-2.5 rounded-xl transition-colors">
+              <CheckCircle className="h-4 w-4" /> Approve All Pending ({pendingCount})
+            </button>
+          )}
           <button onClick={() => setShowImport(true)}
             className="flex items-center gap-2 bg-white border border-gray-300 hover:bg-gray-50 text-gray-700 text-sm font-medium px-4 py-2.5 rounded-xl transition-colors">
             <FileSpreadsheet className="h-4 w-4" /> Import Spreadsheet
@@ -1585,6 +1605,12 @@ function HoursTab() {
                     <td className="px-4 py-3 text-gray-500 text-xs max-w-[160px] truncate">{e.notes ?? ''}</td>
                     <td className="px-4 py-3">
                       <div className="flex items-center gap-2 justify-end">
+                        {e.status === 'pending' && (
+                          <button onClick={() => handleApprove(e.id)}
+                            className="p-1 text-gray-400 hover:text-emerald-600 rounded-lg transition-colors" title="Approve">
+                            <CheckCircle className="h-3.5 w-3.5" />
+                          </button>
+                        )}
                         <button onClick={() => setEditEntry(e)}
                           className="p-1 text-gray-400 hover:text-indigo-600 rounded-lg transition-colors" title="Edit">
                           <Edit2 className="h-3.5 w-3.5" />
