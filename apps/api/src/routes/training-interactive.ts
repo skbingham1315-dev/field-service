@@ -84,7 +84,7 @@ trainingInteractiveRouter.post('/exercise-answers/:exerciseId', async (req, res)
   await prisma.trainingUserProgress.upsert({
     where: { userId },
     create: { userId, tenantId, exercisesDone: [exerciseId], lastActivityAt: new Date() },
-    update: { exercisesDone: { set: newDone }, lastActivityAt: new Date() },
+    update: { exercisesDone: newDone, lastActivityAt: new Date() },
   });
 
   res.json({ success: true, data: saved } satisfies ApiResponse);
