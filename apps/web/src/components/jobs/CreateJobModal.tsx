@@ -42,7 +42,7 @@ export function CreateJobModal({ open, onClose }: Props) {
   const { data: techData } = useQuery({
     queryKey: ['users', 'technicians'],
     queryFn: async () => {
-      const { data } = await api.get('/users?role=technician');
+      const { data } = await api.get('/users?hasRole=technician');
       return data;
     },
     enabled: open,

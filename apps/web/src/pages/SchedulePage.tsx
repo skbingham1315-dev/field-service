@@ -46,7 +46,7 @@ interface JobCard {
   scheduledEnd?: string;
   estimatedDuration?: number;
   technicianId?: string;
-  assignedTechnicians?: Array<{ user: { id: string } }>;
+  assignedTechnicians?: Array<{ user: { id: string; firstName: string; lastName: string } }>;
   customer?: { firstName: string; lastName: string; phone?: string };
   serviceAddress?: { street: string; city: string };
 }
@@ -103,6 +103,12 @@ function JobCardItem({
           {job.customer && (
             <p className="text-[11px] opacity-75 truncate mt-0.5">
               {job.customer.firstName} {job.customer.lastName}
+            </p>
+          )}
+          {job.assignedTechnicians && job.assignedTechnicians.length > 0 && (
+            <p className="text-[11px] opacity-60 truncate flex items-center gap-0.5 mt-0.5">
+              <User className="h-2.5 w-2.5 flex-shrink-0" />
+              {job.assignedTechnicians.map(a => a.user.firstName).join(', ')}
             </p>
           )}
           {job.serviceAddress && (

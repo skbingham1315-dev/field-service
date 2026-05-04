@@ -7,13 +7,28 @@ import type { ApiResponse } from '@fsp/types';
 export const trainingRouter = Router();
 trainingRouter.use(authenticate);
 
-// GET /api/v1/training — list resources (filtered by audience for non-owners)
+// GET /api/v1/training — list resources (filtered by audience + targetUserIds for non-owners)
 trainingRouter.get('/', async (req, res) => {
-  const { tenantId, role } = req.user!;
+  const { tenantId, role, sub } = req.user!;
 
   const where: Record<string, unknown> = { tenantId };
-  if (role === 'technician') where.audience = { in: ['all', 'technician'] };
-  else if (role === 'sales') where.audience = { in: ['all', 'sales'] };
+  if (role !== 'owner' && role !== 'admin') {
+    const audienceValues = role === 'technician'
+      ? ['all', 'technician']
+      : role === 'sales'
+      ? ['all', 'sales']
+      : ['all'];
+    // Show resource if: audience matches AND (targetUserIds is empty OR userId is in targetUserIds)
+    where.AND = [
+      { audience: { in: audienceValues } },
+      {
+        OR: [
+          { targetUserIds: { isEmpty: true } },
+          { targetUserIds: { has: sub } },
+        ],
+      },
+    ];
+  }
 
   const resources = await prisma.trainingResource.findMany({
     where,
@@ -27,13 +42,14 @@ trainingRouter.get('/', async (req, res) => {
 // POST /api/v1/training — create resource (owner/admin only)
 trainingRouter.post('/', requireRole('owner', 'admin'), async (req, res) => {
   const { tenantId, sub } = req.user!;
-  const { title, description, audience, fileUrl, fileType, content } = req.body as {
+  const { title, description, audience, fileUrl, fileType, content, targetUserIds } = req.body as {
     title: string;
     description?: string;
     audience?: string;
     fileUrl?: string;
     fileType?: string;
     content?: string;
+    targetUserIds?: string[];
   };
 
   if (!title) throw new AppError('title is required', 400, 'VALIDATION_ERROR');
@@ -44,6 +60,7 @@ trainingRouter.post('/', requireRole('owner', 'admin'), async (req, res) => {
       title,
       description: description || null,
       audience: audience ?? 'all',
+      targetUserIds: targetUserIds ?? [],
       fileUrl: fileUrl || null,
       fileType: fileType || null,
       content: content || null,
@@ -61,13 +78,14 @@ trainingRouter.patch('/:id', requireRole('owner', 'admin'), async (req, res) => 
   const resource = await prisma.trainingResource.findUnique({ where: { id: req.params.id } });
   if (!resource || resource.tenantId !== tenantId) throw new AppError('Not found', 404, 'NOT_FOUND');
 
-  const { title, description, audience, fileUrl, fileType, content } = req.body;
+  const { title, description, audience, fileUrl, fileType, content, targetUserIds } = req.body;
   const updated = await prisma.trainingResource.update({
     where: { id: req.params.id },
     data: {
       ...(title !== undefined && { title }),
       ...(description !== undefined && { description: description || null }),
       ...(audience !== undefined && { audience }),
+      ...(targetUserIds !== undefined && { targetUserIds }),
       ...(fileUrl !== undefined && { fileUrl: fileUrl || null }),
       ...(fileType !== undefined && { fileType: fileType || null }),
       ...(content !== undefined && { content: content || null }),

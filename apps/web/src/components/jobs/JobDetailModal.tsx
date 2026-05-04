@@ -2,11 +2,11 @@ import { useRef, useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   Camera, MessageSquare, User, MapPin, Clock,
-  CheckCircle2, PlayCircle, Navigation, XCircle, Upload, Lock, Unlock,
+  CheckCircle2, PlayCircle, Navigation, XCircle, Upload, Lock, Unlock, Edit2,
 } from 'lucide-react';
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle,
-  Button, Badge, Textarea, Select,
+  Button, Badge, Textarea, Select, Input,
 } from '@fsp/ui';
 import { api } from '../../lib/api';
 import type { JobStatus } from '@fsp/types';
@@ -45,7 +45,7 @@ interface Props {
   onClose: () => void;
 }
 
-type TabType = 'details' | 'photos' | 'notes';
+type TabType = 'details' | 'edit' | 'photos' | 'notes';
 
 export function JobDetailModal({ jobId, onClose }: Props) {
   const qc = useQueryClient();
@@ -55,6 +55,10 @@ export function JobDetailModal({ jobId, onClose }: Props) {
   const [photoType, setPhotoType] = useState<'before' | 'after' | 'issue' | 'other'>('before');
   const [uploading, setUploading] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
+  const [editForm, setEditForm] = useState<{
+    title: string; description: string; priority: string; serviceType: string;
+    scheduledStart: string; scheduledEnd: string; technicianIds: string[];
+  } | null>(null);
 
   const { data, isLoading } = useQuery({
     queryKey: ['jobs', jobId],
@@ -80,14 +84,36 @@ export function JobDetailModal({ jobId, onClose }: Props) {
     customer: { firstName: string; lastName: string; phone?: string; email?: string };
     serviceAddress: { street: string; city: string; state: string; zip: string };
     technician?: { firstName: string; lastName: string; phone?: string };
+    assignedTechnicians: Array<{ userId: string; user: { id: string; firstName: string; lastName: string } }>;
     lineItems: Array<{ id: string; description: string; quantity: number; unitPrice: number }>;
     photos: Array<{ id: string; url: string; type: string; caption?: string; takenAt: string }>;
     notes: Array<{ id: string; content: string; isInternal: boolean; createdAt: string; author: { firstName: string; lastName: string } }>;
   } | undefined;
 
+  const { data: techData } = useQuery({
+    queryKey: ['users', 'technicians'],
+    queryFn: async () => { const { data } = await api.get('/users?hasRole=technician'); return data; },
+    enabled: !!jobId,
+  });
+  const allTechs: Array<{ id: string; firstName: string; lastName: string }> = techData?.data ?? [];
+
   const { mutate: updateStatus, isPending: isUpdatingStatus } = useMutation({
     mutationFn: (status: JobStatus) => api.patch(`/jobs/${jobId}`, { status }),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['jobs'] }),
+  });
+
+  const { mutate: saveEdit, isPending: isSavingEdit } = useMutation({
+    mutationFn: (form: NonNullable<typeof editForm>) => api.patch(`/jobs/${jobId}`, {
+      title: form.title,
+      description: form.description || null,
+      priority: form.priority,
+      serviceType: form.serviceType,
+      scheduledStart: form.scheduledStart ? new Date(form.scheduledStart).toISOString() : null,
+      scheduledEnd: form.scheduledEnd ? new Date(form.scheduledEnd).toISOString() : null,
+      technicianId: form.technicianIds[0] || null,
+      technicianIds: form.technicianIds.length > 0 ? form.technicianIds : [],
+    }),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['jobs'] }); setTab('details'); },
   });
 
   const { mutate: addNote, isPending: isAddingNote } = useMutation({
@@ -179,17 +205,34 @@ export function JobDetailModal({ jobId, onClose }: Props) {
 
             {/* Tabs */}
             <div className="flex border-b">
-              {(['details', 'photos', 'notes'] as TabType[]).map((t) => (
+              {(['details', 'edit', 'photos', 'notes'] as TabType[]).map((t) => (
                 <button
                   key={t}
-                  onClick={() => setTab(t)}
-                  className={`px-4 py-2 text-sm font-medium border-b-2 -mb-px capitalize transition-colors ${
+                  onClick={() => {
+                    if (t === 'edit' && job && !editForm) {
+                      const toLocal = (iso?: string) => iso
+                        ? new Date(iso).toLocaleString('sv').slice(0, 16)
+                        : '';
+                      setEditForm({
+                        title: job.title,
+                        description: job.description ?? '',
+                        priority: job.priority,
+                        serviceType: job.serviceType,
+                        scheduledStart: toLocal(job.scheduledStart),
+                        scheduledEnd: toLocal(job.scheduledEnd),
+                        technicianIds: job.assignedTechnicians?.map(a => a.user.id) ?? (job.technician ? [] : []),
+                      });
+                    }
+                    setTab(t);
+                  }}
+                  className={`px-4 py-2 text-sm font-medium border-b-2 -mb-px capitalize transition-colors flex items-center gap-1 ${
                     tab === t
                       ? 'border-blue-600 text-blue-600'
                       : 'border-transparent text-gray-500 hover:text-gray-700'
                   }`}
                 >
-                  {t}
+                  {t === 'edit' && <Edit2 className="h-3 w-3" />}
+                  {t === 'edit' ? 'Edit' : t}
                   {t === 'photos' && job.photos.length > 0 && (
                     <span className="ml-1.5 bg-gray-200 text-gray-700 text-xs rounded-full px-1.5 py-0.5">
                       {job.photos.length}
@@ -286,6 +329,75 @@ export function JobDetailModal({ jobId, onClose }: Props) {
                     </div>
                   </div>
                 )}
+              </div>
+            )}
+
+            {/* ── Edit tab ── */}
+            {tab === 'edit' && editForm && (
+              <div className="space-y-4">
+                <Input
+                  label="Job Title *"
+                  value={editForm.title}
+                  onChange={e => setEditForm(f => f && ({ ...f, title: e.target.value }))}
+                />
+                <div className="grid grid-cols-2 gap-4">
+                  <Select label="Service Type" value={editForm.serviceType}
+                    onChange={e => setEditForm(f => f && ({ ...f, serviceType: e.target.value }))}>
+                    <option value="pool">Pool</option>
+                    <option value="pest_control">Pest Control</option>
+                    <option value="turf">Turf</option>
+                    <option value="handyman">Handyman</option>
+                  </Select>
+                  <Select label="Priority" value={editForm.priority}
+                    onChange={e => setEditForm(f => f && ({ ...f, priority: e.target.value }))}>
+                    <option value="low">Low</option>
+                    <option value="normal">Normal</option>
+                    <option value="high">High</option>
+                    <option value="urgent">Urgent</option>
+                  </Select>
+                  <Input label="Scheduled Start" type="datetime-local" value={editForm.scheduledStart}
+                    onChange={e => setEditForm(f => f && ({ ...f, scheduledStart: e.target.value }))} />
+                  <Input label="Scheduled End" type="datetime-local" value={editForm.scheduledEnd}
+                    onChange={e => setEditForm(f => f && ({ ...f, scheduledEnd: e.target.value }))} />
+                </div>
+                <Textarea label="Description" rows={3} value={editForm.description}
+                  onChange={e => setEditForm(f => f && ({ ...f, description: e.target.value }))} />
+                <div>
+                  <p className="text-sm font-medium text-gray-700 mb-1.5">Assigned Technicians</p>
+                  {allTechs.length === 0 ? (
+                    <p className="text-sm text-gray-400">No technicians available</p>
+                  ) : (
+                    <div className="grid grid-cols-2 gap-1.5">
+                      {allTechs.map(t => (
+                        <label key={t.id} className="flex items-center gap-2 cursor-pointer px-3 py-2 rounded-lg border border-gray-200 hover:bg-gray-50 transition-colors">
+                          <input type="checkbox"
+                            checked={editForm.technicianIds.includes(t.id)}
+                            onChange={() => setEditForm(f => {
+                              if (!f) return f;
+                              const ids = f.technicianIds.includes(t.id)
+                                ? f.technicianIds.filter(x => x !== t.id)
+                                : [...f.technicianIds, t.id];
+                              return { ...f, technicianIds: ids };
+                            })}
+                            className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                          />
+                          <span className="text-sm text-gray-800">{t.firstName} {t.lastName}</span>
+                          {editForm.technicianIds[0] === t.id && (
+                            <span className="ml-auto text-xs text-blue-600 font-medium">Lead</span>
+                          )}
+                        </label>
+                      ))}
+                    </div>
+                  )}
+                </div>
+                <div className="flex gap-3 pt-2">
+                  <Button variant="outline" className="flex-1" onClick={() => setTab('details')}>Cancel</Button>
+                  <Button className="flex-1" loading={isSavingEdit}
+                    disabled={!editForm.title.trim()}
+                    onClick={() => saveEdit(editForm)}>
+                    Save Changes
+                  </Button>
+                </div>
               </div>
             )}
 

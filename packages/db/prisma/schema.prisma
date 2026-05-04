@@ -1325,11 +1325,12 @@ model TrainingResource {
   tenantId    String
   title       String
   description String?
-  audience    String   @default("all") // all | technician | sales
-  fileUrl     String?
-  fileType    String?  // pdf | video | doc | link
-  content     String?  // rich text / AI-tailored script content
-  createdById String
+  audience      String   @default("all") // all | technician | sales
+  targetUserIds String[] @default([])    // when non-empty, only these user IDs can see it
+  fileUrl       String?
+  fileType      String?  // pdf | video | doc | link
+  content       String?  // rich text / AI-tailored script content
+  createdById   String
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 

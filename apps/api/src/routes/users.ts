@@ -12,9 +12,12 @@ usersRouter.use(authenticate);
 
 // GET /api/v1/users
 usersRouter.get('/', requireRole('owner', 'admin', 'dispatcher'), async (req, res) => {
-  const { role } = req.query as { role?: string };
+  const { role, hasRole } = req.query as { role?: string; hasRole?: string };
+  const roleWhere = hasRole
+    ? { OR: [{ role: hasRole as never }, { secondaryRoles: { has: hasRole } }] }
+    : role ? { role: role as never } : {};
   const users = await prisma.user.findMany({
-    where: { tenantId: req.user!.tenantId, ...(role ? { role: role as never } : {}) },
+    where: { tenantId: req.user!.tenantId, ...roleWhere },
     select: {
       id: true,
       email: true,

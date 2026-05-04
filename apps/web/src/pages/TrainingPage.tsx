@@ -12,6 +12,7 @@ interface TrainingResource {
   title: string;
   description?: string;
   audience: string;
+  targetUserIds: string[];
   fileUrl?: string;
   fileType?: string;
   content?: string;
@@ -178,6 +179,12 @@ function ResourceModal({ resource, onClose, onSaved }: {
     fileType: resource?.fileType ?? 'pdf',
     content: resource?.content ?? '',
   });
+  const [targetUserIds, setTargetUserIds] = useState<string[]>(resource?.targetUserIds ?? []);
+
+  const { data: teamData } = useQuery<Array<{ id: string; firstName: string; lastName: string; role: string }>>({
+    queryKey: ['users', 'team'],
+    queryFn: () => api.get('/users').then(r => r.data.data),
+  });
   const [saving, setSaving] = useState(false);
   const [aiPrompt, setAiPrompt] = useState('');
   const [aiLoading, setAiLoading] = useState(false);
@@ -189,10 +196,11 @@ function ResourceModal({ resource, onClose, onSaved }: {
     if (!form.title.trim()) return;
     setSaving(true);
     try {
+      const payload = { ...form, targetUserIds };
       if (resource) {
-        await api.patch(`/training/${resource.id}`, form);
+        await api.patch(`/training/${resource.id}`, payload);
       } else {
-        await api.post('/training', form);
+        await api.post('/training', payload);
       }
       onSaved();
     } catch { /* ignore */ } finally { setSaving(false); }
@@ -252,6 +260,37 @@ function ResourceModal({ resource, onClose, onSaved }: {
               </select>
             </div>
           </div>
+
+          {/* Specific people (optional, overrides audience filter) */}
+          {teamData && teamData.length > 0 && (
+            <div>
+              <div className="flex items-center justify-between mb-1">
+                <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide">Specific People</label>
+                <span className="text-xs text-gray-400">Optional — overrides audience filter</span>
+              </div>
+              <div className="grid grid-cols-2 gap-1.5 max-h-36 overflow-y-auto border border-gray-200 rounded-xl p-2">
+                {teamData.map(u => (
+                  <label key={u.id} className="flex items-center gap-2 cursor-pointer px-2 py-1.5 rounded-lg hover:bg-gray-50 transition-colors text-sm">
+                    <input
+                      type="checkbox"
+                      checked={targetUserIds.includes(u.id)}
+                      onChange={() => setTargetUserIds(prev =>
+                        prev.includes(u.id) ? prev.filter(x => x !== u.id) : [...prev, u.id]
+                      )}
+                      className="rounded border-gray-300 text-violet-600 focus:ring-violet-500"
+                    />
+                    <span className="text-gray-800 truncate">{u.firstName} {u.lastName}</span>
+                    <span className="ml-auto text-xs text-gray-400 capitalize">{u.role}</span>
+                  </label>
+                ))}
+              </div>
+              {targetUserIds.length > 0 && (
+                <p className="text-xs text-violet-600 mt-1">
+                  Visible to {targetUserIds.length} specific {targetUserIds.length === 1 ? 'person' : 'people'} (+ owners/admins)
+                </p>
+              )}
+            </div>
+          )}
 
           <div>
             <label className="block text-xs font-semibold text-gray-500 mb-1 uppercase tracking-wide">Description</label>
