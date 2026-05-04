@@ -12,7 +12,7 @@ interface ExerciseAnswer {
 
 interface Props {
   answers: ExerciseAnswer[];
-  onAnswerSaved: (exerciseId: string, answer: string, feedback?: string, status?: string) => void;
+  onAnswerSaved: () => void;
 }
 
 export function TrainingExercises({ answers, onAnswerSaved }: Props) {
@@ -34,7 +34,7 @@ export function TrainingExercises({ answers, onAnswerSaved }: Props) {
     setSaving(true);
     try {
       await api.post(`/training-interactive/exercise-answers/${selected.id}`, { answer: draft });
-      onAnswerSaved(selected.id, draft);
+      onAnswerSaved();
     } catch { /* ignore */ } finally { setSaving(false); }
   };
 

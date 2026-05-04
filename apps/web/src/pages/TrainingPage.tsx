@@ -6,7 +6,7 @@ import {
   BookOpen, Plus, Trash2, Edit2, FileText, Video, Link2,
   ChevronDown, ChevronUp, Sparkles, X, Loader2, Upload,
   Home, GraduationCap, MessageCircle, PenLine, Zap, Grid3X3,
-  Users, TrendingUp, CheckCircle2, Clock,
+  Users, TrendingUp,
 } from 'lucide-react';
 import { TrainingHome } from './training/TrainingHome';
 import { TrainingLibrary } from './training/TrainingLibrary';
@@ -76,7 +76,6 @@ export function TrainingPage() {
   const user = useAuthStore(s => s.user);
   const isOwner = user?.role === 'owner' || user?.role === 'admin';
   const isSales = user?.role === 'sales' || user?.secondaryRoles?.includes('sales');
-  const isTech = user?.role === 'technician' || user?.secondaryRoles?.includes('technician');
   const qc = useQueryClient();
 
   const [activeTab, setActiveTab] = useState<string>(
@@ -198,10 +197,7 @@ export function TrainingPage() {
         {activeTab === 'exercises' && isSales && (
           <TrainingExercises
             answers={exerciseAnswers}
-            onAnswerSaved={(exerciseId, answer, feedback, status) => {
-              refetchAnswers();
-              refetchProgress();
-            }}
+            onAnswerSaved={() => { refetchAnswers(); refetchProgress(); }}
           />
         )}
 
