@@ -8,6 +8,7 @@ export const trainingInteractiveRouter = Router();
 trainingInteractiveRouter.use(authenticate);
 
 const ai = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
+const MODEL = 'claude-sonnet-4-6';
 
 // ── Progress ──────────────────────────────────────────────────────────────────
 
@@ -76,13 +77,14 @@ trainingInteractiveRouter.post('/exercise-answers/:exerciseId', async (req, res)
   });
 
   // Update progress exercisesDone list
+  const currentProg = await prisma.trainingUserProgress.findUnique({ where: { userId } });
+  const newDone = currentProg
+    ? (currentProg.exercisesDone.includes(exerciseId) ? currentProg.exercisesDone : [...currentProg.exercisesDone, exerciseId])
+    : [exerciseId];
   await prisma.trainingUserProgress.upsert({
     where: { userId },
     create: { userId, tenantId, exercisesDone: [exerciseId], lastActivityAt: new Date() },
-    update: (p => ({
-      exercisesDone: { set: p ? (p.exercisesDone.includes(exerciseId) ? p.exercisesDone : [...p.exercisesDone, exerciseId]) : [exerciseId] },
-      lastActivityAt: new Date(),
-    })) as never,
+    update: { exercisesDone: { set: newDone }, lastActivityAt: new Date() },
   });
 
   res.json({ success: true, data: saved } satisfies ApiResponse);
@@ -96,7 +98,7 @@ trainingInteractiveRouter.post('/exercise-answers/:exerciseId/feedback', async (
   if (!answer?.trim()) { res.status(400).json({ success: false, message: 'Answer required' }); return; }
 
   const msg = await ai.messages.create({
-    model: 'claude-sonnet-4-20250514',
+    model: MODEL,
     max_tokens: 600,
     system: `You are a sales coach for Blue Dingo LLC reviewing a written exercise from a new salesperson. Be warm, specific, and constructive. Give a genuine reaction to what they wrote, point out what is strong, suggest one concrete improvement, and if appropriate give them an example of how they might say or do it even better. Keep feedback to 3–5 sentences. Do not be generic.`,
     messages: [{ role: 'user', content: `Exercise question: ${question}\n\nSalesperson's answer: ${answer}` }],
@@ -142,7 +144,7 @@ Current scenario: ${scenario}
 Difficulty: ${difficulty}${objection ? `\nSpecific objection to introduce: ${objection}` : ''}`;
 
   const msg = await ai.messages.create({
-    model: 'claude-sonnet-4-20250514',
+    model: MODEL,
     max_tokens: 300,
     system: systemPrompt,
     messages,
@@ -163,7 +165,7 @@ trainingInteractiveRouter.post('/role-play-sessions', async (req, res) => {
 
   // Generate debrief
   const debriefMsg = await ai.messages.create({
-    model: 'claude-sonnet-4-20250514',
+    model: MODEL,
     max_tokens: 800,
     system: `You are an expert sales coach for Blue Dingo LLC. You just observed a role play session between a new salesperson and an AI prospect. Now step out of character completely and deliver a structured coaching debrief. Format your response with these exact sections:
 
@@ -232,7 +234,7 @@ Keep responses concise and conversational — this is a coach in their pocket, n
     : `You are an expert field service coach helping technicians improve their skills, deliver better service, and handle challenging job situations. You help with technical troubleshooting, customer communication, safety best practices, job site professionalism, and career development. Be practical, specific, and encouraging. When technicians describe job situations, help them work through them with clear, actionable advice. Keep responses concise — this is a coach in their pocket.`;
 
   const msg = await ai.messages.create({
-    model: 'claude-sonnet-4-20250514',
+    model: MODEL,
     max_tokens: 500,
     system: systemPrompt,
     messages,

@@ -79,7 +79,9 @@ export function TrainingPage() {
   const isTech = user?.role === 'technician' || user?.secondaryRoles?.includes('technician');
   const qc = useQueryClient();
 
-  const [activeTab, setActiveTab] = useState<string>(isOwner ? 'resources' : 'home');
+  const [activeTab, setActiveTab] = useState<string>(
+    isOwner ? 'resources' : isSales ? 'home' : 'coach'
+  );
 
   // ── Data fetching ────────────────────────────────────────────────────────────
   const { data: resources = [], isLoading: resourcesLoading } = useQuery<TrainingResource[]>({
@@ -148,7 +150,6 @@ export function TrainingPage() {
   ];
 
   const tabs = isSales ? salesTabs : techTabs;
-  if (!isSales && activeTab === 'home') setActiveTab('coach');
 
   return (
     <div className="flex flex-col h-full">
