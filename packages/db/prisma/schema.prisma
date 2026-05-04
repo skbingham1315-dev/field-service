@@ -133,7 +133,10 @@ model Tenant {
   portalMessages   PortalMessage[]
   properties       Property[]
   pmTenants        PMTenant[]
-  trainingResources  TrainingResource[]
+  trainingResources    TrainingResource[]
+  trainingProgress     TrainingUserProgress[]
+  rolePlaySessions     RolePlaySession[]
+  exerciseAnswers      TrainingExerciseAnswer[]
 
   @@map("tenants")
 }
@@ -197,6 +200,9 @@ model User {
   pmJobs              CRMJob[]      @relation("PMJobs")
   contractorBadges    ContractorBadge[]
   trainingCreated     TrainingResource[]  @relation("TrainingCreated")
+  trainingProgress    TrainingUserProgress?
+  rolePlaySessions    RolePlaySession[]
+  exerciseAnswers     TrainingExerciseAnswer[]
 
   @@unique([tenantId, email])
   @@index([tenantId, role])
@@ -1339,4 +1345,59 @@ model TrainingResource {
 
   @@index([tenantId, audience])
   @@map("training_resources")
+}
+
+model TrainingUserProgress {
+  id             String    @id @default(cuid())
+  tenantId       String
+  userId         String    @unique
+  sectionsRead   String[]  @default([])
+  exercisesDone  String[]  @default([])
+  rolePlayCount  Int       @default(0)
+  currentStreak  Int       @default(0)
+  lastActivityAt DateTime?
+  updatedAt      DateTime  @updatedAt
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  user   User   @relation(fields: [userId], references: [id])
+
+  @@map("training_user_progress")
+}
+
+model RolePlaySession {
+  id         String   @id @default(cuid())
+  tenantId   String
+  userId     String
+  scenario   String
+  difficulty String
+  objection  String?
+  transcript Json
+  debrief    String?
+  rating     String?
+  createdAt  DateTime @default(now())
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  user   User   @relation(fields: [userId], references: [id])
+
+  @@index([tenantId, userId])
+  @@map("role_play_sessions")
+}
+
+model TrainingExerciseAnswer {
+  id         String   @id @default(cuid())
+  tenantId   String
+  userId     String
+  exerciseId String
+  answer     String
+  aiFeedback String?
+  status     String   @default("in_progress")
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  user   User   @relation(fields: [userId], references: [id])
+
+  @@unique([userId, exerciseId])
+  @@index([tenantId, userId])
+  @@map("training_exercise_answers")
 }
