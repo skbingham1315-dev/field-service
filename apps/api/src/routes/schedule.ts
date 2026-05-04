@@ -21,6 +21,7 @@ const jobInclude = {
   customer: { select: { id: true, firstName: true, lastName: true, phone: true } },
   serviceAddress: true,
   technician: { select: { id: true, firstName: true, lastName: true, phone: true } },
+  assignedTechnicians: { include: { user: { select: { id: true, firstName: true, lastName: true } } } },
 };
 
 // GET /api/v1/schedule?date=YYYY-MM-DD&technicianId=...

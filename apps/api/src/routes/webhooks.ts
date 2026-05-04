@@ -1,6 +1,7 @@
 import { Router, Request, Response } from 'express';
 import express from 'express';
 import Stripe from 'stripe';
+import twilio from 'twilio';
 import { prisma } from '@fsp/db';
 import { logger } from '../lib/logger';
 import { saveInboundSms } from '../lib/sms';
@@ -142,6 +143,19 @@ webhooksRouter.post('/stripe', async (req: Request, res: Response) => {
 // ── Twilio Inbound SMS ────────────────────────────────────────────────────────
 
 webhooksRouter.post('/twilio/sms', express.urlencoded({ extended: false }), async (req: Request, res: Response) => {
+  // Validate Twilio signature to reject forged webhook calls
+  const twilioAuthToken = process.env.TWILIO_AUTH_TOKEN ?? '';
+  if (twilioAuthToken) {
+    const signature = req.headers['x-twilio-signature'] as string ?? '';
+    const webhookUrl = `https://${req.headers.host}/webhooks/twilio/sms`;
+    const valid = twilio.validateRequest(twilioAuthToken, signature, webhookUrl, req.body as Record<string, string>);
+    if (!valid) {
+      logger.warn('[twilio] invalid webhook signature');
+      res.status(403).send('Forbidden');
+      return;
+    }
+  }
+
   const { From, To, Body, MessageSid } = req.body as {
     From: string;
     To: string;

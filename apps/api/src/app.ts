@@ -34,6 +34,7 @@ import { portalRouter } from './routes/portal';
 import { propertiesRouter } from './routes/properties';
 import { squareRouter } from './routes/square';
 import { exportRouter } from './routes/export';
+import { trainingRouter } from './routes/training';
 
 export const app = express();
 
@@ -143,6 +144,7 @@ apiV1.use('/portal', portalRouter);
 apiV1.use('/properties', propertiesRouter);
 apiV1.use('/square', squareRouter);
 apiV1.use('/export', exportRouter);
+apiV1.use('/training', trainingRouter);
 
 app.use('/api/v1', apiV1);
 app.use('/webhooks', webhooksRouter);

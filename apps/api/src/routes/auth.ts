@@ -1,9 +1,11 @@
 import { Router } from 'express';
 import { prisma } from '@fsp/db';
 import bcrypt from 'bcryptjs';
+import crypto from 'crypto';
 import Stripe from 'stripe';
 import { AppError } from '../middleware/errorHandler';
 import { signAccessToken, signRefreshToken, verifyRefreshToken, buildTokenPayload } from '../lib/jwt';
+import { sendPasswordReset } from '../lib/email';
 import type { ApiResponse } from '@fsp/types';
 import type { UserRole } from '@fsp/types';
 
@@ -72,6 +74,7 @@ authRouter.post('/login', async (req, res) => {
         lastName: user.lastName,
         role: user.role,
         tenantId: user.tenantId,
+        secondaryRoles: user.secondaryRoles ?? [],
       },
     },
   } satisfies ApiResponse);
@@ -186,6 +189,7 @@ authRouter.post('/register', async (req, res) => {
         lastName: user.lastName,
         role: user.role,
         tenantId: user.tenantId,
+        secondaryRoles: [],
       },
     },
   } satisfies ApiResponse);
@@ -244,4 +248,76 @@ authRouter.post('/logout', async (req, res) => {
     }
   }
   res.json({ success: true, data: { message: 'Logged out' } } satisfies ApiResponse);
+});
+
+// POST /api/v1/auth/forgot-password
+authRouter.post('/forgot-password', async (req, res) => {
+  const { email, tenantSlug } = req.body as { email: string; tenantSlug: string };
+  if (!email || !tenantSlug) {
+    throw new AppError('email and tenantSlug are required', 400, 'VALIDATION_ERROR');
+  }
+
+  // Always return 200 to prevent user enumeration
+  res.json({ success: true, data: { message: 'If that account exists, a reset link has been sent.' } });
+
+  // Fire-and-forget — don't leak timing info in the response
+  setImmediate(async () => {
+    try {
+      const tenant = await prisma.tenant.findUnique({ where: { slug: tenantSlug.toLowerCase().trim() } });
+      if (!tenant) return;
+
+      const user = await prisma.user.findUnique({
+        where: { tenantId_email: { tenantId: tenant.id, email: email.toLowerCase().trim() } },
+      });
+      if (!user || user.status !== 'active') return;
+
+      const token = crypto.randomBytes(32).toString('hex');
+      const expiry = new Date(Date.now() + 60 * 60 * 1000); // 1 hour
+
+      await prisma.user.update({
+        where: { id: user.id },
+        data: { passwordResetToken: token, passwordResetExpiry: expiry },
+      });
+
+      const appUrl = process.env.WEB_URL ?? 'http://localhost:5173';
+      const resetUrl = `${appUrl}/reset-password?token=${token}&slug=${tenantSlug}`;
+
+      await sendPasswordReset({
+        to: user.email,
+        firstName: user.firstName,
+        resetUrl,
+        companyName: tenant.name,
+      });
+    } catch { /* non-critical */ }
+  });
+});
+
+// POST /api/v1/auth/reset-password
+authRouter.post('/reset-password', async (req, res) => {
+  const { token, password } = req.body as { token: string; password: string };
+  if (!token || !password) {
+    throw new AppError('token and password are required', 400, 'VALIDATION_ERROR');
+  }
+  if (password.length < 8) {
+    throw new AppError('Password must be at least 8 characters', 400, 'VALIDATION_ERROR');
+  }
+
+  const user = await prisma.user.findFirst({
+    where: {
+      passwordResetToken: token,
+      passwordResetExpiry: { gt: new Date() },
+    },
+  });
+
+  if (!user) {
+    throw new AppError('Invalid or expired reset link', 400, 'INVALID_TOKEN');
+  }
+
+  const passwordHash = await bcrypt.hash(password, 12);
+  await prisma.user.update({
+    where: { id: user.id },
+    data: { passwordHash, passwordResetToken: null, passwordResetExpiry: null },
+  });
+
+  res.json({ success: true, data: { message: 'Password reset successfully. You can now log in.' } });
 });

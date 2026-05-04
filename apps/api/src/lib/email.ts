@@ -290,3 +290,26 @@ export async function sendPaymentReceived(opts: {
   );
   await sendEmail(opts.to, subject, html);
 }
+
+// ── Password Reset ────────────────────────────────────────────────────────────
+
+export async function sendPasswordReset(opts: {
+  to: string;
+  firstName: string;
+  resetUrl: string;
+  companyName: string;
+}): Promise<void> {
+  const subject = `Reset your password`;
+  const html = baseHtml(
+    opts.companyName,
+    subject,
+    `<h2 style="margin:0 0 16px;color:#111827;font-size:20px;">Reset Your Password</h2>
+    <p style="margin:0 0 24px;color:#374151;">Hi ${opts.firstName},</p>
+    <p style="margin:0 0 24px;color:#374151;">We received a request to reset your password. Click the button below — this link expires in 1 hour.</p>
+    <p style="margin:0 0 32px;">
+      <a href="${opts.resetUrl}" style="display:inline-block;background:#2563eb;color:#ffffff;padding:12px 28px;border-radius:6px;text-decoration:none;font-weight:600;font-size:15px;">Reset Password</a>
+    </p>
+    <p style="margin:0;color:#6b7280;font-size:13px;">If you didn't request a password reset, you can safely ignore this email. Your password will not change.</p>`,
+  );
+  await sendEmail(opts.to, subject, html);
+}

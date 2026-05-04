@@ -46,6 +46,7 @@ interface JobCard {
   scheduledEnd?: string;
   estimatedDuration?: number;
   technicianId?: string;
+  assignedTechnicians?: Array<{ user: { id: string } }>;
   customer?: { firstName: string; lastName: string; phone?: string };
   serviceAddress?: { street: string; city: string };
 }
@@ -344,11 +345,14 @@ export function SchedulePage() {
 
   // ── Group jobs by tech ─────────────────────────────────────────────────────
   const jobsByTech = useCallback(
-    (techId: string) => jobs.filter((j) => j.technicianId === techId),
+    (techId: string) => jobs.filter((j) =>
+      j.technicianId === techId ||
+      j.assignedTechnicians?.some(a => a.user.id === techId)
+    ),
     [jobs],
   );
 
-  const unassignedJobs = jobs.filter((j) => !j.technicianId);
+  const unassignedJobs = jobs.filter((j) => !j.technicianId && !(j.assignedTechnicians?.length));
 
   // ── Render ─────────────────────────────────────────────────────────────────
   return (

@@ -7,7 +7,7 @@ interface AuthState {
   isAuthenticated: boolean;
   accessToken: string | null;
   refreshToken: string | null;
-  user: Pick<User, 'id' | 'email' | 'firstName' | 'lastName' | 'role' | 'tenantId'> | null;
+  user: (Pick<User, 'id' | 'email' | 'firstName' | 'lastName' | 'role' | 'tenantId'> & { secondaryRoles?: string[] }) | null;
   login: (
     email: string,
     password: string,

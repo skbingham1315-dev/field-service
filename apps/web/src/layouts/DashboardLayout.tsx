@@ -21,6 +21,7 @@ import {
   Globe,
   Building2,
   Star,
+  GraduationCap,
 } from 'lucide-react';
 import { useAuthStore } from '../store/authStore';
 import { DashboardPage } from '../pages/DashboardPage';
@@ -42,12 +43,13 @@ import { SubsPage } from '../pages/SubsPage';
 import { ConnectPage } from '../pages/ConnectPage';
 import { PropertyManagementPage } from '../pages/PropertyManagementPage';
 import { ReviewsPage } from '../pages/ReviewsPage';
+import { TrainingPage } from '../pages/TrainingPage';
 import { AIAssistant } from '../components/AIAssistant';
 import { useLocationSharing } from '../hooks/useLocationSharing';
 
-type Page = 'dashboard' | 'customers' | 'jobs' | 'schedule' | 'map' | 'invoices' | 'estimates' | 'team' | 'payroll' | 'billing' | 'settings' | 'contacts' | 'crm-jobs' | 'subs' | 'connect' | 'properties' | 'reviews';
+type Page = 'dashboard' | 'customers' | 'jobs' | 'schedule' | 'map' | 'invoices' | 'estimates' | 'team' | 'payroll' | 'billing' | 'settings' | 'contacts' | 'crm-jobs' | 'subs' | 'connect' | 'properties' | 'reviews' | 'training';
 
-const VALID_PAGES: Page[] = ['dashboard','customers','jobs','schedule','map','invoices','estimates','team','payroll','contacts','crm-jobs','subs','connect','properties','reviews','billing','settings'];
+const VALID_PAGES: Page[] = ['dashboard','customers','jobs','schedule','map','invoices','estimates','team','payroll','contacts','crm-jobs','subs','connect','properties','reviews','training','billing','settings'];
 
 function pageFromHash(): Page {
   const hash = window.location.hash.replace('#', '');
@@ -78,6 +80,7 @@ const NAV_ITEMS: Array<{ id: Page; label: string; icon: React.ElementType }> = [
   { id: 'connect',     label: 'Connect',    icon: Globe },
   { id: 'properties',  label: 'Properties', icon: Building2 },
   { id: 'reviews',     label: 'Reviews',    icon: Star },
+  { id: 'training',    label: 'Training',   icon: GraduationCap },
   { id: 'billing',     label: 'Billing',    icon: CreditCard },
   { id: 'settings',    label: 'Settings',   icon: Settings },
 ];
@@ -123,9 +126,19 @@ export function DashboardLayout() {
   const isOwner = user?.role === 'owner' || user?.role === 'admin';
   const activeView = VIEW_OPTIONS.find(v => v.id === viewAs)!;
 
-  // Real technician / sales get their dedicated UI (no role switcher)
-  if (user?.role === 'technician') return <><TechnicianPage /><AIAssistant /></>;
-  if (user?.role === 'sales') return <><SalesPage /><AIAssistant /></>;
+  // Real technician / sales get their dedicated UI — but if they have secondary roles,
+  // give them a simple platform switcher so they can access both.
+  const secondaryRoles = user?.secondaryRoles ?? [];
+  const hasTechRole = user?.role === 'technician' || secondaryRoles.includes('technician');
+  const hasSalesRole = user?.role === 'sales' || secondaryRoles.includes('sales');
+
+  if (user?.role === 'technician' && !hasSalesRole) return <><TechnicianPage /><AIAssistant /></>;
+  if (user?.role === 'sales' && !hasTechRole) return <><SalesPage /><AIAssistant /></>;
+
+  // Multi-role non-owner: show platform switcher
+  if ((user?.role === 'technician' || user?.role === 'sales') && (hasTechRole && hasSalesRole)) {
+    return <MultiRolePage hasTech={hasTechRole} hasSales={hasSalesRole} />;
+  }
 
   // Owner previewing another role — show that role's full-screen UI + exit bar
   if (isOwner && viewAs === 'technician') {
@@ -170,6 +183,7 @@ export function DashboardLayout() {
       case 'connect':     return <ConnectPage />;
       case 'properties':  return <PropertyManagementPage />;
       case 'reviews':     return <ReviewsPage />;
+      case 'training':    return <TrainingPage />;
       case 'billing':     return <BillingPage />;
       case 'settings':   return <SettingsPage />;
     }
@@ -321,6 +335,32 @@ export function DashboardLayout() {
         <main className={`flex-1 min-h-0 ${(effectivePage === 'schedule' || effectivePage === 'map') ? 'flex flex-col overflow-hidden' : 'overflow-y-auto'}`}>
           {renderPage()}
         </main>
+      </div>
+      <AIAssistant />
+    </div>
+  );
+}
+
+function MultiRolePage({ hasTech, hasSales }: { hasTech: boolean; hasSales: boolean }) {
+  const [active, setActive] = useState<'tech' | 'sales'>(hasTech ? 'tech' : 'sales');
+  return (
+    <div className="flex flex-col min-h-screen">
+      <div className="flex items-center gap-2 px-4 py-2 bg-[#0c0e16] border-b border-white/10 flex-shrink-0">
+        {hasTech && (
+          <button onClick={() => setActive('tech')}
+            className={`px-4 py-1.5 rounded-lg text-sm font-semibold transition-colors ${active === 'tech' ? 'bg-violet-600 text-white' : 'text-slate-400 hover:text-white'}`}>
+            Tech View
+          </button>
+        )}
+        {hasSales && (
+          <button onClick={() => setActive('sales')}
+            className={`px-4 py-1.5 rounded-lg text-sm font-semibold transition-colors ${active === 'sales' ? 'bg-violet-600 text-white' : 'text-slate-400 hover:text-white'}`}>
+            Sales View
+          </button>
+        )}
+      </div>
+      <div className="flex-1 min-h-0">
+        {active === 'tech' ? <TechnicianPage /> : <SalesPage />}
       </div>
       <AIAssistant />
     </div>

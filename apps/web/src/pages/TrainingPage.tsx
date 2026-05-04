@@ -1,0 +1,312 @@
+import { useState } from 'react';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { api } from '../lib/api';
+import { useAuthStore } from '../store/authStore';
+import {
+  BookOpen, Plus, Trash2, Edit2, FileText, Video, Link2,
+  ChevronDown, ChevronUp, Sparkles, X, Loader2, Upload,
+} from 'lucide-react';
+
+interface TrainingResource {
+  id: string;
+  title: string;
+  description?: string;
+  audience: string;
+  fileUrl?: string;
+  fileType?: string;
+  content?: string;
+  createdAt: string;
+  createdBy?: { firstName: string; lastName: string };
+}
+
+const AUDIENCE_LABELS: Record<string, string> = {
+  all: 'Everyone',
+  technician: 'Technicians',
+  sales: 'Sales',
+};
+
+const AUDIENCE_COLORS: Record<string, string> = {
+  all: 'bg-violet-100 text-violet-700',
+  technician: 'bg-amber-100 text-amber-700',
+  sales: 'bg-emerald-100 text-emerald-700',
+};
+
+function FileIcon({ type }: { type?: string }) {
+  if (type === 'video') return <Video className="h-5 w-5 text-blue-500" />;
+  if (type === 'link') return <Link2 className="h-5 w-5 text-indigo-500" />;
+  return <FileText className="h-5 w-5 text-gray-400" />;
+}
+
+export function TrainingPage() {
+  const user = useAuthStore(s => s.user);
+  const isOwner = user?.role === 'owner' || user?.role === 'admin';
+  const qc = useQueryClient();
+
+  const [audienceFilter, setAudienceFilter] = useState('');
+  const [showCreate, setShowCreate] = useState(false);
+  const [editing, setEditing] = useState<TrainingResource | null>(null);
+  const [expanded, setExpanded] = useState<string | null>(null);
+
+  const { data: resources = [], isLoading } = useQuery<TrainingResource[]>({
+    queryKey: ['training'],
+    queryFn: () => api.get('/training').then(r => r.data.data),
+  });
+
+  const filtered = audienceFilter ? resources.filter(r => r.audience === audienceFilter) : resources;
+
+  const handleDelete = async (id: string) => {
+    if (!confirm('Delete this resource?')) return;
+    await api.delete(`/training/${id}`).catch(() => {});
+    qc.invalidateQueries({ queryKey: ['training'] });
+  };
+
+  return (
+    <div className="p-6 space-y-5 max-w-4xl mx-auto">
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-2xl font-bold text-gray-900 flex items-center gap-2">
+            <BookOpen className="h-6 w-6 text-violet-600" /> Training & Resources
+          </h1>
+          <p className="text-sm text-gray-500 mt-0.5">Scripts, guides, and training materials for your team</p>
+        </div>
+        {isOwner && (
+          <button onClick={() => setShowCreate(true)}
+            className="flex items-center gap-2 bg-violet-600 hover:bg-violet-700 text-white text-sm font-semibold px-4 py-2.5 rounded-xl transition-colors">
+            <Plus className="h-4 w-4" /> Add Resource
+          </button>
+        )}
+      </div>
+
+      {/* Audience filter */}
+      <div className="flex gap-2 flex-wrap">
+        {['', 'all', 'technician', 'sales'].map(a => (
+          <button key={a} onClick={() => setAudienceFilter(a)}
+            className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
+              audienceFilter === a ? 'bg-violet-600 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+            }`}>
+            {a === '' ? 'All' : AUDIENCE_LABELS[a]}
+          </button>
+        ))}
+      </div>
+
+      {isLoading && <div className="flex justify-center py-16"><Loader2 className="h-6 w-6 animate-spin text-gray-400" /></div>}
+
+      {!isLoading && filtered.length === 0 && (
+        <div className="text-center py-16 text-gray-400">
+          <BookOpen className="h-10 w-10 mx-auto mb-3 opacity-30" />
+          <p>No resources yet.{isOwner ? ' Add your first training material above.' : ''}</p>
+        </div>
+      )}
+
+      <div className="space-y-3">
+        {filtered.map(r => (
+          <div key={r.id} className="bg-white rounded-2xl border border-gray-200 shadow-sm overflow-hidden">
+            <div className="flex items-start gap-4 p-5">
+              <div className="mt-0.5 flex-shrink-0"><FileIcon type={r.fileType} /></div>
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <span className="font-semibold text-gray-900">{r.title}</span>
+                  <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${AUDIENCE_COLORS[r.audience] ?? 'bg-gray-100 text-gray-600'}`}>
+                    {AUDIENCE_LABELS[r.audience] ?? r.audience}
+                  </span>
+                </div>
+                {r.description && <p className="text-sm text-gray-500 mt-1">{r.description}</p>}
+                {r.fileUrl && (
+                  <a href={r.fileUrl} target="_blank" rel="noopener noreferrer"
+                    className="inline-flex items-center gap-1 text-sm text-violet-600 hover:text-violet-700 mt-1 font-medium">
+                    <Link2 className="h-3.5 w-3.5" /> Open file / link
+                  </a>
+                )}
+              </div>
+              <div className="flex items-center gap-1 flex-shrink-0">
+                {r.content && (
+                  <button onClick={() => setExpanded(expanded === r.id ? null : r.id)}
+                    className="p-1.5 text-gray-400 hover:text-violet-600 rounded-lg transition-colors" title="View content">
+                    {expanded === r.id ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+                  </button>
+                )}
+                {isOwner && (
+                  <>
+                    <button onClick={() => setEditing(r)}
+                      className="p-1.5 text-gray-400 hover:text-indigo-600 rounded-lg transition-colors" title="Edit">
+                      <Edit2 className="h-4 w-4" />
+                    </button>
+                    <button onClick={() => handleDelete(r.id)}
+                      className="p-1.5 text-gray-400 hover:text-red-500 rounded-lg transition-colors" title="Delete">
+                      <Trash2 className="h-4 w-4" />
+                    </button>
+                  </>
+                )}
+              </div>
+            </div>
+            {expanded === r.id && r.content && (
+              <div className="px-5 pb-5 border-t border-gray-100 pt-4">
+                <div className="prose prose-sm max-w-none text-gray-700 whitespace-pre-wrap text-sm leading-relaxed">
+                  {r.content}
+                </div>
+              </div>
+            )}
+          </div>
+        ))}
+      </div>
+
+      {(showCreate || editing) && (
+        <ResourceModal
+          resource={editing ?? undefined}
+          onClose={() => { setShowCreate(false); setEditing(null); }}
+          onSaved={() => { setShowCreate(false); setEditing(null); qc.invalidateQueries({ queryKey: ['training'] }); }}
+        />
+      )}
+    </div>
+  );
+}
+
+// ── Resource create/edit modal ────────────────────────────────────────────────
+
+const API_URL = import.meta.env.VITE_API_URL ?? '';
+
+function ResourceModal({ resource, onClose, onSaved }: {
+  resource?: TrainingResource;
+  onClose: () => void;
+  onSaved: () => void;
+}) {
+  const [form, setForm] = useState({
+    title: resource?.title ?? '',
+    description: resource?.description ?? '',
+    audience: resource?.audience ?? 'all',
+    fileUrl: resource?.fileUrl ?? '',
+    fileType: resource?.fileType ?? 'pdf',
+    content: resource?.content ?? '',
+  });
+  const [saving, setSaving] = useState(false);
+  const [aiPrompt, setAiPrompt] = useState('');
+  const [aiLoading, setAiLoading] = useState(false);
+
+  const set = (k: keyof typeof form) => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) =>
+    setForm(f => ({ ...f, [k]: e.target.value }));
+
+  const handleSave = async () => {
+    if (!form.title.trim()) return;
+    setSaving(true);
+    try {
+      if (resource) {
+        await api.patch(`/training/${resource.id}`, form);
+      } else {
+        await api.post('/training', form);
+      }
+      onSaved();
+    } catch { /* ignore */ } finally { setSaving(false); }
+  };
+
+  const handleAI = async () => {
+    if (!aiPrompt.trim()) return;
+    setAiLoading(true);
+    try {
+      const res = await fetch(`${API_URL}/api/v1/ai/chat`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${localStorage.getItem('fsp-auth') ? JSON.parse(localStorage.getItem('fsp-auth')!).state?.accessToken : ''}` },
+        body: JSON.stringify({
+          messages: [
+            { role: 'user', content: `You are helping create training content for a field service business. ${aiPrompt}\n\nExisting content to tailor:\n${form.content || '(none yet)'}` }
+          ]
+        }),
+      });
+      const data = await res.json();
+      const text = data?.data?.message ?? data?.choices?.[0]?.message?.content ?? '';
+      if (text) setForm(f => ({ ...f, content: text }));
+    } catch { /* ignore */ } finally { setAiLoading(false); setAiPrompt(''); }
+  };
+
+  const inp = 'w-full px-3 py-2 border border-gray-300 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-violet-500/50 focus:border-violet-400 bg-white';
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[90vh] flex flex-col">
+        <div className="flex items-center justify-between p-5 border-b flex-shrink-0">
+          <h2 className="font-bold text-gray-900">{resource ? 'Edit Resource' : 'Add Training Resource'}</h2>
+          <button onClick={onClose}><X className="h-5 w-5 text-gray-400" /></button>
+        </div>
+
+        <div className="overflow-y-auto flex-1 p-5 space-y-4">
+          <div>
+            <label className="block text-xs font-semibold text-gray-500 mb-1 uppercase tracking-wide">Title *</label>
+            <input type="text" value={form.title} onChange={set('title')} className={inp} placeholder="e.g. HVAC Safety Checklist" />
+          </div>
+
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <label className="block text-xs font-semibold text-gray-500 mb-1 uppercase tracking-wide">Audience</label>
+              <select value={form.audience} onChange={set('audience')} className={inp}>
+                <option value="all">Everyone</option>
+                <option value="technician">Technicians only</option>
+                <option value="sales">Sales only</option>
+              </select>
+            </div>
+            <div>
+              <label className="block text-xs font-semibold text-gray-500 mb-1 uppercase tracking-wide">Type</label>
+              <select value={form.fileType} onChange={set('fileType')} className={inp}>
+                <option value="pdf">PDF / Document</option>
+                <option value="video">Video</option>
+                <option value="link">Link</option>
+                <option value="script">Sales Script</option>
+              </select>
+            </div>
+          </div>
+
+          <div>
+            <label className="block text-xs font-semibold text-gray-500 mb-1 uppercase tracking-wide">Description</label>
+            <input type="text" value={form.description} onChange={set('description')} className={inp} placeholder="Brief summary of what this covers" />
+          </div>
+
+          <div>
+            <label className="block text-xs font-semibold text-gray-500 mb-1 uppercase tracking-wide">File URL or Link</label>
+            <input type="url" value={form.fileUrl} onChange={set('fileUrl')} className={inp} placeholder="https://..." />
+          </div>
+
+          <div>
+            <div className="flex items-center justify-between mb-1">
+              <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide">Content / Script</label>
+              <span className="text-xs text-gray-400">Shown inline when expanded</span>
+            </div>
+            <textarea value={form.content} onChange={set('content')} rows={8} className={`${inp} resize-y`}
+              placeholder="Paste or type training content, sales script, talking points..." />
+          </div>
+
+          {/* AI tailoring */}
+          <div className="bg-violet-50 border border-violet-200 rounded-xl p-4 space-y-3">
+            <div className="flex items-center gap-2 text-sm font-semibold text-violet-700">
+              <Sparkles className="h-4 w-4" /> AI Content Assist
+            </div>
+            <p className="text-xs text-violet-600">Describe what you want — AI will write or refine the content above.</p>
+            <div className="flex gap-2">
+              <input
+                type="text"
+                value={aiPrompt}
+                onChange={e => setAiPrompt(e.target.value)}
+                onKeyDown={e => e.key === 'Enter' && handleAI()}
+                className="flex-1 px-3 py-2 border border-violet-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-violet-400 bg-white placeholder-violet-300"
+                placeholder='e.g. "Write a 5-step sales script for pool cleaning services"'
+              />
+              <button onClick={handleAI} disabled={aiLoading || !aiPrompt.trim()}
+                className="flex items-center gap-1.5 px-4 py-2 bg-violet-600 hover:bg-violet-700 disabled:opacity-50 text-white text-sm font-semibold rounded-lg transition-colors">
+                {aiLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
+                {aiLoading ? 'Writing...' : 'Generate'}
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <div className="flex items-center gap-3 p-5 border-t flex-shrink-0">
+          <button onClick={onClose} className="flex-1 px-4 py-2.5 border border-gray-300 rounded-xl text-sm font-medium text-gray-700 hover:bg-gray-50 transition-colors">
+            Cancel
+          </button>
+          <button onClick={handleSave} disabled={saving || !form.title.trim()}
+            className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 bg-violet-600 hover:bg-violet-700 disabled:opacity-50 text-white text-sm font-semibold rounded-xl transition-colors">
+            {saving && <Loader2 className="h-4 w-4 animate-spin" />}
+            {resource ? 'Save Changes' : 'Add Resource'}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
