@@ -104,7 +104,7 @@ trainingInteractiveRouter.post('/exercise-answers/:exerciseId/feedback', async (
     messages: [{ role: 'user', content: `Exercise question: ${question}\n\nSalesperson's answer: ${answer}` }],
   });
 
-  const feedback = (msg.content[0] as { type: string; text: string }).text ?? '';
+  const feedback = msg.content.filter((b): b is Anthropic.TextBlock => b.type === 'text').map(b => b.text).join('');
 
   const updated = await prisma.trainingExerciseAnswer.update({
     where: { userId_exerciseId: { userId, exerciseId } },
@@ -150,7 +150,7 @@ Difficulty: ${difficulty}${objection ? `\nSpecific objection to introduce: ${obj
     messages,
   });
 
-  const reply = (msg.content[0] as { type: string; text: string }).text ?? '';
+  const reply = msg.content.filter((b): b is Anthropic.TextBlock => b.type === 'text').map(b => b.text).join('');
   res.json({ success: true, data: { message: reply } } satisfies ApiResponse);
 });
 
@@ -189,7 +189,7 @@ Be warm, encouraging, and specific. Reference the actual conversation content.`,
     ],
   });
 
-  const debrief = (debriefMsg.content[0] as { type: string; text: string }).text ?? '';
+  const debrief = debriefMsg.content.filter((b): b is Anthropic.TextBlock => b.type === 'text').map(b => b.text).join('');
 
   // Extract rating
   const ratingMatch = debrief.match(/\*\*Rating:\*\*\s*(Needs Practice|Getting There|Strong|Excellent)/i);
@@ -240,7 +240,7 @@ Keep responses concise and conversational — this is a coach in their pocket, n
     messages,
   });
 
-  const reply = (msg.content[0] as { type: string; text: string }).text ?? '';
+  const reply = msg.content.filter((b): b is Anthropic.TextBlock => b.type === 'text').map(b => b.text).join('');
   res.json({ success: true, data: { message: reply } } satisfies ApiResponse);
 });
 
