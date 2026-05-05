@@ -15,6 +15,32 @@ async function main() {
     await prisma.$executeRawUnsafe(
       `UPDATE "_prisma_migrations" SET finished_at = NOW(), applied_steps_count = 1, logs = NULL WHERE migration_name IN ('20260504000001_training_target_users','20260504000002_training_files') AND finished_at IS NULL`
     );
+    // Ensure training_files table exists (migration may not have run via deploy)
+    await prisma.$executeRawUnsafe(`
+      CREATE TABLE IF NOT EXISTS "training_files" (
+        "id"        TEXT NOT NULL,
+        "tenantId"  TEXT NOT NULL,
+        "filename"  TEXT NOT NULL,
+        "mimeType"  TEXT NOT NULL,
+        "size"      INTEGER NOT NULL,
+        "data"      BYTEA NOT NULL,
+        "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        CONSTRAINT "training_files_pkey" PRIMARY KEY ("id")
+      )
+    `);
+    await prisma.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "training_files_tenantId_idx" ON "training_files"("tenantId")`);
+    await prisma.$executeRawUnsafe(`
+      DO $$ BEGIN
+        IF NOT EXISTS (
+          SELECT 1 FROM information_schema.table_constraints
+          WHERE constraint_name = 'training_files_tenantId_fkey'
+        ) THEN
+          ALTER TABLE "training_files"
+            ADD CONSTRAINT "training_files_tenantId_fkey"
+            FOREIGN KEY ("tenantId") REFERENCES "tenants"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+        END IF;
+      END $$
+    );
     logger.info('Migration record patched');
   } catch (e) {
     logger.warn('Migration patch skipped (may already be clean)');
