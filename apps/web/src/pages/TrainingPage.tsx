@@ -213,6 +213,22 @@ export function TrainingPage() {
   );
 }
 
+// ── Helpers ───────────────────────────────────────────────────────────────────
+
+async function openFileUrl(fileUrl: string) {
+  const s3Match = fileUrl.match(/s3\.amazonaws\.com\/(.+)$/);
+  if (s3Match) {
+    try {
+      const { data } = await api.get(`/uploads/signed-url/${s3Match[1]}`);
+      window.open(data.data.url, '_blank');
+    } catch {
+      window.open(fileUrl, '_blank');
+    }
+  } else {
+    window.open(fileUrl, '_blank');
+  }
+}
+
 // ── Resources tab (read-only for non-owners) ──────────────────────────────────
 
 function ResourcesTab({ resources, isLoading, isOwner }: { resources: TrainingResource[]; isLoading: boolean; isOwner: boolean }) {
@@ -239,10 +255,10 @@ function ResourcesTab({ resources, isLoading, isOwner }: { resources: TrainingRe
               </div>
               {r.description && <p className="text-sm text-gray-500 mt-1">{r.description}</p>}
               {r.fileUrl && (
-                <a href={r.fileUrl} target="_blank" rel="noopener noreferrer"
+                <button onClick={() => openFileUrl(r.fileUrl!)}
                   className="inline-flex items-center gap-1 text-sm text-violet-600 hover:text-violet-700 mt-1 font-medium">
                   <Link2 className="h-3.5 w-3.5" /> Open file / link
-                </a>
+                </button>
               )}
             </div>
             {r.content && (
@@ -287,7 +303,14 @@ function OwnerTrainingView({
     onResourceChanged();
   };
 
-  const filtered = audienceFilter ? resources.filter(r => r.audience === audienceFilter) : resources;
+  // 'all' filter shows everyone-targeted resources; 'sales'/'technician' shows what that role sees
+  const filtered = audienceFilter
+    ? resources.filter(r =>
+        audienceFilter === 'all'
+          ? r.audience === 'all'
+          : r.audience === audienceFilter || r.audience === 'all'
+      )
+    : resources;
 
   return (
     <div className="flex flex-col h-full">
@@ -490,6 +513,7 @@ function ResourceModal({ resource, onClose, onSaved }: {
   const [aiPrompt, setAiPrompt] = useState('');
   const [aiLoading, setAiLoading] = useState(false);
   const [uploading, setUploading] = useState(false);
+  const [uploadError, setUploadError] = useState('');
   const [uploadedName, setUploadedName] = useState(resource?.fileUrl ? resource.fileUrl.split('/').pop() ?? '' : '');
 
   const { data: teamData } = useQuery<Array<{ id: string; firstName: string; lastName: string; role: string }>>({
@@ -502,19 +526,36 @@ function ResourceModal({ resource, onClose, onSaved }: {
 
   const handleFileDrop = async (file: File) => {
     setUploading(true);
+    setUploadError('');
     try {
-      const { data: presign } = await api.post('/uploads/training-presign', {
-        contentType: file.type,
-        filename: file.name,
+      // macOS often sends empty type for Office files — infer from extension
+      const MIME_BY_EXT: Record<string, string> = {
+        pdf: 'application/pdf', doc: 'application/msword',
+        docx: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+        xls: 'application/vnd.ms-excel',
+        xlsx: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        ppt: 'application/vnd.ms-powerpoint',
+        pptx: 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+        txt: 'text/plain', mp4: 'video/mp4', mov: 'video/quicktime', webm: 'video/webm',
+        jpg: 'image/jpeg', jpeg: 'image/jpeg', png: 'image/png', webp: 'image/webp',
+      };
+      const FILE_TYPE_BY_EXT: Record<string, string> = {
+        pdf: 'pdf', doc: 'doc', docx: 'doc', xls: 'doc', xlsx: 'doc',
+        ppt: 'doc', pptx: 'doc', txt: 'doc', mp4: 'video', mov: 'video', webm: 'video',
+      };
+      const ext = file.name.split('.').pop()?.toLowerCase() ?? '';
+      const contentType = file.type || MIME_BY_EXT[ext] || 'application/octet-stream';
+      const { data: presign } = await api.post('/uploads/training-presign', { contentType, filename: file.name });
+      const putRes = await fetch(presign.data.presignedUrl, {
+        method: 'PUT', body: file, headers: { 'Content-Type': contentType },
       });
-      await fetch(presign.data.presignedUrl, {
-        method: 'PUT',
-        body: file,
-        headers: { 'Content-Type': file.type },
-      });
-      setForm(f => ({ ...f, fileUrl: presign.data.publicUrl }));
+      if (!putRes.ok) throw new Error(`Upload failed (${putRes.status})`);
+      const detectedType = FILE_TYPE_BY_EXT[ext] ?? form.fileType;
+      setForm(f => ({ ...f, fileUrl: presign.data.publicUrl, fileType: detectedType }));
       setUploadedName(file.name);
-    } catch { /* ignore */ } finally { setUploading(false); }
+    } catch (err) {
+      setUploadError(err instanceof Error ? err.message : 'Upload failed — check S3 config');
+    } finally { setUploading(false); }
   };
 
   const handleSave = async () => {
@@ -637,6 +678,11 @@ function ResourceModal({ resource, onClose, onSaved }: {
                   <span className="truncate max-w-xs">{uploadedName}</span>
                   <button onClick={e => { e.stopPropagation(); setForm(f => ({ ...f, fileUrl: '' })); setUploadedName(''); }}
                     className="ml-1 text-gray-400 hover:text-red-500"><X className="h-3.5 w-3.5" /></button>
+                </div>
+              ) : uploadError ? (
+                <div className="space-y-1">
+                  <p className="text-sm text-red-600 font-medium">{uploadError}</p>
+                  <p className="text-xs text-gray-400">Try again or paste a URL below</p>
                 </div>
               ) : (
                 <div className="space-y-1">
