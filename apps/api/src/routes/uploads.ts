@@ -5,6 +5,7 @@ import { authenticate } from '../middleware/authenticate';
 import { AppError } from '../middleware/errorHandler';
 import { prisma } from '@fsp/db';
 import { v4 as uuidv4 } from 'uuid';
+import multer from 'multer';
 import type { ApiResponse } from '@fsp/types';
 
 export const uploadsRouter = Router();
@@ -20,6 +21,8 @@ const s3 = new S3Client({
 });
 
 const BUCKET = process.env.S3_BUCKET_NAME ?? '';
+
+const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 100 * 1024 * 1024 } });
 
 // POST /api/v1/uploads/presign
 // Returns a presigned PUT URL for direct browser-to-S3 upload
@@ -85,47 +88,28 @@ uploadsRouter.post('/confirm', async (req, res) => {
   res.status(201).json({ success: true, data: photo } satisfies ApiResponse);
 });
 
-// POST /api/v1/uploads/training-presign
-// Returns a presigned PUT URL for training resource file upload (Word, PDF, video, etc.)
-uploadsRouter.post('/training-presign', async (req, res) => {
-  const { contentType, filename } = req.body as { contentType: string; filename: string };
+// POST /api/v1/uploads/training-file
+// Proxies training resource file uploads through the API to S3 (avoids browser CORS)
+uploadsRouter.post('/training-file', upload.single('file'), async (req, res) => {
+  if (!req.file) throw new AppError('No file provided', 400, 'NO_FILE');
 
-  const ALLOWED_TYPES = [
-    'application/pdf',
-    'application/msword',
-    'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-    'application/vnd.ms-excel',
-    'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-    'application/vnd.ms-powerpoint',
-    'application/vnd.openxmlformats-officedocument.presentationml.presentation',
-    'text/plain',
-    'video/mp4',
-    'video/quicktime',
-    'video/webm',
-    'image/jpeg',
-    'image/png',
-    'image/webp',
-  ];
-
-  if (!ALLOWED_TYPES.includes(contentType)) {
-    throw new AppError('File type not supported', 400, 'INVALID_CONTENT_TYPE');
+  if (!BUCKET || !process.env.AWS_ACCESS_KEY_ID || process.env.AWS_ACCESS_KEY_ID === 'placeholder') {
+    throw new AppError('File storage (S3) is not configured on this server', 503, 'S3_NOT_CONFIGURED');
   }
 
-  const safeFilename = filename.replace(/[^a-zA-Z0-9._-]/g, '_');
+  const safeFilename = req.file.originalname.replace(/[^a-zA-Z0-9._-]/g, '_');
   const key = `tenants/${req.user!.tenantId}/training/${uuidv4()}-${safeFilename}`;
 
-  const command = new PutObjectCommand({
+  await s3.send(new PutObjectCommand({
     Bucket: BUCKET,
     Key: key,
-    ContentType: contentType,
-  });
-
-  const presignedUrl = await getSignedUrl(s3, command, { expiresIn: 300 });
+    Body: req.file.buffer,
+    ContentType: req.file.mimetype,
+  }));
 
   res.json({
     success: true,
     data: {
-      presignedUrl,
       key,
       publicUrl: `https://${BUCKET}.s3.amazonaws.com/${key}`,
     },

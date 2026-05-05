@@ -528,30 +528,18 @@ function ResourceModal({ resource, onClose, onSaved }: {
     setUploading(true);
     setUploadError('');
     try {
-      // macOS often sends empty type for Office files — infer from extension
-      const MIME_BY_EXT: Record<string, string> = {
-        pdf: 'application/pdf', doc: 'application/msword',
-        docx: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-        xls: 'application/vnd.ms-excel',
-        xlsx: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-        ppt: 'application/vnd.ms-powerpoint',
-        pptx: 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
-        txt: 'text/plain', mp4: 'video/mp4', mov: 'video/quicktime', webm: 'video/webm',
-        jpg: 'image/jpeg', jpeg: 'image/jpeg', png: 'image/png', webp: 'image/webp',
-      };
       const FILE_TYPE_BY_EXT: Record<string, string> = {
         pdf: 'pdf', doc: 'doc', docx: 'doc', xls: 'doc', xlsx: 'doc',
         ppt: 'doc', pptx: 'doc', txt: 'doc', mp4: 'video', mov: 'video', webm: 'video',
       };
       const ext = file.name.split('.').pop()?.toLowerCase() ?? '';
-      const contentType = file.type || MIME_BY_EXT[ext] || 'application/octet-stream';
-      const { data: presign } = await api.post('/uploads/training-presign', { contentType, filename: file.name });
-      const putRes = await fetch(presign.data.presignedUrl, {
-        method: 'PUT', body: file, headers: { 'Content-Type': contentType },
-      });
-      if (!putRes.ok) throw new Error(`Upload failed (${putRes.status})`);
       const detectedType = FILE_TYPE_BY_EXT[ext] ?? form.fileType;
-      setForm(f => ({ ...f, fileUrl: presign.data.publicUrl, fileType: detectedType }));
+      const formData = new FormData();
+      formData.append('file', file);
+      const { data: uploaded } = await api.post('/uploads/training-file', formData, {
+        headers: { 'Content-Type': 'multipart/form-data' },
+      });
+      setForm(f => ({ ...f, fileUrl: uploaded.data.publicUrl, fileType: detectedType }));
       setUploadedName(file.name);
     } catch (err) {
       setUploadError(err instanceof Error ? err.message : 'Upload failed — check S3 config');
