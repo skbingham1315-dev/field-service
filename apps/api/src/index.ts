@@ -40,7 +40,7 @@ async function main() {
             FOREIGN KEY ("tenantId") REFERENCES "tenants"("id") ON DELETE CASCADE ON UPDATE CASCADE;
         END IF;
       END $$
-    );
+    `);
     logger.info('Migration record patched');
   } catch (e) {
     logger.warn('Migration patch skipped (may already be clean)');
