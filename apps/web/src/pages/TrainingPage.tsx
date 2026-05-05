@@ -489,6 +489,8 @@ function ResourceModal({ resource, onClose, onSaved }: {
   const [saving, setSaving] = useState(false);
   const [aiPrompt, setAiPrompt] = useState('');
   const [aiLoading, setAiLoading] = useState(false);
+  const [uploading, setUploading] = useState(false);
+  const [uploadedName, setUploadedName] = useState(resource?.fileUrl ? resource.fileUrl.split('/').pop() ?? '' : '');
 
   const { data: teamData } = useQuery<Array<{ id: string; firstName: string; lastName: string; role: string }>>({
     queryKey: ['users', 'all'],
@@ -497,6 +499,23 @@ function ResourceModal({ resource, onClose, onSaved }: {
 
   const set = (k: keyof typeof form) => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) =>
     setForm(f => ({ ...f, [k]: e.target.value }));
+
+  const handleFileDrop = async (file: File) => {
+    setUploading(true);
+    try {
+      const { data: presign } = await api.post('/uploads/training-presign', {
+        contentType: file.type,
+        filename: file.name,
+      });
+      await fetch(presign.data.presignedUrl, {
+        method: 'PUT',
+        body: file,
+        headers: { 'Content-Type': file.type },
+      });
+      setForm(f => ({ ...f, fileUrl: presign.data.publicUrl }));
+      setUploadedName(file.name);
+    } catch { /* ignore */ } finally { setUploading(false); }
+  };
 
   const handleSave = async () => {
     if (!form.title.trim()) return;
@@ -601,8 +620,35 @@ function ResourceModal({ resource, onClose, onSaved }: {
           </div>
 
           <div>
-            <label className="block text-xs font-semibold text-gray-500 mb-1 uppercase tracking-wide">File URL or Link</label>
-            <input type="url" value={form.fileUrl} onChange={set('fileUrl')} className={inp} placeholder="https://..." />
+            <label className="block text-xs font-semibold text-gray-500 mb-1 uppercase tracking-wide">File</label>
+            <div
+              onDragOver={e => e.preventDefault()}
+              onDrop={e => { e.preventDefault(); const file = e.dataTransfer.files[0]; if (file) handleFileDrop(file); }}
+              className="relative border-2 border-dashed border-gray-300 rounded-xl p-4 text-center hover:border-violet-400 transition-colors cursor-pointer"
+              onClick={() => { const i = document.createElement('input'); i.type = 'file'; i.accept = '.pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.mp4,.mov,.webm,.jpg,.jpeg,.png,.webp'; i.onchange = () => { if (i.files?.[0]) handleFileDrop(i.files[0]); }; i.click(); }}
+            >
+              {uploading ? (
+                <div className="flex items-center justify-center gap-2 text-violet-600 text-sm">
+                  <Loader2 className="h-4 w-4 animate-spin" /> Uploading...
+                </div>
+              ) : uploadedName ? (
+                <div className="flex items-center justify-center gap-2 text-sm text-gray-700">
+                  <FileText className="h-4 w-4 text-violet-500 flex-shrink-0" />
+                  <span className="truncate max-w-xs">{uploadedName}</span>
+                  <button onClick={e => { e.stopPropagation(); setForm(f => ({ ...f, fileUrl: '' })); setUploadedName(''); }}
+                    className="ml-1 text-gray-400 hover:text-red-500"><X className="h-3.5 w-3.5" /></button>
+                </div>
+              ) : (
+                <div className="space-y-1">
+                  <Upload className="h-6 w-6 text-gray-400 mx-auto" />
+                  <p className="text-sm text-gray-500">Drop a file or <span className="text-violet-600 font-medium">browse</span></p>
+                  <p className="text-xs text-gray-400">PDF, Word, Excel, PowerPoint, video, image</p>
+                </div>
+              )}
+            </div>
+            {form.fileUrl && !uploadedName && (
+              <input type="url" value={form.fileUrl} onChange={set('fileUrl')} className={`${inp} mt-2`} placeholder="https://..." />
+            )}
           </div>
 
           <div>

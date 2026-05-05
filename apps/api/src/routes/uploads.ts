@@ -85,6 +85,53 @@ uploadsRouter.post('/confirm', async (req, res) => {
   res.status(201).json({ success: true, data: photo } satisfies ApiResponse);
 });
 
+// POST /api/v1/uploads/training-presign
+// Returns a presigned PUT URL for training resource file upload (Word, PDF, video, etc.)
+uploadsRouter.post('/training-presign', async (req, res) => {
+  const { contentType, filename } = req.body as { contentType: string; filename: string };
+
+  const ALLOWED_TYPES = [
+    'application/pdf',
+    'application/msword',
+    'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+    'application/vnd.ms-excel',
+    'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    'application/vnd.ms-powerpoint',
+    'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+    'text/plain',
+    'video/mp4',
+    'video/quicktime',
+    'video/webm',
+    'image/jpeg',
+    'image/png',
+    'image/webp',
+  ];
+
+  if (!ALLOWED_TYPES.includes(contentType)) {
+    throw new AppError('File type not supported', 400, 'INVALID_CONTENT_TYPE');
+  }
+
+  const safeFilename = filename.replace(/[^a-zA-Z0-9._-]/g, '_');
+  const key = `tenants/${req.user!.tenantId}/training/${uuidv4()}-${safeFilename}`;
+
+  const command = new PutObjectCommand({
+    Bucket: BUCKET,
+    Key: key,
+    ContentType: contentType,
+  });
+
+  const presignedUrl = await getSignedUrl(s3, command, { expiresIn: 300 });
+
+  res.json({
+    success: true,
+    data: {
+      presignedUrl,
+      key,
+      publicUrl: `https://${BUCKET}.s3.amazonaws.com/${key}`,
+    },
+  } satisfies ApiResponse);
+});
+
 // GET /api/v1/uploads/signed-url/:key
 uploadsRouter.get('/signed-url/:key(*)', async (req, res) => {
   const key = req.params.key;
