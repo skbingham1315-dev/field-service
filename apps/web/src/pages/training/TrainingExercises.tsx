@@ -48,7 +48,7 @@ export function TrainingExercises({ answers, onAnswerSaved }: Props) {
         question: selected.question,
         answer: draft,
       });
-      onAnswerSaved(selected.id, draft, data.data.aiFeedback, 'reviewed');
+      onAnswerSaved();
       setSelected(s => s ? { ...s } : null); // refresh
     } catch { /* ignore */ } finally { setLoadingFeedback(false); }
   };

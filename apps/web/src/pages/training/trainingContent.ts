@@ -28,373 +28,372 @@ export const SECTIONS: TrainingSection[] = [
     number: 1,
     title: 'Who We Are',
     description: 'Company overview, services, and our belief statement',
-    readTime: '3 min',
-    exerciseIds: ['e1', 'e2'],
-    content: `## Blue Dingo LLC
+    readTime: '4 min',
+    exerciseIds: ['e1', 'e2', 'e3'],
+    content: `## About Blue Dingo LLC
 
-Blue Dingo is a licensed construction and remodeling company serving the greater Phoenix, Arizona metro area. We provide repair, renovation, and maintenance services to property management companies and builders/general contractors.
-
----
-
-## Our Services
-
-- **General repairs and maintenance** — We handle the everyday fixes that keep properties running smoothly
-- **Interior & exterior painting** — Full residential and commercial painting services
-- **Flooring** — Tile, LVP (luxury vinyl plank), and carpet installation and replacement
-- **Bathroom renovations** — Tile replacement, fixtures, full bathroom remodels
-- **Make-ready / unit turnover services** — Fast, quality turnovers so rental properties rent faster
-- **Kitchen updates** — Cabinets, countertops, tile backsplash, fixtures
-- **Permitted construction & remodeling** — Full scope renovation projects with proper permitting
+Blue Dingo LLC is a licensed construction and remodeling company based in the Phoenix, Arizona metro area. We specialize in property maintenance, repairs, and renovation services for residential and commercial clients. Our clients range from individual homeowners to large property management companies overseeing hundreds of units.
 
 ---
 
-## Our Two Primary Markets
+## Our Core Services
 
-**1. Property Management Companies**
-We become their go-to preferred vendor for ongoing maintenance, repairs, and unit turnovers. When a tenant moves out, they call us. We make their life easier by being reliable, responsive, and communicative — three things that most contractors are not.
-
-**2. Builders & General Contractors**
-We become their reliable subcontractor for finish work: paint, flooring, tile, and complete interior finishes. GCs need subs who show up, finish on time, and don't create problems. We are that sub.
+- General repairs and handyman services (drywall, doors, windows, fixtures)
+- Interior and exterior painting
+- Flooring installation and replacement (tile, LVP, carpet)
+- Bathroom renovations and remodels
+- Make-ready and unit turnover services for rental properties
+- Kitchen updates and improvements
+- Landscaping and exterior maintenance coordination
+- Permit-required construction and remodeling projects
 
 ---
 
-## Our Belief Statement
+## What Makes Blue Dingo Different
 
-We believe that showing up consistently, doing quality work, and being easy to work with is a competitive advantage. Most contractors are unreliable. We are the exception.
+**Licensed & Insured** — We carry proper licensing and insurance. Property managers never have to worry about liability.
 
-Every relationship we build is built on trust, and every job is a chance to prove that trust is well-placed. We don't just do the work — we make people's lives easier by doing it predictably, professionally, and with pride.`,
+**Responsive** — We communicate clearly and show up when we say we will. That is rarer than it sounds.
+
+**Full Service** — From a broken door hinge to a full bathroom gut, we handle it all under one vendor relationship.
+
+**Documentation** — Every job is documented with photos, work orders, and invoices. Easy for PM record keeping.
+
+**Phoenix Market** — We know the Valley. We understand HOA rules, city permit requirements, and local vendors.
+
+**Honest Pricing** — No hidden charges. Scope is agreed before work begins and we stick to it.
+
+---
+
+## Your Belief Statement
+
+You are not just selling a service. You are offering a solution to people who are tired of unreliable contractors, missed calls, and sloppy work.
+
+Blue Dingo shows up, does the job right, and makes the property manager or builder look good to their clients. **That is the real value.**`,
   },
   {
     id: 's2',
     number: 2,
     title: 'Property Management Playbook',
     description: 'Walk-in approach, scripts, and objection handling for PM companies',
-    readTime: '6 min',
-    exerciseIds: ['e3', 'e4', 'e5'],
-    content: `## Property Management Companies — Your #1 Target
+    readTime: '7 min',
+    exerciseIds: ['e4', 'e5', 'e6'],
+    content: `## Understanding the Property Manager
 
-Property management companies have **ongoing, predictable** repair and turnover needs — exactly what Blue Dingo is built for. The goal of your first visit is **not to get a job**. The goal is to get on their vendor list.
+Property managers are busy, skeptical, and burned by contractors constantly. The person at the front desk has heard every pitch. Your job is NOT to pitch — your job is to have a real conversation and solve a real problem they are already dealing with.
 
----
+**What They Deal With Every Day:**
+- Work orders piling up with no reliable contractor to send them to
+- Vendors who quote one price and charge another
+- Contractors who no-show or go silent mid-job
+- Tenants calling angry because repairs are not getting done
+- Owners breathing down their neck about property condition
+- Turnover units sitting vacant because make-readies take too long
 
-## Step 1: Research Before You Go
-
-- What company is it? How many properties/units do they manage?
-- Who handles maintenance? (Title: Maintenance Coordinator, Facilities Manager, or the owner)
-- Check Google reviews — do they mention contractor issues? That's your opening.
-
----
-
-## Step 2: The Walk-In Script (Front Desk)
-
-> *"Hi! My name is [Your Name] from Blue Dingo. We're a licensed construction and remodeling company here in Phoenix — we specialize in make-ready services and repairs for rental properties. I know [Manager Name] is probably busy, but I'd love to leave some information and potentially set up a quick 10-minute intro sometime. Would that be okay?"*
-
-**Key:** Be warm, brief, and grateful. You're asking for 10 minutes, not a contract.
+> **The Golden Insight:** A property manager does not care how good you are at drywall. They care that when they send you a work order at 8am, it gets handled and they never have to think about it again. THAT is what you are selling.
 
 ---
 
-## Step 3: If You Get to the Decision Maker
+## Before You Walk In
 
-> *"Hi [Name], I really appreciate you taking a moment. We work with several property management companies in the Phoenix area on their unit turnovers and maintenance — paint, flooring, drywall, and general repairs. A lot of PMs we talk to struggle with contractors who are unreliable or slow to respond. We've built our entire process around being the ones who actually show up and finish on time. Can I ask — how do you currently handle your repair and turnover work?"*
-
-**Then LISTEN.** Don't pitch. Find out their pain before you talk about Blue Dingo.
-
----
-
-## The 5 Most Common PM Objections
-
-**1. "We already have contractors we work with."**
-> *"That's great — most of our best clients felt the same way before they tried us. Would you be open to giving us one turnover to see how we compare? No long-term commitment."*
-
-**2. "We don't need anything right now."**
-> *"Totally understood. I'm not here to push anything — I just want to be on your list for when you do. Can I leave you our info and maybe connect on email?"*
-
-**3. "Send me an email."**
-> *"Absolutely. Who should I send it to? And what types of work do you outsource most often?"* (Get the email AND learn their pain points)
-
-**4. "We handle it in-house."**
-> *"That makes sense for routine stuff. Do you ever hit capacity during busy turnover seasons? We work really well as an overflow option — no ongoing commitment."*
-
-**5. "How are your prices?"**
-> *"We're competitive and transparent — we give detailed written quotes before any work starts. Want me to show you a sample estimate so you can see how we present our pricing?"*
+- Look up the company online. How many properties or units do they manage?
+- Check their Google reviews. Do tenants complain about slow maintenance? That is your opening.
+- Find the name of their maintenance coordinator or property manager if possible.
+- Bring a one-page company overview or business card. Look professional.
 
 ---
 
-## The Follow-Up Formula
+## The Walk-In Approach
 
-After every visit:
-1. Send a brief email within 24 hours referencing your conversation
-2. Connect on LinkedIn if possible
-3. Follow up in 30 days with something of value (a tip, a case study, a relevant article)
-4. Stay visible — you win by being top-of-mind when they finally have a need`,
+**Step 1 — The Opening (at the front desk)**
+
+> "Hi, my name is [Your Name] with Blue Dingo LLC. We are a licensed contractor here in the Valley and I just wanted to stop in and introduce myself. Is there a maintenance coordinator or someone who manages your vendor relationships I could say hello to for just a couple minutes?"
+
+**Pro Tip:** Do NOT ask for a lot of their time. Ask for two minutes. People say yes to two minutes. If they like you, it turns into ten.
+
+---
+
+**Step 2 — The Conversation (with the decision maker)**
+
+> "Thanks for taking a minute. I am not here to do a whole pitch — I just wanted to introduce myself and let you know we are available. We do repairs, paint, flooring, make-readies, bathrooms — pretty much anything that comes up on a property. We are local, licensed, and insured. Are you happy with all your current vendors, or are there any trades where you find yourself scrambling to find someone?"
+
+Listen. Let them talk. Whatever problem they mention — that is your foot in the door.
+
+---
+
+**Step 3 — The Ask**
+
+> "I would love to earn a spot on your preferred vendor list. Even if you do not need us today, I just want to be the person you call when something comes up. Can I leave you our info? And is there a vendor packet or onboarding form I should fill out to get on your list?"
+
+---
+
+## Objection Handling — Property Managers
+
+**"We already have contractors."**
+> "Totally understand — most companies do. We are not trying to replace anyone. We just want to be the backup when someone is unavailable or when you have overflow work. Mind if I leave our card?"
+
+**"We do not take walk-ins."**
+> "No problem at all — I just wanted to drop off our info. Who would be the best person to email or reach out to officially?"
+
+**"We need references."**
+> "Absolutely, I can get those to you. Would email work? And is there a specific trade or type of job you are looking for help with right now?"
+
+**"We use a preferred vendor portal."**
+> "Great — can you point me to where I sign up? I will get our insurance and license submitted today."
+
+**"We do not have any openings."**
+> "Understood. Situations change fast in property management. Mind if I check back in a month or two? Or is there a slow season where you tend to have more turnover work?"
+
+---
+
+## The Follow-Up System
+
+Walking in is only the start. Most sales happen on the 5th to 8th touchpoint.
+
+| Day | Action |
+|---|---|
+| Day 1 | Walk in, drop off card, log it with notes on what you learned |
+| Day 3 | Send a short, friendly email. Reference your visit. Attach our one-pager. |
+| Day 10 | Call the office. Ask if they received your info. Ask if anything has come up. |
+| Day 30 | Check back in. Spring and Fall are high-turnover times. |
+| Ongoing | Every 30–45 days until they say yes or do not contact. |
+
+**Track everything.** Log every visit, call, and email. Note everyone you talked to, what they said, and when to follow up. The person who stays organized wins the long game.`,
   },
   {
     id: 's3',
     number: 3,
     title: 'Builder & Contractor Playbook',
     description: 'Job site approach, phone outreach, and GC relationship building',
-    readTime: '5 min',
-    exerciseIds: ['e6', 'e7'],
-    content: `## Builders & General Contractors — Your #2 Target
+    readTime: '6 min',
+    exerciseIds: ['e7', 'e8', 'e9'],
+    content: `## Understanding Builders and General Contractors
 
-Builders and general contractors need reliable subcontractors for finish work. They care about three things: **showing up, finishing on time, and not creating problems**. Most GCs have been burned by subs who flaked. Be the one who doesn't.
+Builders and GCs are different from property managers. They are project-focused, under constant deadline pressure, and they measure everything in dollars and schedules. They need subs who make their life easier, not harder.
+
+**What They Need From a Sub:**
+- Show up exactly when scheduled. Not early. Not late. On time.
+- Do quality work that passes inspection first time.
+- Communicate proactively — if there is a problem, call before it becomes their problem.
+- Price competitively without nickel-and-diming.
+- Handle permits and paperwork correctly.
+- Be someone they can call again on the next job.
+
+> **The Key Difference:** Property managers send you ongoing work orders. Builders give you project-based work. One relationship with a mid-size builder can mean $50,000+ in a single year. Take your time, build trust, and treat every builder job as an audition for the next ten.
+
+---
+
+## How to Find Builders
+
+- **Arizona Permit Pro** — pull recent permit filings to find active builders in the area
+- Drive new construction neighborhoods and look for GC signage on job sites
+- ASBA and local homebuilder associations
+- Angi, Houzz, and BuildZoom — look at GC profiles with high review counts
+- Drive commercial strips and look for renovation project signage
 
 ---
 
 ## The Job Site Approach
 
-- Always have your card or a simple one-pager ready
-- Dress clean and professional — you're walking onto someone's job site
-- Find the GC or site supervisor (not the workers)
-- Keep it under 60 seconds — they are busy
+> "Hey, who is the GC on this project? I am with Blue Dingo LLC — we do finish work, paint, flooring, and tile. We are local and we are looking to build a relationship with a solid general. Is he or she around?"
 
-**Job Site Script:**
-> *"Hey — are you the GC on this project? I'm [Name] from Blue Dingo. We do finish work for builders in the Phoenix area: paint, flooring, tile, and interior finish-out. I know you're busy, but do you have 60 seconds? I'd love to leave my card and learn more about the types of projects you typically work on."*
+**To the GC directly:**
+> "Hey, I do not want to hold you up at all. I just wanted to introduce myself. We are a licensed contractor looking to work as a sub on projects like this. What trades are you usually scrambling to fill?"
 
 ---
 
-## Phone / Cold Call Outreach
+## The Office or Phone Approach
 
-> *"Hi, is this [Name]? This is [Your Name] from Blue Dingo — we're a licensed construction company in Phoenix that works with GCs as a subcontractor for finish work: paint, flooring, tile, drywall. I found your company [online / at a job site / through a referral]. Do you currently use subs for that type of work on your projects?"*
-
-**If they say yes:** Ask what projects are coming up. Ask what their biggest pain point has been with subs.
-**If they say no:** Ask who does it. Ask if that ever creates bottlenecks. Stay curious.
+> "Hi, I am looking for [GC Name] or whoever handles subcontractor relationships. My name is [Your Name] with Blue Dingo LLC. We are a licensed contractor in the Phoenix area and we are looking to get on your bid list for upcoming projects. Would that be something I could submit our info for?"
 
 ---
 
-## Builder Objections
+## Objection Handling — Builders
 
-**1. "I have my guys."**
-> *"Understood — do you ever get overloaded on projects where you need overflow? We're really good in that situation and turn around fast."*
+**"We have all our subs covered."**
+> "Completely understand. What trades do you find yourself using the most? I just want to be a backup for when someone is overloaded or unavailable."
 
-**2. "Are you licensed and insured?"**
-> *"Yes — ROC licensed, fully insured. Happy to send the certificates right now."*
+**"We need to see your work first."**
+> "Fair enough — we can do a small job or even a walkthrough of recent completed work. What would give you the most confidence?"
 
-**3. "We've had bad experiences with subs."**
-> *"I hear that constantly — it's the #1 complaint in this industry. The only way I can prove we're different is to do a job. What would it take to give us something small to start?"*
+**"Your price is too high."**
+> "Help me understand what you are comparing it to and I will see what we can do. I would rather match what makes sense for the project than lose a good relationship over a number."
 
-**4. "What's your availability like?"**
-> *"We keep our schedule tight specifically so we can respond quickly when a client needs us. What do you have coming up?"*
+**"We do not use new subs mid-project."**
+> "Totally makes sense. Can I get on your list for the next project? I would love to bid it properly from the start."
 
----
-
-## Building the GC Relationship
-
-Once you get your first job with a GC, the relationship is everything:
-- Show up exactly when you said you would
-- Communicate proactively — don't make them chase you
-- Finish on time or tell them early if there's a problem
-- After the job: ask for feedback and another shot
-
-**One great job leads to the next job, and the next, and eventually you're their preferred sub for everything.**`,
+**"I need someone available tomorrow."**
+> "Let me check and call you right back. We pride ourselves on being responsive — that is actually something we are known for."`,
   },
   {
     id: 's4',
     number: 4,
     title: 'Core Selling Skills — The LISTEN Framework',
-    description: 'The fundamental sales skills that work in any situation',
+    description: 'The fundamentals that separate good salespeople from great ones',
     readTime: '5 min',
-    exerciseIds: ['e8', 'e9', 'e10'],
+    exerciseIds: ['e10', 'e11'],
     content: `## The LISTEN Framework
 
-Every great sales conversation — from a cold walk-in to a follow-up call — follows this pattern. Master this and you can handle any situation.
+Most salespeople talk too much. The best ones listen. Use this framework in every conversation:
+
+**L — Lead with curiosity**
+Ask questions before making any claim. "What does your current maintenance process look like?"
+
+**I — Identify the real pain**
+The first thing they say is rarely the real problem. Ask follow-up questions.
+
+**S — Summarize what you heard**
+"So it sounds like the biggest challenge is turnover timing — is that right?"
+
+**T — Tie it to what we do**
+"That is actually exactly what we specialize in — fast make-ready turnarounds."
+
+**E — Explain the outcome**
+"Our clients typically get units back on the rental market 5–10 days faster."
+
+**N — Next step**
+Always end with a clear next step. Send info, schedule a call, get on the vendor list.
 
 ---
 
-**L — Listen First**
-Don't pitch. Ask a question and *actually listen* to the answer. Most salespeople talk too much. Your first goal is to understand their situation before you explain anything about Blue Dingo.
+## Questions That Open Doors
 
-**I — Identify the Pain**
-*"What's been your biggest frustration with contractors?"*
-*"What matters most to you when you're choosing a sub?"*
-These questions reveal what they actually care about — which is what you should address.
+Memorize these. Use them naturally. They get people talking.
 
-**S — Share Relevantly**
-Once you know their pain, share a specific story or example that addresses it.
-*"One of our PM clients had the same issue — contractors not showing up on time. Here's how we handled that for them..."*
-
-**T — Test the Interest**
-*"Does that sound like the kind of relationship you'd want?"*
-*"If we could prove that to you on one job, would that be worth trying?"*
-Soft-close the idea before going for the commitment.
-
-**E — Earn the Next Step**
-Always end with a clear ask:
-- "Can I get on your approved vendor list?"
-- "Can I send you a sample quote?"
-- "Can we schedule a quick call next week?"
-Never leave without a defined next step.
-
-**N — Nurture the Relationship**
-One visit is rarely enough. Follow up. Stay visible. Remember personal details. Send a quick check-in after a job. **The relationship is the asset.**
+1. "What does your current process look like for maintenance work orders?"
+2. "What is the biggest headache you deal with when it comes to contractors?"
+3. "How long does it typically take you to get a unit turned over right now?"
+4. "What would need to be true for you to add someone to your vendor list?"
+5. "If I could solve [their problem], would that be worth a conversation?"
+6. "What has worked well with contractors in the past — and what has not?"
 
 ---
 
-## The 5 Power Questions
+## Body Language & First Impressions
 
-These questions work in almost any sales conversation. Learn them cold.
+**Dress** — Clean, professional, not overdressed. Collared shirt, clean pants or jeans, clean shoes. You are a contractor — dress like a successful one.
 
-1. *"How do you currently handle your [repair/turnover/finish] work?"*
-2. *"What's been your biggest frustration with the contractors you've used?"*
-3. *"If you could change one thing about your current vendor situation, what would it be?"*
-4. *"What would you need to see to feel confident adding a new vendor?"*
-5. *"How quickly do things typically need to happen when a unit turns over?"*
+**Eye contact** — Make it. Hold it naturally. Nothing signals confidence more.
 
----
+**Smile** — Genuine warmth opens every door. Be someone they are glad showed up.
 
-## Body Language & Presence
+**Handshake** — Firm, brief, professional. Look them in the eye when you do it.
 
-- Stand straight, make direct eye contact, smile genuinely
-- Don't fidget or check your phone
-- Slow down when you speak — confidence sounds calm and measured
-- Mirror their energy level: relaxed if they're relaxed, brief if they're busy
-- A firm handshake (not crushing, not limp) sets the tone immediately
+**Phone** — Away. Not in your hand. Not glancing at it. Give them your full attention.
 
----
-
-## Silence Is a Tool
-
-After asking a question, **be quiet**. Many salespeople are so uncomfortable with silence that they fill it by answering their own question. Don't. Let them think. The person who speaks first after a question is at a disadvantage.`,
+**Tone** — Calm and confident. Not eager or desperate. You are not asking for a favor — you are offering a solution.`,
   },
   {
     id: 's5',
     number: 5,
     title: 'Personal Growth Plan',
     description: 'Weekly review habits, rejection handling, and performance benchmarks',
-    readTime: '4 min',
-    exerciseIds: ['e11', 'e12'],
-    content: `## Your Weekly Review Habit
+    readTime: '5 min',
+    exerciseIds: ['e12', 'e13', 'e14'],
+    content: `## The Weekly Review Habit
 
-Every Sunday or Monday morning, spend 15 minutes asking yourself:
+Every Friday, take 15 minutes and answer these questions:
 
-1. How many new contacts did I make last week?
+1. How many new contacts did I make this week?
 2. How many follow-ups did I complete?
-3. What objections did I get? What worked? What didn't?
-4. What's my #1 focus for this week?
-
-Write the answers down. Salespeople who review their own performance improve faster than those who don't.
-
----
-
-## Rejection Handling
-
-Every "no" is **data, not failure**. Ask yourself:
-- What specifically did they object to?
-- Was it timing, price, existing relationships, or something I said?
-- What would I do differently?
-
-**The truth about rejection in this business:**
-- Most rejections are not personal — it's timing, existing relationships, or budget
-- The goal is to stay visible and top-of-mind. "No today" often becomes "Yes in 3 months"
-- The salespeople who fail are the ones who stop after rejection. The ones who win are the ones who keep going.
-
-After any rejection: Write down what they said → Practice your response → Move on immediately. Don't sit in it.
+3. What objection tripped me up this week?
+4. What worked really well that I should keep doing?
+5. What one thing would have made this week more productive?
 
 ---
 
-## Your Performance Benchmarks
+## Monthly Performance Benchmarks
 
-Track these numbers every week:
-
-| Metric | Minimum | Goal |
-|---|---|---|
-| New contacts | 5 | 10+ |
-| Follow-ups completed | 3 | 8+ |
-| Role plays practiced | 1 | 3+ |
-| Active opportunities | Track all | — |
+| Phase | Target |
+|---|---|
+| Week 1–2 | 15+ new contacts made, vendor applications submitted, getting comfortable with the pitch |
+| Month 1 | 3–5 warm relationships, at least 1 trial job or callback scheduled |
+| Month 3 | 2–3 active accounts sending regular work orders |
+| Month 6 | Consistent pipeline, personal conversion rate tracked, referrals starting to come in |
 
 ---
 
-## Building Your Daily Routine
+## Handling Rejection
 
-**Morning:**
-- Review your route and who you're visiting today
-- Pull up any notes from previous conversations
-- Mentally rehearse your opener
+In sales, "no" almost always means "not right now" or "not enough trust yet." A property manager who turns you down today can become your best account in six months if you stay professional, follow up consistently, and never make them feel pressured. **The fortune is in the follow-up.**
 
-**During visits:**
-- Take quick notes immediately after each conversation (use your phone)
-- Log every contact, what you discussed, and the next step
+- Never take rejection personally. It is never about you — it is about timing and trust.
+- A "no" with a follow-up date is not a no. It is a future yes.
+- Track your ratios. If 1 in 10 becomes a client, you just need to talk to more people.
+- Debrief every rejection. What could you have done differently? What did you learn?
 
-**End of day:**
-- Update the CRM with all contacts and notes
-- Set follow-up reminders for every conversation
-- Ask: "Did I do what I said I'd do today?"
+---
 
-**Weekly:**
-- Run your weekly review (see above)
-- Identify your best and worst conversations — learn from both`,
+## Books & Resources to Study
+
+- **Never Split the Difference** — Chris Voss (negotiation and listening skills)
+- **The Go-Giver** — Bob Burg (relationship-based selling)
+- **Fanatical Prospecting** — Jeb Blount (staying consistent in outreach)
+- **SPIN Selling** — Neil Rackham (asking the right questions)`,
   },
   {
     id: 's6',
     number: 6,
     title: 'Quick Reference Card',
-    description: 'All key scripts and questions in one place',
+    description: 'All key scripts and questions — study before every visit',
     readTime: '2 min',
-    exerciseIds: ['e13', 'e14'],
-    content: `## All Key Scripts — At a Glance
+    exerciseIds: [],
+    content: `## Our Services at a Glance
 
-This section is a companion to the Quick Reference screen. Use it to study; use the Quick Ref screen when you're about to walk in.
-
----
-
-## PM Scripts
-
-**Front Desk:**
-*"Hi, I'm [Name] from Blue Dingo. We do make-ready and repair services for rental properties. Could I leave some info for the person who handles maintenance vendors?"*
-
-**Decision Maker:**
-*"We specialize in making PMs' lives easier by being reliable and responsive. How are you currently handling your turnovers and repairs?"*
-
----
-
-## Builder Scripts
-
-**Job Site:**
-*"Hey — are you the GC? I'm [Name] from Blue Dingo. We do finish work for builders. Do you have 60 seconds?"*
-
-**Phone:**
-*"Hi [Name], this is [Your Name] from Blue Dingo — licensed contractor in Phoenix. We sub for GCs on paint, flooring, and tile. Do you currently use subs for that work?"*
-
----
-
-## Quick Objection Responses
-
-| Objection | Response |
+| Trade | What We Do |
 |---|---|
-| "We have contractors." | "Would you try us on one job to see how we compare?" |
-| "Not interested." | "Totally understood — can I leave my card for when things change?" |
-| "Send an email." | "Of course — and what types of work do you outsource most?" |
-| "We do it in-house." | "Do you ever hit capacity? We're a great overflow option." |
-| "How's pricing?" | "Competitive and transparent — want to see a sample quote?" |
+| Repairs | Drywall, doors, windows, fixtures, general handyman |
+| Painting | Interior & exterior, units, common areas |
+| Flooring | Tile, LVP, carpet, subfloor repair |
+| Bathrooms | Full remodels, fixture swaps, tile, vanities |
+| Make-Readies | Full unit turnover, cleaning coordination, repairs |
+| Construction | Permitted remodels, additions, structural work |
 
 ---
 
-## The 5 Power Questions (Memorize These)
+## PM Opening Line (Front Desk)
 
-1. How do you handle [category] work currently?
-2. What's your biggest frustration with contractors?
-3. What would you need to see from us?
-4. How quickly do you typically need things done?
-5. Who else should I talk to here?`,
+> "Hi, I am [Name] with Blue Dingo LLC. We are a licensed contractor in the Valley. Is there someone who handles your vendor relationships I could say hello to for just two minutes?"
+
+---
+
+## Builder Opening Line (Job Site or Office)
+
+> "Hey, I am [Name] with Blue Dingo. We do finish work, paint, flooring, and tile. We are looking to build a relationship with a solid GC. Are you the right person to talk to about getting on your bid list?"
+
+---
+
+## The Five Questions to Always Have Ready
+
+1. "What does your current process look like for handling work orders?"
+2. "What trades do you find hardest to fill right now?"
+3. "How long does it typically take you to turn a unit?"
+4. "What would I need to do to earn a spot on your vendor list?"
+5. "Who should I follow up with — is that you, or someone else?"
+
+---
+
+## Your Daily Reminder
+
+You are representing a company that does quality work, shows up on time, and treats people with respect. Walk in with your head up. You are not asking for charity — you are offering a service that makes their life easier. Believe that, and they will believe it too.`,
   },
 ];
 
 export const EXERCISES: TrainingExercise[] = [
-  { id: 'e1', sectionId: 's1', number: 1, question: 'In your own words, describe what Blue Dingo does and who we serve. Write it as if someone just asked "So what does your company do?" Keep it under 60 seconds to say out loud.' },
-  { id: 'e2', sectionId: 's1', number: 2, question: 'Write a one-sentence belief statement that you personally believe about delivering quality service and building relationships in this industry.' },
-  { id: 'e3', sectionId: 's2', number: 3, question: 'Write your version of the PM Front Desk script. Make it sound like you — natural and conversational, not robotic.' },
-  { id: 'e4', sectionId: 's2', number: 4, question: 'Write your version of the PM Decision Maker opening. Include at least one open-ended question at the end to start a conversation.' },
-  { id: 'e5', sectionId: 's2', number: 5, question: 'Pick the PM objection you find hardest to handle and write your full response to it, in your own words.' },
-  { id: 'e6', sectionId: 's3', number: 6, question: 'Write your version of the Builder Job Site script. Keep it under 60 words — they\'re busy.' },
-  { id: 'e7', sectionId: 's3', number: 7, question: 'Write a cold call opening for a builder you found online. Include how you found them and end with a qualifying question.' },
-  { id: 'e8', sectionId: 's4', number: 8, question: 'Describe a real or imagined conversation where you used one of the LISTEN steps. What did you say? What happened? What would you do the same or differently?' },
-  { id: 'e9', sectionId: 's4', number: 9, question: 'Write 3 original "pain finding" questions that you could use in a Property Management conversation — different from the ones in the workbook.' },
-  { id: 'e10', sectionId: 's4', number: 10, question: 'What is your personal version of the "earn the next step" close? Write out exactly what you would say at the end of a first PM meeting.' },
-  { id: 'e11', sectionId: 's5', number: 11, question: 'Describe your personal weekly review routine. What specific things will you track? When will you do it? What will you do with what you learn?' },
-  { id: 'e12', sectionId: 's5', number: 12, question: 'Write about a time you got rejected or turned down (real or imagined). How did you handle it in the moment? How would you handle it better now?' },
-  { id: 'e13', sectionId: 's6', number: 13, question: 'From memory only (don\'t look back), write as many key scripts from the Quick Reference as you can. Then check how you did.' },
-  { id: 'e14', sectionId: 's6', number: 14, question: 'Describe your ideal sales day from start to finish — what would you do, in what order, to maximize new contacts, follow-ups, and relationship building?' },
+  { id: 'e1', sectionId: 's1', number: 1, question: 'In your own words, how would you describe Blue Dingo to someone who has never heard of us?' },
+  { id: 'e2', sectionId: 's1', number: 2, question: 'What are the three things you think a property manager cares about most when hiring a contractor? Why?' },
+  { id: 'e3', sectionId: 's1', number: 3, question: 'Write down one reason you personally believe Blue Dingo is worth calling. Make it genuine.' },
+  { id: 'e4', sectionId: 's2', number: 4, question: "A property manager tells you: 'We have been with our contractor for 8 years and we are happy.' Write your response below." },
+  { id: 'e5', sectionId: 's2', number: 5, question: 'You walk into an office and the receptionist says the manager is in a meeting and cannot be disturbed. What do you do and say?' },
+  { id: 'e6', sectionId: 's2', number: 6, question: 'What is the ONE pain point you think most property managers in Phoenix have right now? How would you open a conversation around it?' },
+  { id: 'e7', sectionId: 's3', number: 7, question: "A builder says: 'I tried a new sub once and they bailed halfway through the job. I do not take chances anymore.' How do you respond?" },
+  { id: 'e8', sectionId: 's3', number: 8, question: 'You are at a job site and the GC has 30 seconds before he has to take a call. What is your pitch in 30 seconds?' },
+  { id: 'e9', sectionId: 's3', number: 9, question: 'What are TWO specific things you could do this week to find and contact a builder or GC who might need our services?' },
+  { id: 'e10', sectionId: 's4', number: 10, question: 'Practice the LISTEN framework with a friend. Have them play a skeptical property manager. Write down how the conversation went and what you would do differently.' },
+  { id: 'e11', sectionId: 's4', number: 11, question: 'What is your natural sales strength? What is the area you need to grow the most in? Be honest.' },
+  { id: 'e12', sectionId: 's5', number: 12, question: 'Set a personal goal for your first 30 days. How many contacts will you make? How many follow-ups? What does success look like to you?' },
+  { id: 'e13', sectionId: 's5', number: 13, question: 'Think about a time you were sold something and it felt good. What did the salesperson do that made it feel that way? How can you bring that into what you do?' },
+  { id: 'e14', sectionId: 's5', number: 14, question: 'What scares you most about walking into an office cold? Write it down, then write one way you can face that fear this week.' },
 ];
 
 export const QUICK_REF_CARDS: QuickRefCard[] = [
@@ -402,120 +401,130 @@ export const QUICK_REF_CARDS: QuickRefCard[] = [
     id: 'pm-front-desk',
     title: 'PM Front Desk Opener',
     tag: 'PM',
-    content: `"Hi! I'm [Name] from Blue Dingo.
+    content: `"Hi, my name is [Your Name] with Blue Dingo LLC. We are a licensed contractor here in the Valley and I just wanted to stop in and introduce myself. Is there a maintenance coordinator or someone who manages your vendor relationships I could say hello to for just a couple minutes?"
 
-We're a licensed contractor specializing in make-ready and repair services for rental properties.
-
-Could I leave some info and possibly schedule 10 minutes with the person who handles maintenance vendors?"`,
+PRO TIP: Ask for two minutes. People say yes to two minutes. If they like you, it turns into ten.`,
   },
   {
     id: 'pm-decision-maker',
     title: 'PM Decision Maker Opener',
     tag: 'PM',
-    content: `"I appreciate the time.
+    content: `"Thanks for taking a minute. I am not here to do a whole pitch — I just wanted to introduce myself and let you know we are available.
 
-We work with property managers on unit turnovers and repairs — paint, flooring, drywall, general maintenance.
+We do repairs, paint, flooring, make-readies, bathrooms — pretty much anything that comes up on a property. We are local, licensed, and insured.
 
-Most PMs we talk to struggle with contractors who are unreliable. We've built our whole business around being the exception.
+Are you happy with all your current vendors, or are there any trades where you find yourself scrambling to find someone?"
 
-How are you currently handling your turnover work?"`,
+Then LISTEN. Whatever they mention — that is your foot in the door.`,
+  },
+  {
+    id: 'pm-vendor-ask',
+    title: 'PM Vendor List Ask',
+    tag: 'PM',
+    content: `"I would love to earn a spot on your preferred vendor list. Even if you do not need us today, I just want to be the person you call when something comes up.
+
+Can I leave you our info? And is there a vendor packet or onboarding form I should fill out to get on your list?"`,
   },
   {
     id: 'builder-job-site',
     title: 'Builder Job Site Opener',
     tag: 'Builder',
-    content: `"Hey — are you the GC on this project?
+    content: `"Hey, who is the GC on this project? I am with Blue Dingo LLC — we do finish work, paint, flooring, and tile. We are local and we are looking to build a relationship with a solid general. Is he or she around?"
 
-I'm [Name] from Blue Dingo. We do finish work for builders: paint, flooring, tile.
-
-Do you have 60 seconds? I just want to leave my card and learn more about what you work on."`,
+To the GC directly: "Hey, I do not want to hold you up at all. I just wanted to introduce myself. We are a licensed contractor looking to work as a sub on projects like this. What trades are you usually scrambling to fill?"`,
   },
   {
     id: 'builder-phone',
-    title: 'Builder Phone Opener',
+    title: 'Builder Phone / Office Opener',
     tag: 'Builder',
-    content: `"Hi [Name], this is [Your Name] from Blue Dingo — licensed contractor in Phoenix.
+    content: `"Hi, I am looking for [GC Name] or whoever handles subcontractor relationships. My name is [Your Name] with Blue Dingo LLC.
 
-We sub for GCs on finish work: paint, flooring, tile.
-
-Quick question — do you currently use subs for that type of work on your projects?"`,
+We are a licensed contractor in the Phoenix area and we are looking to get on your bid list for upcoming projects. Would that be something I could submit our info for?"`,
   },
   {
     id: 'pm-objections',
-    title: '5 PM Objections',
+    title: 'PM Objections',
     tag: 'PM',
-    content: `1. "We have contractors."
-→ "Would you try us on one turnover to compare?"
+    content: `"We already have contractors."
+→ "We just want to be the backup when someone is unavailable. Mind if I leave our card?"
 
-2. "Not interested."
-→ "Can I leave my card for when things change?"
+"We do not take walk-ins."
+→ "Who is the best person to email or reach out to officially?"
 
-3. "Send an email."
-→ "Of course — what types of work do you outsource most?"
+"We need references."
+→ "Absolutely. What type of job are you looking for help with right now?"
 
-4. "We do it in-house."
-→ "Do you ever hit capacity? We're a great overflow option."
+"We use a preferred vendor portal."
+→ "Can you point me to where I sign up? I will get our insurance submitted today."
 
-5. "How's pricing?"
-→ "Competitive, transparent, written quotes upfront."`,
+"We do not have any openings."
+→ "Mind if I check back in a month or two?"`,
   },
   {
     id: 'builder-objections',
-    title: '5 Builder Objections',
+    title: 'Builder Objections',
     tag: 'Builder',
-    content: `1. "I have my guys."
-→ "Do you ever get overloaded? We're great overflow."
+    content: `"We have all our subs covered."
+→ "I just want to be backup for when someone is overloaded or unavailable."
 
-2. "Licensed/insured?"
-→ "Yes — ROC licensed, fully insured. Sending certs now."
+"We need to see your work first."
+→ "Fair enough. What would give you the most confidence?"
 
-3. "Had bad experiences."
-→ "The only way to prove we're different is to do a job."
+"Your price is too high."
+→ "Help me understand what you are comparing it to."
 
-4. "Don't need anyone."
-→ "Can I stay on your list for when things get busy?"
+"We do not use new subs mid-project."
+→ "Totally makes sense. Can I get on your list for the next project?"
 
-5. "How's availability?"
-→ "We stay tight so we can respond fast. What's coming up?"`,
-  },
-  {
-    id: 'power-questions',
-    title: '5 Power Questions',
-    tag: 'All',
-    content: `1. "How do you handle [turnover/repair/finish] work currently?"
-
-2. "What's been your biggest frustration with contractors?"
-
-3. "What would you need to see to feel comfortable adding a new vendor?"
-
-4. "How quickly do things typically need to happen?"
-
-5. "If you could change one thing about your current contractor situation, what would it be?"`,
+"I need someone available tomorrow."
+→ "Let me check and call you right back. We pride ourselves on being responsive."`,
   },
   {
     id: 'listen-framework',
     title: 'The LISTEN Framework',
     tag: 'All',
-    content: `L — Listen: Ask first, talk second
+    content: `L — Lead with curiosity
+Ask questions before making any claim.
 
-I — Identify: Find their real pain point
+I — Identify the real pain
+The first thing they say is rarely the real problem.
 
-S — Share: Tell a story that addresses it
+S — Summarize what you heard
+"So it sounds like the biggest challenge is turnover timing — is that right?"
 
-T — Test: "Does that sound like what you'd want?"
+T — Tie it to what we do
+"That is exactly what we specialize in."
 
-E — Earn: Get a clear, specific next step
+E — Explain the outcome
+"Our clients typically get units back on the market 5–10 days faster."
 
-N — Nurture: Follow up, stay visible, build trust`,
+N — Next step
+Always end with a clear, specific next step.`,
+  },
+  {
+    id: 'five-questions',
+    title: 'The 5 Questions',
+    tag: 'All',
+    content: `1. "What does your current process look like for handling work orders?"
+
+2. "What trades do you find hardest to fill right now?"
+
+3. "How long does it typically take you to turn a unit?"
+
+4. "What would I need to do to earn a spot on your vendor list?"
+
+5. "Who should I follow up with — is that you, or someone else?"`,
   },
 ];
 
 export const WALK_IN_CHECKLIST = [
-  'I know their company name',
-  'I know roughly how many properties they manage',
-  'I have a card or one-pager to leave',
-  'I know what objection I might get and how I\'ll respond',
+  'I know the company name and roughly how many units they manage',
+  'I checked their Google reviews for contractor complaints',
+  'I have a business card or one-pager to leave',
+  'I know my front desk opener cold',
+  'I have prepared for at least one objection',
   'I have a clear ask ready (vendor list, follow-up, next step)',
+  'My phone is on silent and put away',
 ];
 
 export const SCENARIOS = [
@@ -534,16 +543,20 @@ export const DIFFICULTIES = [
 ];
 
 export const OBJECTIONS = [
-  'We already have contractors',
-  'We\'re not interested right now',
+  "We have been with our contractor for 8 years and we are happy",
+  'We already have contractors we work with',
+  'We are not interested right now',
   'Send me an email',
   'We do it in-house',
   'How are your prices?',
-  'We\'ve had bad experiences with subs',
+  'We need references',
+  'We use a preferred vendor portal',
+  "I tried a new sub once and they bailed halfway through the job",
+  "We need to see your work first",
   'Are you licensed and insured?',
-  'We don\'t have budget right now',
-  'I\'d need to talk to my boss',
-  'We already have a preferred vendor for that',
+  'We do not have budget right now',
+  'I need someone available tomorrow',
+  'We do not take walk-ins',
 ];
 
 export const DAILY_TIPS = [
@@ -553,28 +566,28 @@ export const DAILY_TIPS = [
   'Follow up is where most salespeople fail. Be the one who always follows through.',
   'People buy from people they trust. Trust is built through consistency, not charisma.',
   'Write down your best conversations and your worst ones. You grow faster by reviewing both.',
-  'The goal of a first visit is never to close — it\'s to earn a reason for a second conversation.',
+  'The goal of a first visit is never to close — it is to earn a reason for a second conversation.',
   'In property management sales, relationships are the product. The services come second.',
   'A slow, confident voice beats a fast, nervous one every time.',
-  'If you don\'t ask for the next step, you\'re leaving the relationship to chance.',
+  'If you do not ask for the next step, you are leaving the relationship to chance.',
   'Practice your opener so many times that it feels completely natural.',
-  'The minute they say something about their frustration, stop talking and listen.',
+  'The minute they mention a frustration, stop talking and listen.',
   'Showing up consistently for 6 months beats the perfect sales pitch every time.',
   'You win GC relationships by being the sub who makes their life easier, not harder.',
   'Keep a running list of objections you hear. The ones that stump you are your homework.',
-  'After every conversation, ask yourself: "Did I earn the next step?"',
+  'After every conversation, ask yourself: Did I earn the next step?',
   'Cold call reluctance is normal. The only cure is making more calls.',
-  'Your goal for every visit: learn something you didn\'t know before you walked in.',
+  'Your goal for every visit: learn something you did not know before you walked in.',
   'Body language speaks before you do. Walk in like you belong there.',
   'The best referrals come from existing clients who love working with you. Serve them first.',
-  'A handwritten note after a first meeting gets remembered. Most salespeople don\'t bother.',
-  'If they ask about price early, they\'re interested. That\'s a buying signal, not a rejection.',
-  'Know your ROC license number and insurance carrier by heart. Don\'t fumble it.',
+  'A handwritten note after a first meeting gets remembered. Most salespeople do not bother.',
+  'If they ask about price early, they are interested. That is a buying signal, not a rejection.',
+  'Know your ROC license number and insurance carrier by heart. Do not fumble it.',
   'The LISTEN framework works because it makes the prospect feel heard. Everyone wants to feel heard.',
-  '"I\'ll think about it" almost always means "you haven\'t convinced me yet." Ask what\'s missing.',
-  'Check in on existing contacts even when you don\'t need anything. Relationships aren\'t transactions.',
+  'I will think about it almost always means you have not convinced me yet. Ask what is missing.',
+  'Check in on existing contacts even when you do not need anything. Relationships are not transactions.',
   'Your first job with any client is your interview. Make it count.',
   'Never talk badly about competitors. It makes you look small.',
-  'A confident, specific close beats a vague, hopeful one: "Can I get on your vendor list?" not "So... would you ever use us?"',
-  'The streak matters. Even on days you don\'t feel like it — make one call, visit one contact.',
+  'A confident, specific close beats a vague one: "Can I get on your vendor list?" not "Would you ever use us?"',
+  'The streak matters. Even on days you do not feel like it — make one call, visit one contact.',
 ];
