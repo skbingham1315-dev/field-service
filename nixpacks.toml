@@ -5,11 +5,7 @@ nixPkgs = ["nodejs_20"]
 cmds = ["npm ci --legacy-peer-deps"]
 
 [phases.build]
-cmds = [
-  "npm run db:generate",
-  "cd apps/api && npx tsc -p tsconfig.build.json",
-  "cd apps/web && npx vite build"
-]
+cmds = ["npm run build"]
 
 [start]
 cmd = "cd apps/api && node -r tsconfig-paths/register dist/src/index.js"
