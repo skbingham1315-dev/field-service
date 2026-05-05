@@ -216,10 +216,21 @@ export function TrainingPage() {
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 async function openFileUrl(fileUrl: string) {
-  const s3Match = fileUrl.match(/s3\.amazonaws\.com\/(.+)$/);
-  if (s3Match) {
+  if (fileUrl.includes('/uploads/training-file/')) {
+    // DB-stored file — fetch as authenticated blob then open
     try {
-      const { data } = await api.get(`/uploads/signed-url/${s3Match[1]}`);
+      const path = fileUrl.replace(/^.*\/api\/v1/, '');
+      const { data: blob } = await api.get(path, { responseType: 'blob' });
+      const url = URL.createObjectURL(blob);
+      window.open(url, '_blank');
+      setTimeout(() => URL.revokeObjectURL(url), 30000);
+    } catch {
+      /* ignore */
+    }
+  } else if (fileUrl.includes('s3.amazonaws.com')) {
+    try {
+      const key = fileUrl.match(/s3\.amazonaws\.com\/(.+)$/)?.[1];
+      const { data } = await api.get(`/uploads/signed-url/${key}`);
       window.open(data.data.url, '_blank');
     } catch {
       window.open(fileUrl, '_blank');

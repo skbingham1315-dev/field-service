@@ -134,6 +134,7 @@ model Tenant {
   properties       Property[]
   pmTenants        PMTenant[]
   trainingResources    TrainingResource[]
+  trainingFiles        TrainingFile[]
   trainingProgress     TrainingUserProgress[]
   rolePlaySessions     RolePlaySession[]
   exerciseAnswers      TrainingExerciseAnswer[]
@@ -1345,6 +1346,21 @@ model TrainingResource {
 
   @@index([tenantId, audience])
   @@map("training_resources")
+}
+
+model TrainingFile {
+  id        String   @id @default(cuid())
+  tenantId  String
+  filename  String
+  mimeType  String
+  size      Int
+  data      Bytes
+  createdAt DateTime @default(now())
+
+  tenant    Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId])
+  @@map("training_files")
 }
 
 model TrainingUserProgress {

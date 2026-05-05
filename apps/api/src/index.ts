@@ -13,7 +13,7 @@ async function main() {
   // Fix any failed migration record so prisma migrate deploy can proceed
   try {
     await prisma.$executeRawUnsafe(
-      `UPDATE "_prisma_migrations" SET finished_at = NOW(), applied_steps_count = 1, logs = NULL WHERE migration_name = '20260504000001_training_target_users' AND finished_at IS NULL`
+      `UPDATE "_prisma_migrations" SET finished_at = NOW(), applied_steps_count = 1, logs = NULL WHERE migration_name IN ('20260504000001_training_target_users','20260504000002_training_files') AND finished_at IS NULL`
     );
     logger.info('Migration record patched');
   } catch (e) {

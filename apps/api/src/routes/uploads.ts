@@ -89,31 +89,41 @@ uploadsRouter.post('/confirm', async (req, res) => {
 });
 
 // POST /api/v1/uploads/training-file
-// Proxies training resource file uploads through the API to S3 (avoids browser CORS)
+// Stores training resource files in Postgres (no S3 required)
 uploadsRouter.post('/training-file', upload.single('file'), async (req, res) => {
   if (!req.file) throw new AppError('No file provided', 400, 'NO_FILE');
+  if (req.file.size > 50 * 1024 * 1024) throw new AppError('File too large (max 50 MB)', 400, 'FILE_TOO_LARGE');
 
-  if (!BUCKET || !process.env.AWS_ACCESS_KEY_ID || process.env.AWS_ACCESS_KEY_ID === 'placeholder') {
-    throw new AppError('File storage (S3) is not configured on this server', 503, 'S3_NOT_CONFIGURED');
-  }
-
-  const safeFilename = req.file.originalname.replace(/[^a-zA-Z0-9._-]/g, '_');
-  const key = `tenants/${req.user!.tenantId}/training/${uuidv4()}-${safeFilename}`;
-
-  await s3.send(new PutObjectCommand({
-    Bucket: BUCKET,
-    Key: key,
-    Body: req.file.buffer,
-    ContentType: req.file.mimetype,
-  }));
+  const record = await prisma.trainingFile.create({
+    data: {
+      tenantId: req.user!.tenantId,
+      filename: req.file.originalname,
+      mimeType: req.file.mimetype || 'application/octet-stream',
+      size: req.file.size,
+      data: req.file.buffer,
+    },
+  });
 
   res.json({
     success: true,
     data: {
-      key,
-      publicUrl: `https://${BUCKET}.s3.amazonaws.com/${key}`,
+      id: record.id,
+      publicUrl: `/api/v1/uploads/training-file/${record.id}`,
     },
   } satisfies ApiResponse);
+});
+
+// GET /api/v1/uploads/training-file/:id
+// Serves a stored training file (auth required)
+uploadsRouter.get('/training-file/:id', async (req, res) => {
+  const record = await prisma.trainingFile.findUnique({ where: { id: req.params.id } });
+  if (!record || record.tenantId !== req.user!.tenantId) {
+    throw new AppError('Not found', 404, 'NOT_FOUND');
+  }
+  res.setHeader('Content-Type', record.mimeType);
+  res.setHeader('Content-Disposition', `inline; filename="${encodeURIComponent(record.filename)}"`);
+  res.setHeader('Content-Length', record.size.toString());
+  res.send(record.data);
 });
 
 // GET /api/v1/uploads/signed-url/:key
