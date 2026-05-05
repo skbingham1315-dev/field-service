@@ -1,5 +1,5 @@
 [phases.setup]
-nixPkgs = ["nodejs_20", "postgresql"]
+nixPkgs = ["nodejs_20"]
 
 [phases.install]
 cmds = ["npm ci --legacy-peer-deps"]
@@ -12,4 +12,4 @@ cmds = [
 ]
 
 [start]
-cmd = "psql $DATABASE_URL -c \"UPDATE \\\"_prisma_migrations\\\" SET finished_at = NOW(), applied_steps_count = 1, logs = NULL WHERE migration_name = '20260504000001_training_target_users' AND finished_at IS NULL;\" ; cd apps/api && npx prisma migrate deploy --schema ../../packages/db/prisma/schema.prisma && node -r tsconfig-paths/register dist/src/index.js"
+cmd = "cd apps/api && node scripts/fix-migration.js; npx prisma migrate deploy --schema ../../packages/db/prisma/schema.prisma && node -r tsconfig-paths/register dist/src/index.js"
