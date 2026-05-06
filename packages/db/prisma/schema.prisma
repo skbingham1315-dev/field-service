@@ -166,6 +166,7 @@ model User {
   isAvailable       Boolean    @default(false)
   serviceRadius     Float?
   payRate           Float?
+  trainingBonusRate Float      @default(0)   // earned via training milestones, max $1.00
   payType           String?    @default("hourly")
   employmentType    String?    // w2 | contractor_1099 | owner_partner
   territory         String?
@@ -1364,15 +1365,16 @@ model TrainingFile {
 }
 
 model TrainingUserProgress {
-  id             String    @id @default(cuid())
-  tenantId       String
-  userId         String    @unique
-  sectionsRead   String[]  @default([])
-  exercisesDone  String[]  @default([])
-  rolePlayCount  Int       @default(0)
-  currentStreak  Int       @default(0)
-  lastActivityAt DateTime?
-  updatedAt      DateTime  @updatedAt
+  id                String    @id @default(cuid())
+  tenantId          String
+  userId            String    @unique
+  sectionsRead      String[]  @default([])
+  exercisesDone     String[]  @default([])
+  rolePlayCount     Int       @default(0)
+  currentStreak     Int       @default(0)
+  milestonesEarned  Int       @default(0)
+  lastActivityAt    DateTime?
+  updatedAt         DateTime  @updatedAt
 
   tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   user   User   @relation(fields: [userId], references: [id])

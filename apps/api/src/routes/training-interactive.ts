@@ -10,16 +10,71 @@ trainingInteractiveRouter.use(authenticate);
 const ai = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 const MODEL = 'claude-sonnet-4-6';
 
+// ── Milestone definitions ──────────────────────────────────────────────────────
+// 10 milestones × $0.10 = $1.00 max raise. Each milestone ~30 min of training.
+function calcMilestonesEarned(sectionsRead: number, reviewedCount: number, rolePlayCount: number): number {
+  const checks = [
+    sectionsRead >= 1,          // M1:  Read first section
+    reviewedCount >= 1,         // M2:  First exercise reviewed
+    sectionsRead >= 3,          // M3:  3 sections read
+    rolePlayCount >= 1,         // M4:  First role play
+    reviewedCount >= 5,         // M5:  5 exercises reviewed
+    sectionsRead >= 6,          // M6:  All 6 sections read
+    rolePlayCount >= 3,         // M7:  3 role plays
+    reviewedCount >= 10,        // M8:  10 exercises reviewed
+    rolePlayCount >= 5,         // M9:  5 role plays
+    reviewedCount >= 14 && rolePlayCount >= 10, // M10: Full completion
+  ];
+  return checks.filter(Boolean).length;
+}
+
+async function checkAndAwardMilestones(userId: string): Promise<number> {
+  const [progress, reviewedCount] = await Promise.all([
+    prisma.trainingUserProgress.findUnique({ where: { userId } }),
+    prisma.trainingExerciseAnswer.count({ where: { userId, status: 'reviewed' } }),
+  ]);
+  if (!progress) return 0;
+
+  const shouldHave = calcMilestonesEarned(
+    progress.sectionsRead.length,
+    reviewedCount,
+    progress.rolePlayCount,
+  );
+  const current = progress.milestonesEarned;
+  if (shouldHave <= current) return current;
+
+  const gained = shouldHave - current;
+  const bonusIncrease = gained * 0.10;
+
+  await prisma.trainingUserProgress.update({
+    where: { userId },
+    data: { milestonesEarned: shouldHave },
+  });
+  await prisma.user.update({
+    where: { id: userId },
+    data: { trainingBonusRate: { increment: bonusIncrease } },
+  });
+  // Clamp to $1.00 max
+  await prisma.$executeRawUnsafe(
+    `UPDATE "users" SET "trainingBonusRate" = LEAST("trainingBonusRate", 1.0) WHERE id = $1`,
+    userId,
+  );
+  return shouldHave;
+}
+
 // ── Progress ──────────────────────────────────────────────────────────────────
 
 trainingInteractiveRouter.get('/progress', async (req, res) => {
   const { sub: userId, tenantId } = req.user!;
-  const progress = await prisma.trainingUserProgress.upsert({
-    where: { userId },
-    create: { userId, tenantId },
-    update: {},
-  });
-  res.json({ success: true, data: progress } satisfies ApiResponse);
+  const [progress, user] = await Promise.all([
+    prisma.trainingUserProgress.upsert({
+      where: { userId },
+      create: { userId, tenantId },
+      update: {},
+    }),
+    prisma.user.findUnique({ where: { id: userId }, select: { trainingBonusRate: true } }),
+  ]);
+  res.json({ success: true, data: { ...progress, trainingBonusRate: user?.trainingBonusRate ?? 0 } } satisfies ApiResponse);
 });
 
 trainingInteractiveRouter.post('/progress/section/:sectionId', async (req, res) => {
@@ -52,6 +107,7 @@ trainingInteractiveRouter.post('/progress/section/:sectionId', async (req, res) 
     },
   });
 
+  await checkAndAwardMilestones(userId);
   res.json({ success: true, data: updated } satisfies ApiResponse);
 });
 
@@ -111,6 +167,7 @@ trainingInteractiveRouter.post('/exercise-answers/:exerciseId/feedback', async (
     data: { aiFeedback: feedback, status: 'reviewed' },
   });
 
+  await checkAndAwardMilestones(userId);
   res.json({ success: true, data: updated } satisfies ApiResponse);
 });
 
@@ -206,6 +263,7 @@ Be warm, encouraging, and specific. Reference the actual conversation content.`,
     update: { rolePlayCount: { increment: 1 }, lastActivityAt: new Date() },
   });
 
+  await checkAndAwardMilestones(userId);
   res.json({ success: true, data: session } satisfies ApiResponse);
 });
 
@@ -255,7 +313,7 @@ trainingInteractiveRouter.get('/admin/team-progress', async (req, res) => {
   const [progress, sessions, answers] = await Promise.all([
     prisma.trainingUserProgress.findMany({
       where: { tenantId },
-      include: { user: { select: { id: true, firstName: true, lastName: true, role: true } } },
+      include: { user: { select: { id: true, firstName: true, lastName: true, role: true, payRate: true, trainingBonusRate: true } } },
     }),
     prisma.rolePlaySession.groupBy({
       by: ['userId'],
@@ -276,6 +334,8 @@ trainingInteractiveRouter.get('/admin/team-progress', async (req, res) => {
     rolePlayCount: sessions.find(s => s.userId === p.user.id)?._count.id ?? 0,
     exercisesReviewed: answers.find(a => a.userId === p.user.id)?._count.id ?? 0,
     currentStreak: p.currentStreak,
+    milestonesEarned: p.milestonesEarned,
+    trainingBonusRate: p.user.trainingBonusRate,
     lastActivityAt: p.lastActivityAt,
   }));
 

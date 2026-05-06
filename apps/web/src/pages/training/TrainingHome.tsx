@@ -1,8 +1,21 @@
-import { BookOpen, Zap, MessageCircle, PenLine, Star, Flame, CheckCircle2, TrendingUp } from 'lucide-react';
+import { BookOpen, Zap, MessageCircle, PenLine, Star, Flame, CheckCircle2, TrendingUp, DollarSign } from 'lucide-react';
 import { SECTIONS, EXERCISES, DAILY_TIPS } from './trainingContent';
 
+const MILESTONE_LABELS = [
+  'Read your first section',
+  'Get AI feedback on an exercise',
+  'Read 3 sections',
+  'Complete a role play',
+  '5 exercises reviewed',
+  'Read all 6 sections',
+  '3 role plays done',
+  '10 exercises reviewed',
+  '5 role plays done',
+  'All 14 exercises + 10 role plays',
+];
+
 interface Props {
-  progress: { sectionsRead: string[]; exercisesDone: string[]; rolePlayCount: number; currentStreak: number } | null;
+  progress: { sectionsRead: string[]; exercisesDone: string[]; rolePlayCount: number; currentStreak: number; milestonesEarned?: number; trainingBonusRate?: number } | null;
   onNavigate: (tab: string) => void;
 }
 
@@ -13,6 +26,9 @@ export function TrainingHome({ progress, onNavigate }: Props) {
   const exercisesDone = progress?.exercisesDone ?? [];
   const rolePlayCount = progress?.rolePlayCount ?? 0;
   const streak = progress?.currentStreak ?? 0;
+  const milestonesEarned = progress?.milestonesEarned ?? 0;
+  const trainingBonusRate = progress?.trainingBonusRate ?? 0;
+  const nextMilestone = MILESTONE_LABELS[milestonesEarned] ?? null;
 
   return (
     <div className="space-y-5 max-w-2xl mx-auto">
@@ -47,6 +63,42 @@ export function TrainingHome({ progress, onNavigate }: Props) {
               )}
             </div>
           ))}
+        </div>
+      </div>
+
+      {/* Pay raise milestones */}
+      <div className="bg-white rounded-2xl border border-gray-200 shadow-sm p-4">
+        <div className="flex items-center justify-between mb-3">
+          <div className="flex items-center gap-2">
+            <DollarSign className="h-4 w-4 text-green-600" />
+            <h3 className="font-bold text-sm text-gray-900">Training Pay Raise</h3>
+          </div>
+          <div className="text-right">
+            <p className="text-lg font-bold text-green-600">+${trainingBonusRate.toFixed(2)}/hr</p>
+            <p className="text-xs text-gray-400">of $1.00 max</p>
+          </div>
+        </div>
+
+        {/* Milestone dots */}
+        <div className="flex gap-1.5 mb-3">
+          {MILESTONE_LABELS.map((_, i) => (
+            <div key={i} className={`flex-1 h-2.5 rounded-full transition-all ${
+              i < milestonesEarned ? 'bg-green-500' : 'bg-gray-100'
+            }`} />
+          ))}
+        </div>
+
+        <div className="flex items-center justify-between">
+          <p className="text-xs text-gray-500">
+            {milestonesEarned}/10 milestones — each worth +$0.10/hr
+          </p>
+          {milestonesEarned === 10 ? (
+            <span className="text-xs font-bold text-green-600">Max reached! 🎉</span>
+          ) : nextMilestone ? (
+            <p className="text-xs text-violet-600 font-medium text-right max-w-[180px]">
+              Next: {nextMilestone}
+            </p>
+          ) : null}
         </div>
       </div>
 

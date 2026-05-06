@@ -41,6 +41,9 @@ async function main() {
         END IF;
       END $$
     `);
+    // Training milestone columns
+    await prisma.$executeRawUnsafe(`ALTER TABLE "users" ADD COLUMN IF NOT EXISTS "trainingBonusRate" DOUBLE PRECISION NOT NULL DEFAULT 0`);
+    await prisma.$executeRawUnsafe(`ALTER TABLE "training_user_progress" ADD COLUMN IF NOT EXISTS "milestonesEarned" INTEGER NOT NULL DEFAULT 0`);
     logger.info('Migration record patched');
   } catch (e) {
     logger.warn('Migration patch skipped (may already be clean)');

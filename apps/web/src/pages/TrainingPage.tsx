@@ -107,12 +107,14 @@ export function TrainingPage() {
   });
 
   const { data: teamProgress = [] } = useQuery<Array<{
-    user: { id: string; firstName: string; lastName: string; role: string };
+    user: { id: string; firstName: string; lastName: string; role: string; payRate?: number; trainingBonusRate: number };
     sectionsRead: number;
     exercisesDone: number;
     rolePlayCount: number;
     exercisesReviewed: number;
     currentStreak: number;
+    milestonesEarned: number;
+    trainingBonusRate: number;
     lastActivityAt: string | null;
   }>>({
     queryKey: ['training-interactive', 'team-progress'],
@@ -297,7 +299,7 @@ function OwnerTrainingView({
 }: {
   resources: TrainingResource[];
   resourcesLoading: boolean;
-  teamProgress: Array<{ user: { id: string; firstName: string; lastName: string; role: string }; sectionsRead: number; exercisesDone: number; rolePlayCount: number; exercisesReviewed: number; currentStreak: number; lastActivityAt: string | null }>;
+  teamProgress: Array<{ user: { id: string; firstName: string; lastName: string; role: string; payRate?: number; trainingBonusRate: number }; sectionsRead: number; exercisesDone: number; rolePlayCount: number; exercisesReviewed: number; currentStreak: number; milestonesEarned: number; trainingBonusRate: number; lastActivityAt: string | null }>;
   activeTab: string;
   setActiveTab: (tab: string) => void;
   onResourceChanged: () => void;
@@ -449,7 +451,8 @@ function OwnerTrainingView({
                       <th className="text-center px-3 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">Sections</th>
                       <th className="text-center px-3 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">Exercises</th>
                       <th className="text-center px-3 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">Role Plays</th>
-                      <th className="text-center px-3 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">Streak</th>
+                      <th className="text-center px-3 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">Milestones</th>
+                      <th className="text-center px-3 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">Pay Raise</th>
                       <th className="text-right px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">Last Active</th>
                     </tr>
                   </thead>
@@ -472,9 +475,17 @@ function OwnerTrainingView({
                           <span className={`font-semibold ${p.rolePlayCount > 0 ? 'text-violet-600' : 'text-gray-400'}`}>{p.rolePlayCount}</span>
                         </td>
                         <td className="px-3 py-3 text-center">
-                          {p.currentStreak > 0
-                            ? <span className="text-orange-500 font-semibold">🔥 {p.currentStreak}</span>
-                            : <span className="text-gray-300">—</span>}
+                          <div className="flex gap-0.5 justify-center">
+                            {Array.from({ length: 10 }).map((_, i) => (
+                              <div key={i} className={`h-2 w-2 rounded-full ${i < (p.milestonesEarned ?? 0) ? 'bg-green-500' : 'bg-gray-200'}`} />
+                            ))}
+                          </div>
+                          <p className="text-xs text-gray-400 mt-0.5">{p.milestonesEarned ?? 0}/10</p>
+                        </td>
+                        <td className="px-3 py-3 text-center">
+                          {(p.trainingBonusRate ?? 0) > 0
+                            ? <span className="text-green-600 font-bold text-sm">+${(p.trainingBonusRate ?? 0).toFixed(2)}/hr</span>
+                            : <span className="text-gray-300 text-sm">$0.00</span>}
                         </td>
                         <td className="px-4 py-3 text-right text-xs text-gray-400">
                           {p.lastActivityAt
