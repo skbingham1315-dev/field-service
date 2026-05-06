@@ -15,6 +15,12 @@ function calcHours(clockIn: string | Date, clockOut: string | Date): number {
   return Math.round(h * 100) / 100;
 }
 
+/** Parse a YYYY-MM-DD date string anchored at UTC noon so it never drifts
+ *  to the previous/next day regardless of the viewer's timezone (UTC-10..UTC+0). */
+function parseDate(dateStr: string): Date {
+  return new Date(dateStr + 'T12:00:00.000Z');
+}
+
 // GET /api/v1/time-entries?userId=&startDate=&endDate=&status=
 timeEntriesRouter.get('/', async (req, res) => {
   const { userId, startDate, endDate, status } = req.query as Record<string, string>;
@@ -69,7 +75,7 @@ timeEntriesRouter.post('/', async (req, res) => {
     hours = calcHours(clockIn, clockOut);
   }
 
-  const dayStart = new Date(date); dayStart.setHours(0, 0, 0, 0);
+  const dayStart = parseDate(date);
 
   // If there's an open clock-in for today (no clockOut), complete it with the manual data
   const openEntry = await prisma.timeEntry.findFirst({
@@ -135,7 +141,7 @@ timeEntriesRouter.patch('/:id', async (req, res) => {
   const updated = await prisma.timeEntry.update({
     where: { id: entry.id },
     data: {
-      ...(date ? { date: new Date(date) } : {}),
+      ...(date ? { date: parseDate(date) } : {}),
       clockIn: clockIn ? new Date(clockIn) : entry.clockIn,
       clockOut: clockOut ? new Date(clockOut) : entry.clockOut,
       hoursWorked: hours,
@@ -167,7 +173,10 @@ timeEntriesRouter.delete('/:id', async (req, res) => {
 // POST /api/v1/time-entries/clock-in
 timeEntriesRouter.post('/clock-in', async (req, res) => {
   const { sub: userId, tenantId } = req.user!;
-  const today = new Date(); today.setHours(0, 0, 0, 0);
+  // Anchor to UTC noon so the date displays correctly in all US timezones
+  const now = new Date();
+  const todayStr = now.toISOString().split('T')[0]; // YYYY-MM-DD in UTC
+  const today = parseDate(todayStr);
   const { jobId, lat, lng } = req.body as { jobId?: string; lat?: number; lng?: number };
 
   // Check if already clocked in today (no clockOut)
@@ -196,7 +205,8 @@ timeEntriesRouter.post('/clock-in', async (req, res) => {
 // POST /api/v1/time-entries/clock-out
 timeEntriesRouter.post('/clock-out', async (req, res) => {
   const { sub: userId, tenantId } = req.user!;
-  const today = new Date(); today.setHours(0, 0, 0, 0);
+  const todayStr = new Date().toISOString().split('T')[0];
+  const today = parseDate(todayStr);
 
   const entry = await prisma.timeEntry.findFirst({
     where: { userId, tenantId, date: today, clockOut: null, clockIn: { not: null } },

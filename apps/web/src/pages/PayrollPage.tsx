@@ -1536,7 +1536,7 @@ function HoursTab() {
     return new Date(iso).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
   }
   function fmtEntryDate(iso: string) {
-    return new Date(iso).toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' });
+    return new Date(iso).toLocaleDateString('en-US', { timeZone: 'UTC', weekday: 'short', month: 'short', day: 'numeric' });
   }
 
   return (
@@ -1762,7 +1762,7 @@ function EditTimeEntryModal({ entry, onClose, onSaved }: {
   onClose: () => void;
   onSaved: () => void;
 }) {
-  const entryDate = entry.date.split('T')[0];
+  const entryDate = new Date(entry.date).toISOString().split('T')[0];
   const toTime = (iso?: string) => iso ? new Date(iso).toTimeString().slice(0, 5) : '';
   const [form, setForm] = useState({
     date: entryDate,

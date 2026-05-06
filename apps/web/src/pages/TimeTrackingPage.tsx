@@ -23,7 +23,7 @@ function fmt(iso?: string) {
   return new Date(iso).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
 }
 function fmtDate(iso: string) {
-  return new Date(iso).toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' });
+  return new Date(iso).toLocaleDateString('en-US', { timeZone: 'UTC', weekday: 'short', month: 'short', day: 'numeric' });
 }
 function fmtHours(h: number) {
   const hrs = Math.floor(h); const mins = Math.round((h - hrs) * 60);
