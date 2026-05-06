@@ -28,11 +28,11 @@ export function useLocationSharing() {
     // Get initial position (triggers browser permission prompt)
     navigator.geolocation.getCurrentPosition(postLocation, () => {/* denied — silent */}, { enableHighAccuracy: true });
 
-    // Watch for movement
+    // Watch for movement — post immediately on any position change
     watchIdRef.current = navigator.geolocation.watchPosition(
-      (pos) => { lastPosRef.current = pos; },
+      (pos) => { postLocation(pos); },
       () => {},
-      { enableHighAccuracy: true }
+      { enableHighAccuracy: true, maximumAge: 10_000 }
     );
 
     // Post on interval even if not moving
