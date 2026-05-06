@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { MapContainer, TileLayer, Marker, Popup, useMap } from 'react-leaflet';
 import { MemberActivityDrawer } from '../components/MemberActivityDrawer';
 import L from 'leaflet';
@@ -60,10 +60,19 @@ interface TechLocation {
   isAvailable: boolean;
 }
 
-// Recenter map when jobs load
-function MapCenter({ center }: { center: [number, number] }) {
+// Fit map to show all techs + jobs on first load
+function FitBounds({ points }: { points: [number, number][] }) {
   const map = useMap();
-  useEffect(() => { map.setView(center, map.getZoom()); }, [center, map]);
+  const fitted = useRef(false);
+  useEffect(() => {
+    if (fitted.current || points.length === 0) return;
+    fitted.current = true;
+    if (points.length === 1) {
+      map.setView(points[0], 13);
+    } else {
+      map.fitBounds(L.latLngBounds(points), { padding: [48, 48] });
+    }
+  }, [map, points]);
   return null;
 }
 
@@ -97,9 +106,14 @@ export function MapPage() {
   }, [load]);
 
   const jobsWithCoords = jobs.filter((j) => j.serviceAddress?.lat && j.serviceAddress?.lng);
-  const center: [number, number] = jobsWithCoords.length > 0
-    ? [jobsWithCoords[0].serviceAddress!.lat!, jobsWithCoords[0].serviceAddress!.lng!]
-    : [33.4484, -112.074]; // Phoenix default
+
+  // All points for initial fit: techs first (most current), then jobs
+  const allPoints: [number, number][] = [
+    ...techs.map((t): [number, number] => [t.lastLat, t.lastLng]),
+    ...jobsWithCoords.map((j): [number, number] => [j.serviceAddress!.lat!, j.serviceAddress!.lng!]),
+  ];
+
+  const center: [number, number] = [33.4484, -112.074]; // Phoenix fallback (only used before data loads)
 
   return (
     <div className="flex flex-col h-full">
@@ -142,7 +156,7 @@ export function MapPage() {
             subdomains="abcd"
             maxZoom={19}
           />
-          <MapCenter center={center} />
+          <FitBounds points={allPoints} />
 
           {/* Job markers */}
           {jobsWithCoords.map((job) => (
