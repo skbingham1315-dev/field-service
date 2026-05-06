@@ -900,6 +900,11 @@ export function TeamPage() {
 
   const refresh = () => qc.invalidateQueries({ queryKey: ['team'] });
 
+  const deleteMember = useMutation({
+    mutationFn: (id: string) => api.delete(`/users/${id}`),
+    onSuccess: () => refresh(),
+  });
+
   const byRole = (data ?? []).reduce((acc, u) => {
     if (!acc[u.role]) acc[u.role] = [];
     acc[u.role].push(u);
@@ -981,10 +986,21 @@ export function TeamPage() {
                         <DollarSign className="h-4 w-4" />
                       </button>
                       {role !== 'owner' && (
-                        <button onClick={() => setEditing(member)}
-                          className="p-1.5 text-gray-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-colors">
-                          <Edit2 className="h-4 w-4" />
-                        </button>
+                        <>
+                          <button onClick={() => setEditing(member)}
+                            className="p-1.5 text-gray-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-colors">
+                            <Edit2 className="h-4 w-4" />
+                          </button>
+                          <button
+                            onClick={() => {
+                              if (confirm(`Remove ${member.firstName} ${member.lastName} from the team? This will deactivate their account.`)) {
+                                deleteMember.mutate(member.id);
+                              }
+                            }}
+                            className="p-1.5 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors">
+                            <Trash2 className="h-4 w-4" />
+                          </button>
+                        </>
                       )}
                     </div>
                   </div>
