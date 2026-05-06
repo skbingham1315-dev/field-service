@@ -125,7 +125,7 @@ timeEntriesRouter.patch('/:id', async (req, res) => {
     res.status(403).json({ success: false, message: 'Cannot edit this entry' }); return;
   }
 
-  const { clockIn, clockOut, hoursWorked, notes, status, jobId } = req.body;
+  const { date, clockIn, clockOut, hoursWorked, notes, status, jobId } = req.body;
 
   let hours = hoursWorked ?? entry.hoursWorked;
   if (clockIn && clockOut && !hoursWorked) {
@@ -135,6 +135,7 @@ timeEntriesRouter.patch('/:id', async (req, res) => {
   const updated = await prisma.timeEntry.update({
     where: { id: entry.id },
     data: {
+      ...(date ? { date: new Date(date) } : {}),
       clockIn: clockIn ? new Date(clockIn) : entry.clockIn,
       clockOut: clockOut ? new Date(clockOut) : entry.clockOut,
       hoursWorked: hours,

@@ -1781,10 +1781,11 @@ function EditTimeEntryModal({ entry, onClose, onSaved }: {
   const handleSubmit = async (ev: React.FormEvent) => {
     ev.preventDefault(); setError(''); setLoading(true);
     try {
-      const payload: Record<string, unknown> = { notes: form.notes || undefined };
+      const payload: Record<string, unknown> = { date: form.date, notes: form.notes || undefined };
       if (form.clockIn && form.clockOut) {
         payload.clockIn = new Date(`${form.date}T${form.clockIn}`).toISOString();
         payload.clockOut = new Date(`${form.date}T${form.clockOut}`).toISOString();
+        payload.hoursWorked = undefined;
       } else {
         payload.hoursWorked = Number(form.hoursWorked);
       }
@@ -1807,7 +1808,7 @@ function EditTimeEntryModal({ entry, onClose, onSaved }: {
         <form onSubmit={handleSubmit} className="p-5 space-y-4">
           <div>
             <label className="block text-xs font-medium text-gray-700 mb-1">Date</label>
-            <input type="date" value={form.date} readOnly className={`${inp} bg-gray-50 cursor-not-allowed`} />
+            <input type="date" value={form.date} onChange={set('date')} className={inp} />
           </div>
           <div className="grid grid-cols-2 gap-3">
             <div>
