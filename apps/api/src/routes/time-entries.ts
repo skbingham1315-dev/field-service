@@ -54,14 +54,6 @@ timeEntriesRouter.post('/', async (req, res) => {
 
   if (!date) { res.status(400).json({ success: false, message: 'date is required' }); return; }
 
-  // Reject duplicate: one entry per employee per day
-  const dayStart = new Date(date); dayStart.setHours(0, 0, 0, 0);
-  const existing = await prisma.timeEntry.findFirst({ where: { tenantId, userId, date: dayStart } });
-  if (existing) {
-    res.status(409).json({ success: false, message: `A time entry for this employee already exists on ${date}. Edit the existing entry instead.` });
-    return;
-  }
-
   // Calculate hours from clock times if not provided
   let hours = hoursWorked ?? 0;
   if (!hours && clockIn && clockOut) {
@@ -69,11 +61,35 @@ timeEntriesRouter.post('/', async (req, res) => {
     hours = Math.round(hours * 100) / 100;
   }
 
+  const dayStart = new Date(date); dayStart.setHours(0, 0, 0, 0);
+
+  // If there's an open clock-in for today (no clockOut), complete it with the manual data
+  const openEntry = await prisma.timeEntry.findFirst({
+    where: { tenantId, userId, date: dayStart, clockOut: null, clockIn: { not: null } },
+  });
+
+  if (openEntry) {
+    const updated = await prisma.timeEntry.update({
+      where: { id: openEntry.id },
+      data: {
+        clockOut: clockOut ? new Date(clockOut) : new Date(),
+        hoursWorked: hours || openEntry.hoursWorked,
+        jobId: jobId || openEntry.jobId,
+        notes: notes || openEntry.notes,
+        status: 'pending',
+      },
+      include: { job: { select: { id: true, title: true } } },
+    });
+    res.status(200).json({ success: true, data: updated } satisfies ApiResponse);
+    return;
+  }
+
+  // Otherwise create a new entry (multiple entries per day are allowed, e.g. different jobs)
   const entry = await prisma.timeEntry.create({
     data: {
       tenantId,
       userId,
-      date: new Date(date),
+      date: dayStart,
       clockIn: clockIn ? new Date(clockIn) : null,
       clockOut: clockOut ? new Date(clockOut) : null,
       hoursWorked: hours,
