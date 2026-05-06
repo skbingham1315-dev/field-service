@@ -1594,9 +1594,17 @@ function HoursTab() {
                     </td>
                     <td className="px-4 py-3 text-gray-600">{fmtEntryDate(e.date)}</td>
                     <td className="px-4 py-3 text-gray-500 text-xs">
-                      {e.clockIn ? `${fmtTime(e.clockIn)} – ${fmtTime(e.clockOut)}` : 'Manual'}
+                      {e.clockIn
+                        ? e.clockOut
+                          ? `${fmtTime(e.clockIn)} – ${fmtTime(e.clockOut)}`
+                          : <span className="text-amber-600 font-medium">{fmtTime(e.clockIn)} – open</span>
+                        : 'Manual'}
                     </td>
-                    <td className="px-4 py-3 text-right font-semibold text-gray-900">{e.hoursWorked.toFixed(2)}h</td>
+                    <td className="px-4 py-3 text-right font-semibold text-gray-900">
+                      {e.hoursWorked < 0
+                        ? <span className="text-red-500 text-xs font-medium">Clock error — edit entry</span>
+                        : `${e.hoursWorked.toFixed(2)}h`}
+                    </td>
                     <td className="px-4 py-3">
                       <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${STATUS_COLOR[e.status] ?? 'bg-gray-100 text-gray-600'}`}>
                         {e.status}

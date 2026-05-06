@@ -6,6 +6,15 @@ import type { ApiResponse } from '@fsp/types';
 export const timeEntriesRouter = Router();
 timeEntriesRouter.use(authenticate);
 
+/** Calculate hours between two timestamps. If result is negative (e.g. overnight
+ *  crossing UTC midnight due to timezone), add 24h. Clamps to [0, 24]. */
+function calcHours(clockIn: string | Date, clockOut: string | Date): number {
+  let h = (new Date(clockOut).getTime() - new Date(clockIn).getTime()) / 3_600_000;
+  if (h < 0) h += 24; // overnight / timezone-crossing
+  h = Math.max(0, Math.min(24, h));
+  return Math.round(h * 100) / 100;
+}
+
 // GET /api/v1/time-entries?userId=&startDate=&endDate=&status=
 timeEntriesRouter.get('/', async (req, res) => {
   const { userId, startDate, endDate, status } = req.query as Record<string, string>;
@@ -57,8 +66,7 @@ timeEntriesRouter.post('/', async (req, res) => {
   // Calculate hours from clock times if not provided
   let hours = hoursWorked ?? 0;
   if (!hours && clockIn && clockOut) {
-    hours = (new Date(clockOut).getTime() - new Date(clockIn).getTime()) / 3_600_000;
-    hours = Math.round(hours * 100) / 100;
+    hours = calcHours(clockIn, clockOut);
   }
 
   const dayStart = new Date(date); dayStart.setHours(0, 0, 0, 0);
@@ -69,11 +77,13 @@ timeEntriesRouter.post('/', async (req, res) => {
   });
 
   if (openEntry) {
+    const resolvedClockOut = clockOut ? new Date(clockOut) : new Date();
+    const resolvedHours = hours || (openEntry.clockIn ? calcHours(openEntry.clockIn, resolvedClockOut) : 0);
     const updated = await prisma.timeEntry.update({
       where: { id: openEntry.id },
       data: {
-        clockOut: clockOut ? new Date(clockOut) : new Date(),
-        hoursWorked: hours || openEntry.hoursWorked,
+        clockOut: resolvedClockOut,
+        hoursWorked: resolvedHours,
         jobId: jobId || openEntry.jobId,
         notes: notes || openEntry.notes,
         status: 'pending',
@@ -119,7 +129,7 @@ timeEntriesRouter.patch('/:id', async (req, res) => {
 
   let hours = hoursWorked ?? entry.hoursWorked;
   if (clockIn && clockOut && !hoursWorked) {
-    hours = Math.round(((new Date(clockOut).getTime() - new Date(clockIn).getTime()) / 3_600_000) * 100) / 100;
+    hours = calcHours(clockIn, clockOut);
   }
 
   const updated = await prisma.timeEntry.update({

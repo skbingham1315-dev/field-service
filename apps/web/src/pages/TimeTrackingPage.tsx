@@ -62,6 +62,11 @@ function LogHoursModal({ onClose, onSaved }: { onClose: () => void; onSaved: () 
     try {
       const payload: Record<string, unknown> = { date: form.date, notes: form.notes || undefined };
       if (form.clockIn && form.clockOut) {
+        if (form.clockOut <= form.clockIn) {
+          setError('Clock-out must be after clock-in. For overnight shifts, enter hours directly.');
+          setLoading(false);
+          return;
+        }
         payload.clockIn = new Date(`${form.date}T${form.clockIn}`).toISOString();
         payload.clockOut = new Date(`${form.date}T${form.clockOut}`).toISOString();
       } else if (form.hoursWorked) {
