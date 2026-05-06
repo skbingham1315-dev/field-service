@@ -1,21 +1,21 @@
-import { BookOpen, Zap, MessageCircle, PenLine, Star, Flame, CheckCircle2, TrendingUp, DollarSign } from 'lucide-react';
+import { BookOpen, Zap, MessageCircle, PenLine, Star, Flame, CheckCircle2, TrendingUp, DollarSign, Phone } from 'lucide-react';
 import { SECTIONS, EXERCISES, DAILY_TIPS } from './trainingContent';
 
 const MILESTONE_LABELS = [
-  'Read your first section',
-  'Get AI feedback on an exercise',
-  'Read 3 sections',
-  'Complete a role play',
-  '5 exercises reviewed',
-  'Read all 6 sections',
-  '3 role plays done',
-  '10 exercises reviewed',
-  '5 role plays done',
-  'All 14 exercises + 10 role plays',
+  'Read 1 section + 5 contacts',
+  '1 exercise reviewed + 10 contacts',
+  'Read 3 sections + 15 contacts',
+  '1 role play + 20 contacts',
+  '5 exercises reviewed + 25 contacts',
+  'Read all 6 sections + 30 contacts',
+  '3 role plays + 35 contacts',
+  '10 exercises reviewed + 40 contacts',
+  '5 role plays + 45 contacts',
+  'Full completion + 50 contacts',
 ];
 
 interface Props {
-  progress: { sectionsRead: string[]; exercisesDone: string[]; rolePlayCount: number; currentStreak: number; milestonesEarned?: number; trainingBonusRate?: number } | null;
+  progress: { sectionsRead: string[]; exercisesDone: string[]; rolePlayCount: number; currentStreak: number; milestonesEarned?: number; trainingBonusRate?: number; contactCount?: number } | null;
   onNavigate: (tab: string) => void;
 }
 
@@ -28,7 +28,9 @@ export function TrainingHome({ progress, onNavigate }: Props) {
   const streak = progress?.currentStreak ?? 0;
   const milestonesEarned = progress?.milestonesEarned ?? 0;
   const trainingBonusRate = progress?.trainingBonusRate ?? 0;
+  const contactCount = progress?.contactCount ?? 0;
   const nextMilestone = MILESTONE_LABELS[milestonesEarned] ?? null;
+  const nextContactTarget = (milestonesEarned + 1) * 5;
 
   return (
     <div className="space-y-5 max-w-2xl mx-auto">
@@ -47,14 +49,15 @@ export function TrainingHome({ progress, onNavigate }: Props) {
             </div>
           )}
         </div>
-        <div className="grid grid-cols-3 gap-3">
+        <div className="grid grid-cols-4 gap-2">
           {[
             { label: 'Sections', value: sectionsRead.length, total: SECTIONS.length },
             { label: 'Exercises', value: exercisesDone.length, total: EXERCISES.length },
             { label: 'Role Plays', value: rolePlayCount, total: null },
+            { label: 'Contacts', value: contactCount, total: null },
           ].map(({ label, value, total }) => (
             <div key={label} className="bg-white/10 rounded-xl p-3 text-center">
-              <p className="text-2xl font-bold">{value}{total ? <span className="text-sm font-normal text-violet-300">/{total}</span> : ''}</p>
+              <p className="text-xl font-bold">{value}{total ? <span className="text-sm font-normal text-violet-300">/{total}</span> : ''}</p>
               <p className="text-xs text-violet-200 mt-0.5">{label}</p>
               {total && (
                 <div className="mt-1.5 h-1.5 bg-white/20 rounded-full overflow-hidden">
@@ -100,6 +103,28 @@ export function TrainingHome({ progress, onNavigate }: Props) {
             </p>
           ) : null}
         </div>
+
+        {/* Contact progress toward next milestone */}
+        {milestonesEarned < 10 && (
+          <div className="mt-3 pt-3 border-t border-gray-100">
+            <div className="flex items-center justify-between mb-1">
+              <div className="flex items-center gap-1.5">
+                <Phone className="h-3.5 w-3.5 text-blue-500" />
+                <span className="text-xs text-gray-600 font-medium">Sales contacts logged</span>
+              </div>
+              <span className="text-xs font-semibold text-gray-700">{contactCount} / {nextContactTarget}</span>
+            </div>
+            <div className="h-2 bg-gray-100 rounded-full overflow-hidden">
+              <div
+                className="h-full bg-blue-400 rounded-full transition-all"
+                style={{ width: `${Math.min(100, Math.round((contactCount / nextContactTarget) * 100))}%` }}
+              />
+            </div>
+            <p className="text-xs text-gray-400 mt-1">
+              {Math.max(0, nextContactTarget - contactCount)} more contacts needed for next raise
+            </p>
+          </div>
+        )}
       </div>
 
       {/* Quick actions */}

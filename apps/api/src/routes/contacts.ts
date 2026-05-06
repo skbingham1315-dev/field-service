@@ -6,6 +6,7 @@ import { authenticate } from '../middleware/authenticate';
 import { prisma } from '@fsp/db';
 import { AppError } from '../middleware/errorHandler';
 import type { ApiResponse } from '@fsp/types';
+import { checkAndAwardMilestones } from './training-interactive';
 
 export const contactsRouter = Router();
 contactsRouter.use(authenticate);
@@ -150,6 +151,9 @@ contactsRouter.post('/', async (req, res) => {
     },
   });
 
+  // Award training milestones — adding a contact counts toward pay raise
+  checkAndAwardMilestones(req.user!.sub).catch(() => {/* silent */});
+
   res.status(201).json({ success: true, data: contact } satisfies ApiResponse);
 });
 
@@ -224,6 +228,9 @@ contactsRouter.post('/:id/activities', async (req, res) => {
       createdBy: req.user!.email,
     },
   });
+
+  // Award training milestones — contact activity counts toward pay raise
+  checkAndAwardMilestones(req.user!.sub).catch(() => {/* silent */});
 
   res.status(201).json({ success: true, data: activity } satisfies ApiResponse);
 });

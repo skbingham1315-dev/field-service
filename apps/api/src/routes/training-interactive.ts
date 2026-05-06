@@ -11,34 +11,45 @@ const ai = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 const MODEL = 'claude-sonnet-4-6';
 
 // ── Milestone definitions ──────────────────────────────────────────────────────
-// 10 milestones × $0.10 = $1.00 max raise. Each milestone ~30 min of training.
-function calcMilestonesEarned(sectionsRead: number, reviewedCount: number, rolePlayCount: number): number {
+// 10 milestones × $0.10 = $1.00 max raise.
+// Each milestone requires training progress AND N×5 sales contacts logged.
+function calcMilestonesEarned(sectionsRead: number, reviewedCount: number, rolePlayCount: number, contactCount: number): number {
   const checks = [
-    sectionsRead >= 1,          // M1:  Read first section
-    reviewedCount >= 1,         // M2:  First exercise reviewed
-    sectionsRead >= 3,          // M3:  3 sections read
-    rolePlayCount >= 1,         // M4:  First role play
-    reviewedCount >= 5,         // M5:  5 exercises reviewed
-    sectionsRead >= 6,          // M6:  All 6 sections read
-    rolePlayCount >= 3,         // M7:  3 role plays
-    reviewedCount >= 10,        // M8:  10 exercises reviewed
-    rolePlayCount >= 5,         // M9:  5 role plays
-    reviewedCount >= 14 && rolePlayCount >= 10, // M10: Full completion
+    sectionsRead >= 1          && contactCount >= 5,   // M1
+    reviewedCount >= 1         && contactCount >= 10,  // M2
+    sectionsRead >= 3          && contactCount >= 15,  // M3
+    rolePlayCount >= 1         && contactCount >= 20,  // M4
+    reviewedCount >= 5         && contactCount >= 25,  // M5
+    sectionsRead >= 6          && contactCount >= 30,  // M6
+    rolePlayCount >= 3         && contactCount >= 35,  // M7
+    reviewedCount >= 10        && contactCount >= 40,  // M8
+    rolePlayCount >= 5         && contactCount >= 45,  // M9
+    reviewedCount >= 14 && rolePlayCount >= 10 && contactCount >= 50, // M10
   ];
   return checks.filter(Boolean).length;
 }
 
-async function checkAndAwardMilestones(userId: string): Promise<number> {
-  const [progress, reviewedCount] = await Promise.all([
+export async function checkAndAwardMilestones(userId: string): Promise<number> {
+  const [progress, user, reviewedCount] = await Promise.all([
     prisma.trainingUserProgress.findUnique({ where: { userId } }),
+    prisma.user.findUnique({ where: { id: userId }, select: { email: true, trainingBonusRate: true } }),
     prisma.trainingExerciseAnswer.count({ where: { userId, status: 'reviewed' } }),
   ]);
-  if (!progress) return 0;
+  if (!progress || !user) return 0;
+
+  // Count meaningful contact activities logged by this user (exclude auto-logged system entries)
+  const contactCount = await prisma.contactActivity.count({
+    where: {
+      createdBy: user.email,
+      type: { notIn: ['status_change', 'follow_up_set'] },
+    },
+  });
 
   const shouldHave = calcMilestonesEarned(
     progress.sectionsRead.length,
     reviewedCount,
     progress.rolePlayCount,
+    contactCount,
   );
   const current = progress.milestonesEarned;
   if (shouldHave <= current) return current;
@@ -72,9 +83,16 @@ trainingInteractiveRouter.get('/progress', async (req, res) => {
       create: { userId, tenantId },
       update: {},
     }),
-    prisma.user.findUnique({ where: { id: userId }, select: { trainingBonusRate: true } }),
+    prisma.user.findUnique({ where: { id: userId }, select: { trainingBonusRate: true, email: true } }),
   ]);
-  res.json({ success: true, data: { ...progress, trainingBonusRate: user?.trainingBonusRate ?? 0 } } satisfies ApiResponse);
+
+  const contactCount = user?.email
+    ? await prisma.contactActivity.count({
+        where: { createdBy: user.email, type: { notIn: ['status_change', 'follow_up_set'] } },
+      })
+    : 0;
+
+  res.json({ success: true, data: { ...progress, trainingBonusRate: user?.trainingBonusRate ?? 0, contactCount } } satisfies ApiResponse);
 });
 
 trainingInteractiveRouter.post('/progress/section/:sectionId', async (req, res) => {
@@ -313,7 +331,7 @@ trainingInteractiveRouter.get('/admin/team-progress', async (req, res) => {
   const [progress, sessions, answers] = await Promise.all([
     prisma.trainingUserProgress.findMany({
       where: { tenantId },
-      include: { user: { select: { id: true, firstName: true, lastName: true, role: true, payRate: true, trainingBonusRate: true } } },
+      include: { user: { select: { id: true, firstName: true, lastName: true, role: true, payRate: true, trainingBonusRate: true, email: true } } },
     }),
     prisma.rolePlaySession.groupBy({
       by: ['userId'],
@@ -327,12 +345,22 @@ trainingInteractiveRouter.get('/admin/team-progress', async (req, res) => {
     }),
   ]);
 
+  // Get contact counts per user by email
+  const userEmails = progress.map(p => p.user.email);
+  const contactCounts = await prisma.contactActivity.groupBy({
+    by: ['createdBy'],
+    where: { createdBy: { in: userEmails }, type: { notIn: ['status_change', 'follow_up_set'] } },
+    _count: { id: true },
+  });
+  const contactCountByEmail = new Map(contactCounts.map(c => [c.createdBy, c._count.id]));
+
   const data = progress.map(p => ({
-    user: p.user,
+    user: { id: p.user.id, firstName: p.user.firstName, lastName: p.user.lastName, role: p.user.role, payRate: p.user.payRate, trainingBonusRate: p.user.trainingBonusRate },
     sectionsRead: p.sectionsRead.length,
     exercisesDone: p.exercisesDone.length,
     rolePlayCount: sessions.find(s => s.userId === p.user.id)?._count.id ?? 0,
     exercisesReviewed: answers.find(a => a.userId === p.user.id)?._count.id ?? 0,
+    contactCount: contactCountByEmail.get(p.user.email) ?? 0,
     currentStreak: p.currentStreak,
     milestonesEarned: p.milestonesEarned,
     trainingBonusRate: p.user.trainingBonusRate,
