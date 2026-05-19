@@ -138,6 +138,7 @@ model Tenant {
   trainingProgress     TrainingUserProgress[]
   rolePlaySessions     RolePlaySession[]
   exerciseAnswers      TrainingExerciseAnswer[]
+  jobFiles             JobFile[]
 
   @@map("tenants")
 }
@@ -205,6 +206,7 @@ model User {
   trainingProgress    TrainingUserProgress?
   rolePlaySessions    RolePlaySession[]
   exerciseAnswers     TrainingExerciseAnswer[]
+  jobFiles            JobFile[]
 
   @@unique([tenantId, email])
   @@index([tenantId, role])
@@ -297,6 +299,7 @@ model Job {
   lineItems      JobLineItem[]
   photos         JobPhoto[]
   notes          JobNote[]
+  files          JobFile[]
   recurrence     RecurrenceRule?
   invoice        Invoice?       @relation(fields: [invoiceId], references: [id])
   review              JobReview?
@@ -371,6 +374,42 @@ model JobNote {
 
   @@index([jobId])
   @@map("job_notes")
+}
+
+model JobFile {
+  id              String    @id @default(cuid())
+  tenantId        String
+  jobId           String
+  uploadedById    String
+  fileType        String    // photo | work_order | receipt
+  photoCategory   String?   // before | after | stage | general
+  stageType       String?   // demo | rough_in | mid_job | final | custom
+  stageName       String?
+  originalName    String
+  mimeType        String
+  fileSizeBytes   Int       @default(0)
+  data            Bytes
+  visibility      String    @default("internal") // internal | customer_visible
+  notes           String?
+  noteVisibility  String    @default("internal")
+  costAmount      Decimal?  @db.Decimal(10, 2)
+  costBillable    Boolean   @default(false)
+  receiptCategory String?   // materials | fuel | dump_fees | equipment | subcontractor | misc
+  vendorName      String?
+  purchaseDate    DateTime?
+  latitude        Float?
+  longitude       Float?
+  deletedAt       DateTime?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  tenant     Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  job        Job    @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  uploadedBy User   @relation(fields: [uploadedById], references: [id])
+
+  @@index([jobId])
+  @@index([tenantId])
+  @@map("job_files")
 }
 
 model RecurrenceRule {

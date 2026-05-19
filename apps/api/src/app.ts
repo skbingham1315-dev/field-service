@@ -36,6 +36,7 @@ import { squareRouter } from './routes/square';
 import { exportRouter } from './routes/export';
 import { trainingRouter } from './routes/training';
 import { trainingInteractiveRouter } from './routes/training-interactive';
+import { jobFilesRouter } from './routes/job-files';
 
 export const app = express();
 
@@ -147,6 +148,7 @@ apiV1.use('/square', squareRouter);
 apiV1.use('/export', exportRouter);
 apiV1.use('/training', trainingRouter);
 apiV1.use('/training-interactive', trainingInteractiveRouter);
+apiV1.use('/job-files', jobFilesRouter);
 
 app.use('/api/v1', apiV1);
 app.use('/webhooks', webhooksRouter);

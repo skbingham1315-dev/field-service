@@ -44,6 +44,54 @@ async function main() {
     // Training milestone columns
     await prisma.$executeRawUnsafe(`ALTER TABLE "users" ADD COLUMN IF NOT EXISTS "trainingBonusRate" DOUBLE PRECISION NOT NULL DEFAULT 0`);
     await prisma.$executeRawUnsafe(`ALTER TABLE "training_user_progress" ADD COLUMN IF NOT EXISTS "milestonesEarned" INTEGER NOT NULL DEFAULT 0`);
+
+    // Job files table (photos, work orders, receipts stored in Postgres)
+    await prisma.$executeRawUnsafe(`
+      CREATE TABLE IF NOT EXISTS "job_files" (
+        "id"              TEXT NOT NULL,
+        "tenantId"        TEXT NOT NULL,
+        "jobId"           TEXT NOT NULL,
+        "uploadedById"    TEXT NOT NULL,
+        "fileType"        TEXT NOT NULL DEFAULT 'photo',
+        "photoCategory"   TEXT,
+        "stageType"       TEXT,
+        "stageName"       TEXT,
+        "originalName"    TEXT NOT NULL,
+        "mimeType"        TEXT NOT NULL,
+        "fileSizeBytes"   INTEGER NOT NULL DEFAULT 0,
+        "data"            BYTEA NOT NULL,
+        "visibility"      TEXT NOT NULL DEFAULT 'internal',
+        "notes"           TEXT,
+        "noteVisibility"  TEXT NOT NULL DEFAULT 'internal',
+        "costAmount"      DECIMAL(10,2),
+        "costBillable"    BOOLEAN NOT NULL DEFAULT false,
+        "receiptCategory" TEXT,
+        "vendorName"      TEXT,
+        "purchaseDate"    TIMESTAMP(3),
+        "latitude"        DOUBLE PRECISION,
+        "longitude"       DOUBLE PRECISION,
+        "deletedAt"       TIMESTAMP(3),
+        "createdAt"       TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        "updatedAt"       TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        CONSTRAINT "job_files_pkey" PRIMARY KEY ("id")
+      )
+    `);
+    await prisma.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "job_files_jobId_idx" ON "job_files"("jobId")`);
+    await prisma.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "job_files_tenantId_idx" ON "job_files"("tenantId")`);
+    await prisma.$executeRawUnsafe(`
+      DO $$ BEGIN
+        IF NOT EXISTS (SELECT 1 FROM information_schema.table_constraints WHERE constraint_name = 'job_files_tenantId_fkey') THEN
+          ALTER TABLE "job_files" ADD CONSTRAINT "job_files_tenantId_fkey" FOREIGN KEY ("tenantId") REFERENCES "tenants"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+        END IF;
+      END $$
+    `);
+    await prisma.$executeRawUnsafe(`
+      DO $$ BEGIN
+        IF NOT EXISTS (SELECT 1 FROM information_schema.table_constraints WHERE constraint_name = 'job_files_jobId_fkey') THEN
+          ALTER TABLE "job_files" ADD CONSTRAINT "job_files_jobId_fkey" FOREIGN KEY ("jobId") REFERENCES "jobs"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+        END IF;
+      END $$
+    `);
     logger.info('Migration record patched');
   } catch (e) {
     logger.warn('Migration patch skipped (may already be clean)');

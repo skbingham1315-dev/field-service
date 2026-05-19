@@ -7,6 +7,7 @@ import { ResetPasswordPage } from './pages/ResetPasswordPage';
 import { DashboardLayout } from './layouts/DashboardLayout';
 import { ReviewPage } from './pages/ReviewPage';
 import { PortalApp } from './pages/PortalApp';
+import { CustomerJobPortal } from './pages/CustomerJobPortal';
 import { CheckCircle, X } from 'lucide-react';
 
 function BillingSuccessBanner({ onDismiss }: { onDismiss: () => void }) {
@@ -38,6 +39,11 @@ export function App() {
 
   // Public routes — no auth required
   const path = window.location.pathname;
+
+  // Customer job portal (simple job code + email access)
+  if (path === '/job-portal') {
+    return <CustomerJobPortal />;
+  }
 
   // Customer portal: /portal/:tenantSlug/*
   if (path.startsWith('/portal/')) {
