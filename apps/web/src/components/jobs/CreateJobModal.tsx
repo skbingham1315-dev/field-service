@@ -5,7 +5,7 @@ import {
   Button, Input, Textarea, Select,
 } from '@fsp/ui';
 import { api } from '../../lib/api';
-import { Upload, Sparkles, X, Calendar, Clock } from 'lucide-react';
+import { Upload, Sparkles, X, Calendar, Clock, Plus, MapPin, Building2, Home } from 'lucide-react';
 
 interface Props {
   open: boolean;
@@ -31,8 +31,33 @@ export function CreateJobModal({ open, onClose }: Props) {
   const [aiHint, setAiHint] = useState<{ customerName?: string; address?: string; addressMatched?: boolean } | null>(null);
   const [dragging, setDragging] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const [showAddAddress, setShowAddAddress] = useState(false);
+  const [newAddr, setNewAddr] = useState({
+    street: '', city: '', state: '', zip: '', label: '', isPrimary: false, locationType: '' as '' | 'job_site' | 'primary',
+  });
 
   const set = (k: string, v: string) => setForm((f) => ({ ...f, [k]: v }));
+  const setAddr = (k: string, v: string | boolean) => setNewAddr((a) => ({ ...a, [k]: v }));
+
+  const addAddressMutation = useMutation({
+    mutationFn: async () => {
+      const { data } = await api.post(`/customers/${form.customerId}/addresses`, {
+        street: newAddr.street.trim(),
+        city: newAddr.city.trim(),
+        state: newAddr.state.trim(),
+        zip: newAddr.zip.trim(),
+        label: newAddr.label.trim() || undefined,
+        isPrimary: newAddr.locationType === 'primary',
+      });
+      return data.data as { id: string; street: string; city: string };
+    },
+    onSuccess: (addr) => {
+      qc.invalidateQueries({ queryKey: ['customers', 'all'] });
+      set('serviceAddressId', addr.id);
+      setShowAddAddress(false);
+      setNewAddr({ street: '', city: '', state: '', zip: '', label: '', isPrimary: false, locationType: '' });
+    },
+  });
 
   const { data: custData } = useQuery({
     queryKey: ['customers', 'all'],
@@ -90,6 +115,8 @@ export function CreateJobModal({ open, onClose }: Props) {
     setErrors({});
     setAiHint(null);
     setScheduleMode('open');
+    setShowAddAddress(false);
+    setNewAddr({ street: '', city: '', state: '', zip: '', label: '', isPrimary: false, locationType: '' });
     onClose();
   };
 
@@ -182,6 +209,17 @@ export function CreateJobModal({ open, onClose }: Props) {
         address: hasAddress ? extractedAddress : undefined,
         addressMatched,
       });
+
+      // If address was found but not matched, pre-fill the new address form so user can quickly save it
+      if (hasAddress && !addressMatched) {
+        setNewAddr(a => ({
+          ...a,
+          street: extracted.street ?? '',
+          city: extracted.city ?? '',
+          state: extracted.state ?? '',
+          zip: extracted.zip ?? '',
+        }));
+      }
     } catch {
       // silently fail — form stays blank for manual entry
     } finally {
@@ -270,25 +308,152 @@ export function CreateJobModal({ open, onClose }: Props) {
             </Select>
           </div>
 
-          <div className="col-span-2">
-            <Select
-              label="Service Address *"
-              value={form.serviceAddressId}
-              onChange={(e) => set('serviceAddressId', e.target.value)}
-              placeholder="Select address..."
-              disabled={!form.customerId}
-              error={errors.serviceAddressId}
-            >
-              {addresses.map((a) => (
-                <option key={a.id} value={a.id}>
-                  {a.label ? `${a.label} — ` : ''}{a.street}, {a.city}
-                </option>
-              ))}
-            </Select>
-            {aiHint?.address && !aiHint.addressMatched && form.customerId && (
-              <p className="mt-1 text-xs text-amber-700 flex items-center gap-1">
-                <span>AI found: <strong>{aiHint.address}</strong> — add this address to the customer first, then select it here.</span>
-              </p>
+          <div className="col-span-2 space-y-2">
+            <div className="flex items-end gap-2">
+              <div className="flex-1">
+                <Select
+                  label="Service Address *"
+                  value={form.serviceAddressId}
+                  onChange={(e) => set('serviceAddressId', e.target.value)}
+                  placeholder="Select address..."
+                  disabled={!form.customerId}
+                  error={errors.serviceAddressId}
+                >
+                  {addresses.map((a) => (
+                    <option key={a.id} value={a.id}>
+                      {a.label ? `${a.label} — ` : ''}{a.street}, {a.city}
+                    </option>
+                  ))}
+                </Select>
+              </div>
+              {form.customerId && !showAddAddress && (
+                <button
+                  type="button"
+                  onClick={() => setShowAddAddress(true)}
+                  className="flex items-center gap-1 px-3 py-2 text-sm text-blue-600 border border-blue-200 rounded-lg hover:bg-blue-50 transition-colors whitespace-nowrap mb-0.5"
+                >
+                  <Plus className="h-3.5 w-3.5" /> New Address
+                </button>
+              )}
+            </div>
+
+            {/* Inline add address form */}
+            {showAddAddress && (
+              <div className="border border-blue-200 bg-blue-50/50 rounded-xl p-4 space-y-3">
+                <div className="flex items-center justify-between">
+                  <p className="text-sm font-semibold text-blue-900 flex items-center gap-1.5">
+                    <MapPin className="h-4 w-4" /> Add New Address
+                  </p>
+                  <button onClick={() => setShowAddAddress(false)} className="text-gray-400 hover:text-gray-600">
+                    <X className="h-4 w-4" />
+                  </button>
+                </div>
+
+                {/* Location type */}
+                <div>
+                  <p className="text-xs text-gray-600 mb-2 font-medium">What type of address is this?</p>
+                  <div className="grid grid-cols-2 gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setAddr('locationType', 'job_site')}
+                      className={`flex items-center gap-2 p-3 rounded-lg border-2 text-left transition-colors ${
+                        newAddr.locationType === 'job_site'
+                          ? 'border-blue-500 bg-blue-50 text-blue-800'
+                          : 'border-gray-200 bg-white text-gray-600 hover:border-blue-300'
+                      }`}
+                    >
+                      <Building2 className="h-5 w-5 flex-shrink-0" />
+                      <div>
+                        <p className="text-xs font-semibold">Job Site</p>
+                        <p className="text-xs opacity-70">Property, rental, or work location</p>
+                      </div>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setAddr('locationType', 'primary')}
+                      className={`flex items-center gap-2 p-3 rounded-lg border-2 text-left transition-colors ${
+                        newAddr.locationType === 'primary'
+                          ? 'border-blue-500 bg-blue-50 text-blue-800'
+                          : 'border-gray-200 bg-white text-gray-600 hover:border-blue-300'
+                      }`}
+                    >
+                      <Home className="h-5 w-5 flex-shrink-0" />
+                      <div>
+                        <p className="text-xs font-semibold">Primary Address</p>
+                        <p className="text-xs opacity-70">Customer's main / billing address</p>
+                      </div>
+                    </button>
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-xs text-gray-600 mb-1 font-medium">Label / Nickname (optional)</label>
+                  <input
+                    type="text"
+                    placeholder="e.g. Back unit, Building B, Suite 204"
+                    value={newAddr.label}
+                    onChange={e => setAddr('label', e.target.value)}
+                    className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs text-gray-600 mb-1 font-medium">Street *</label>
+                  <input
+                    type="text"
+                    placeholder="123 Main St"
+                    value={newAddr.street}
+                    onChange={e => setAddr('street', e.target.value)}
+                    className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  />
+                </div>
+
+                <div className="grid grid-cols-3 gap-2">
+                  <div className="col-span-1">
+                    <label className="block text-xs text-gray-600 mb-1 font-medium">City *</label>
+                    <input
+                      type="text"
+                      placeholder="Scottsdale"
+                      value={newAddr.city}
+                      onChange={e => setAddr('city', e.target.value)}
+                      className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs text-gray-600 mb-1 font-medium">State</label>
+                    <input
+                      type="text"
+                      placeholder="AZ"
+                      maxLength={2}
+                      value={newAddr.state}
+                      onChange={e => setAddr('state', e.target.value.toUpperCase())}
+                      className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs text-gray-600 mb-1 font-medium">Zip</label>
+                    <input
+                      type="text"
+                      placeholder="85255"
+                      value={newAddr.zip}
+                      onChange={e => setAddr('zip', e.target.value)}
+                      className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    />
+                  </div>
+                </div>
+
+                <Button
+                  className="w-full"
+                  loading={addAddressMutation.isPending}
+                  disabled={!newAddr.street.trim() || !newAddr.city.trim() || !newAddr.locationType}
+                  onClick={() => addAddressMutation.mutate()}
+                >
+                  <Plus className="h-4 w-4 mr-1.5" /> Save Address & Select It
+                </Button>
+                {!newAddr.locationType && (
+                  <p className="text-xs text-center text-amber-600">Select Job Site or Primary Address above to continue</p>
+                )}
+              </div>
             )}
           </div>
 
