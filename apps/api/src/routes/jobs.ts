@@ -64,16 +64,8 @@ jobsRouter.get('/', async (req, res) => {
     };
   }
 
-  // Technicians only see their own assigned jobs (unless viewAllJobs is on)
-  if (req.user!.role === 'technician') {
-    const perms = await getTenantPermissions(req.user!.tenantId);
-    if (!perms.technician.viewAllJobs) {
-      where.OR = [
-        { technicianId: req.user!.sub },
-        { assignedTechnicians: { some: { userId: req.user!.sub } } },
-      ];
-    }
-  }
+  // Technicians see all company jobs — they need to see today's work even if not yet assigned
+  // (no assignment filter applied; viewAllJobs permission no longer restricts the list)
 
   const techInclude = { select: { id: true, firstName: true, lastName: true, phone: true } };
 
@@ -357,6 +349,52 @@ jobsRouter.post('/:id/notes', async (req, res) => {
   });
 
   res.status(201).json({ success: true, data: note } satisfies ApiResponse);
+});
+
+// POST /api/v1/jobs/:id/self-assign — any tech can add themselves to a job
+jobsRouter.post('/:id/self-assign', async (req, res) => {
+  const job = await prisma.job.findUnique({
+    where: { id: req.params.id },
+    include: { assignedTechnicians: true },
+  });
+  if (!job || job.tenantId !== req.user!.tenantId) {
+    throw new AppError('Job not found', 404, 'NOT_FOUND');
+  }
+  if (['completed', 'cancelled'].includes(job.status)) {
+    throw new AppError('Cannot assign to a completed or cancelled job', 400, 'BAD_REQUEST');
+  }
+
+  const userId = req.user!.sub;
+  const alreadyAssigned = job.technicianId === userId ||
+    job.assignedTechnicians.some(t => t.userId === userId);
+
+  if (!alreadyAssigned) {
+    // Upsert into assignedTechnicians
+    await prisma.jobTechnician.upsert({
+      where: { jobId_userId: { jobId: job.id, userId } },
+      create: { jobId: job.id, userId },
+      update: {},
+    });
+    // If no lead tech yet, make this tech the lead
+    if (!job.technicianId) {
+      await prisma.job.update({ where: { id: job.id }, data: { technicianId: userId } });
+    }
+  }
+
+  const updated = await prisma.job.findUnique({
+    where: { id: job.id },
+    include: {
+      customer: { select: { id: true, firstName: true, lastName: true } },
+      serviceAddress: true,
+      technician: { select: { id: true, firstName: true, lastName: true } },
+      assignedTechnicians: { include: { user: { select: { id: true, firstName: true, lastName: true } } } },
+      lineItems: true,
+      notes: { include: { author: { select: { firstName: true, lastName: true } } } },
+    },
+  });
+
+  io?.to(`tenant:${req.user!.tenantId}`).emit('job:updated', updated);
+  res.json({ success: true, data: updated } satisfies ApiResponse);
 });
 
 // DELETE /api/v1/jobs/:id

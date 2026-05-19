@@ -932,7 +932,7 @@ export function JobDetailModal({ jobId, onClose }: Props) {
     actualEnd?: string;
     customer: { firstName: string; lastName: string; phone?: string; email?: string };
     serviceAddress: { street: string; city: string; state: string; zip: string };
-    technician?: { firstName: string; lastName: string; phone?: string };
+    technician?: { id: string; firstName: string; lastName: string; phone?: string };
     assignedTechnicians: Array<{ userId: string; user: { id: string; firstName: string; lastName: string } }>;
     lineItems: Array<{ id: string; description: string; quantity: number; unitPrice: number }>;
     notes: Array<{ id: string; content: string; isInternal: boolean; createdAt: string; author: { firstName: string; lastName: string } }>;
@@ -948,6 +948,11 @@ export function JobDetailModal({ jobId, onClose }: Props) {
   const { mutate: updateStatus, isPending: isUpdatingStatus } = useMutation({
     mutationFn: (status: JobStatus) => api.patch(`/jobs/${jobId}`, { status }),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['jobs'] }),
+  });
+
+  const { mutate: selfAssign, isPending: isSelfAssigning } = useMutation({
+    mutationFn: () => api.post(`/jobs/${jobId}/self-assign`, {}),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['jobs', jobId] }),
   });
 
   const { mutate: saveEdit, isPending: isSavingEdit } = useMutation({
@@ -1043,6 +1048,24 @@ export function JobDetailModal({ jobId, onClose }: Props) {
 
             {/* Status actions */}
             <div className="flex flex-wrap gap-2 p-3 bg-gray-50 rounded-lg items-center">
+              {/* Self-assign button for techs not on the job */}
+              {isTech && !['completed', 'cancelled'].includes(job.status) && (() => {
+                const alreadyOn = job.technician?.id === user?.id ||
+                  job.assignedTechnicians?.some(a => a.user.id === user?.id);
+                if (alreadyOn) return null;
+                return (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="border-blue-300 text-blue-700 hover:bg-blue-50"
+                    loading={isSelfAssigning}
+                    onClick={() => selfAssign()}
+                  >
+                    <User className="h-4 w-4 mr-1.5" /> Add Me to This Job
+                  </Button>
+                );
+              })()}
+
               {/* Finish Job button for in_progress */}
               {job.status === 'in_progress' && (
                 <Button
