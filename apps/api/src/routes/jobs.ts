@@ -1,4 +1,6 @@
 import { Router } from 'express';
+import multer from 'multer';
+import Anthropic from '@anthropic-ai/sdk';
 import { authenticate, requireRole } from '../middleware/authenticate';
 import { prisma } from '@fsp/db';
 import { AppError } from '../middleware/errorHandler';
@@ -7,6 +9,20 @@ import type { ApiResponse } from '@fsp/types';
 import { DEFAULT_ROLE_PERMISSIONS } from './tenants';
 import { sendSms } from '../lib/sms';
 import { sendJobReviewRequest } from '../lib/email';
+
+const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
+
+const aiUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 20 * 1024 * 1024 },
+  fileFilter: (_req, file, cb) => {
+    if (file.mimetype.startsWith('image/') || file.mimetype === 'application/pdf') {
+      cb(null, true);
+    } else {
+      cb(new Error('Unsupported file type'));
+    }
+  },
+});
 
 export const jobsRouter = Router();
 
@@ -121,11 +137,63 @@ jobsRouter.get('/:id', async (req, res) => {
   res.json({ success: true, data: job } satisfies ApiResponse);
 });
 
-// POST /api/v1/jobs — technicians cannot create jobs; sales can only if createJobs is on
-jobsRouter.post('/', async (req, res) => {
-  if (req.user!.role === 'technician') {
-    throw new AppError('Technicians cannot create jobs', 403, 'FORBIDDEN');
+// POST /api/v1/jobs/ai-parse — any authenticated user; accepts image or PDF, returns extracted job info
+jobsRouter.post('/ai-parse', aiUpload.single('file'), async (req, res) => {
+  if (!req.file) throw new AppError('No file uploaded', 400, 'BAD_REQUEST');
+
+  const base64 = req.file.buffer.toString('base64');
+  const isImage = req.file.mimetype.startsWith('image/');
+  const isPdf = req.file.mimetype === 'application/pdf';
+
+  const fileContent: Anthropic.MessageParam['content'] = isImage
+    ? [
+        { type: 'text', text: 'Extract job information from this image.' },
+        { type: 'image', source: { type: 'base64', media_type: req.file.mimetype as 'image/jpeg' | 'image/png' | 'image/gif' | 'image/webp', data: base64 } },
+      ]
+    : isPdf
+    ? [
+        { type: 'text', text: 'Extract job information from this document.' },
+        { type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: base64 } } as any,
+      ]
+    : [{ type: 'text', text: 'No readable file provided.' }];
+
+  const systemPrompt = `You are a field service dispatcher assistant. Extract job information from the provided file and return ONLY a valid JSON object with these fields (omit any you cannot determine):
+{
+  "title": "brief job title (max 80 chars)",
+  "description": "detailed description of the work needed",
+  "serviceType": "pool|pest_control|turf|handyman",
+  "priority": "low|normal|high|urgent",
+  "customerName": "full customer name if visible",
+  "street": "service address street",
+  "city": "city name",
+  "state": "2-letter US state code",
+  "zip": "zip code",
+  "scheduledDate": "YYYY-MM-DD if a specific date is mentioned",
+  "scheduledTime": "HH:MM in 24h format if a time is mentioned"
+}
+Return ONLY the raw JSON object, no markdown, no explanation.`;
+
+  const message = await anthropic.messages.create({
+    model: 'claude-sonnet-4-6',
+    max_tokens: 1024,
+    system: systemPrompt,
+    messages: [{ role: 'user', content: fileContent }],
+  });
+
+  const text = message.content[0].type === 'text' ? message.content[0].text.trim() : '{}';
+  let extracted: Record<string, string> = {};
+  try {
+    const jsonStr = text.match(/\{[\s\S]*\}/)?.[0] ?? text;
+    extracted = JSON.parse(jsonStr);
+  } catch {
+    extracted = {};
   }
+
+  res.json({ success: true, data: extracted } satisfies ApiResponse);
+});
+
+// POST /api/v1/jobs — techs can create jobs; sales can only if createJobs permission is on
+jobsRouter.post('/', async (req, res) => {
   if (req.user!.role === 'sales') {
     const perms = await getTenantPermissions(req.user!.tenantId);
     if (!perms.sales.createJobs) {
