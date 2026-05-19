@@ -988,13 +988,13 @@ export function JobDetailModal({ jobId, onClose }: Props) {
     job && (job.status === 'scheduled' || job.status === 'en_route');
 
   const tabs: { id: TabType; label: string; icon?: React.ReactNode; adminOnly?: boolean }[] = [
-    { id: 'details', label: 'Details' },
-    { id: 'edit', label: 'Edit', icon: <Edit2 className="h-3 w-3" /> },
-    { id: 'photos', label: 'Photos', icon: <Camera className="h-3 w-3" /> },
-    { id: 'work_orders', label: 'Work Orders', icon: <ClipboardList className="h-3 w-3" /> },
-    { id: 'receipts', label: 'Receipts', icon: <Receipt className="h-3 w-3" /> },
-    { id: 'cost_summary', label: 'Cost Summary', icon: <DollarSign className="h-3 w-3" />, adminOnly: true },
-    { id: 'notes', label: 'Notes', icon: <MessageSquare className="h-3 w-3" /> },
+    { id: 'details' as TabType, label: 'Details' },
+    { id: 'edit' as TabType, label: 'Edit', icon: <Edit2 className="h-3 w-3" /> },
+    { id: 'photos' as TabType, label: 'Photos', icon: <Camera className="h-3 w-3" /> },
+    { id: 'work_orders' as TabType, label: 'Work Orders', icon: <ClipboardList className="h-3 w-3" /> },
+    { id: 'receipts' as TabType, label: 'Receipts', icon: <Receipt className="h-3 w-3" /> },
+    { id: 'cost_summary' as TabType, label: 'Cost Summary', icon: <DollarSign className="h-3 w-3" />, adminOnly: true },
+    { id: 'notes' as TabType, label: 'Notes', icon: <MessageSquare className="h-3 w-3" /> },
   ].filter(t => !t.adminOnly || isAdmin);
 
   return (
