@@ -4,6 +4,7 @@ import {
   Camera, MessageSquare, User, MapPin, Clock, Receipt,
   CheckCircle2, PlayCircle, Navigation, XCircle, Upload, Lock, Unlock, Edit2,
   FileText, DollarSign, Loader2, Trash2, Eye, EyeOff, X, ClipboardList,
+  CheckCircle, ArrowRight, RotateCcw, Layers,
 } from 'lucide-react';
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle,
@@ -61,10 +62,7 @@ function AuthImg({ src, className, alt }: { src: string; className?: string; alt
     if (!src) return;
     let objectUrl = '';
     api.get(src, { responseType: 'blob' })
-      .then(r => {
-        objectUrl = URL.createObjectURL(r.data);
-        setBlobSrc(objectUrl);
-      })
+      .then(r => { objectUrl = URL.createObjectURL(r.data); setBlobSrc(objectUrl); })
       .catch(() => setError(true));
     return () => { if (objectUrl) URL.revokeObjectURL(objectUrl); };
   }, [src]);
@@ -84,8 +82,6 @@ interface JobFile {
   id: string;
   fileType: string;
   photoCategory?: string;
-  stageType?: string;
-  stageName?: string;
   originalName: string;
   mimeType: string;
   fileSizeBytes: number;
@@ -109,13 +105,311 @@ interface Props {
 
 type TabType = 'details' | 'edit' | 'photos' | 'work_orders' | 'receipts' | 'cost_summary' | 'notes';
 
+// ── Start Job Overlay ─────────────────────────────────────────────────────────
+
+function StartJobOverlay({
+  jobTitle, address, onStart, onViewOnly, loading,
+}: {
+  jobTitle: string;
+  address: string;
+  onStart: () => void;
+  onViewOnly: () => void;
+  loading: boolean;
+}) {
+  return (
+    <div className="absolute inset-0 bg-white/97 backdrop-blur-sm z-20 flex flex-col items-center justify-center p-6 rounded-b-2xl">
+      <div className="text-center space-y-6 max-w-xs w-full">
+        <div className="w-20 h-20 bg-blue-100 rounded-full flex items-center justify-center mx-auto">
+          <PlayCircle className="h-11 w-11 text-blue-600" />
+        </div>
+        <div>
+          <h2 className="text-xl font-bold text-gray-900 mb-1">Ready to start?</h2>
+          <p className="text-gray-700 font-medium">{jobTitle}</p>
+          <p className="text-gray-400 text-sm mt-0.5">{address}</p>
+        </div>
+        <div className="space-y-3 w-full">
+          <Button className="w-full py-3 text-base" loading={loading} onClick={onStart}>
+            <PlayCircle className="h-5 w-5 mr-2" /> Start Job Now
+          </Button>
+          <button
+            onClick={onViewOnly}
+            className="w-full py-2.5 text-sm text-gray-500 hover:text-gray-700 transition-colors"
+          >
+            View Details Only
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Finish Job Wizard ─────────────────────────────────────────────────────────
+
+function FinishWizardOverlay({
+  jobId,
+  onComplete,
+  onCancel,
+}: {
+  jobId: string;
+  onComplete: (status: JobStatus) => void;
+  onCancel: () => void;
+}) {
+  const [step, setStep] = useState(0);
+  const [pendingStatus, setPendingStatus] = useState<JobStatus | null>(null);
+  const [uploading, setUploading] = useState(false);
+  const [uploadedCounts, setUploadedCounts] = useState({ after: 0, workOrder: 0, receipt: 0 });
+  const afterRef = useRef<HTMLInputElement>(null);
+  const workOrderRef = useRef<HTMLInputElement>(null);
+  const receiptRef = useRef<HTMLInputElement>(null);
+  const [receiptForm, setReceiptForm] = useState({ amount: '', category: 'materials', vendor: '' });
+
+  const upload = async (files: FileList, fileType: string, extra: Record<string, string> = {}) => {
+    setUploading(true);
+    try {
+      for (const file of Array.from(files)) {
+        const fd = new FormData();
+        fd.append('file', file);
+        fd.append('fileType', fileType);
+        if (fileType === 'photo') fd.append('photoCategory', 'after');
+        Object.entries(extra).forEach(([k, v]) => fd.append(k, v));
+        await api.post(`/job-files/${jobId}`, fd);
+      }
+      setUploadedCounts(c => ({
+        ...c,
+        after: fileType === 'photo' ? c.after + files.length : c.after,
+        workOrder: fileType === 'work_order' ? c.workOrder + files.length : c.workOrder,
+        receipt: fileType === 'receipt' ? c.receipt + files.length : c.receipt,
+      }));
+    } finally {
+      setUploading(false);
+    }
+  };
+
+  const STEPS = ['After Photos', 'Job Status', 'Work Order', 'Receipts'];
+
+  return (
+    <div className="absolute inset-0 bg-white/97 backdrop-blur-sm z-20 flex flex-col rounded-b-2xl overflow-hidden">
+      {/* Header */}
+      <div className="flex items-center gap-3 px-5 py-4 border-b bg-white">
+        <button onClick={onCancel} className="text-gray-400 hover:text-gray-600 mr-1">
+          <X className="h-5 w-5" />
+        </button>
+        <div className="flex-1">
+          <p className="text-sm font-semibold text-gray-800">Finish Job</p>
+          <p className="text-xs text-gray-400">{STEPS[step]} ({step + 1}/{STEPS.length})</p>
+        </div>
+        {/* Step dots */}
+        <div className="flex gap-1.5">
+          {STEPS.map((_, i) => (
+            <div key={i} className={`h-2 w-2 rounded-full transition-colors ${
+              i < step ? 'bg-green-500' : i === step ? 'bg-blue-600' : 'bg-gray-200'
+            }`} />
+          ))}
+        </div>
+      </div>
+
+      {/* Step content */}
+      <div className="flex-1 overflow-y-auto p-5">
+
+        {/* Step 0: After Photos */}
+        {step === 0 && (
+          <div className="space-y-5">
+            <div className="text-center">
+              <div className="w-16 h-16 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-3">
+                <Camera className="h-9 w-9 text-green-600" />
+              </div>
+              <h3 className="text-lg font-bold text-gray-900">Upload After Photos</h3>
+              <p className="text-sm text-gray-500 mt-1">Show the completed work before wrapping up.</p>
+            </div>
+            <input ref={afterRef} type="file" accept="image/*" multiple className="hidden"
+              onChange={e => { if (e.target.files?.length) upload(e.target.files, 'photo'); e.target.value = ''; }} />
+            <button
+              onClick={() => afterRef.current?.click()}
+              disabled={uploading}
+              className="w-full border-2 border-dashed border-green-300 rounded-2xl py-8 flex flex-col items-center gap-2 text-green-700 hover:bg-green-50 transition-colors disabled:opacity-50"
+            >
+              {uploading ? <Loader2 className="h-7 w-7 animate-spin" /> : <Camera className="h-8 w-8" />}
+              <span className="font-medium">{uploading ? 'Uploading...' : 'Tap to take / choose photos'}</span>
+              {uploadedCounts.after > 0 && (
+                <span className="text-xs bg-green-600 text-white px-2 py-0.5 rounded-full">
+                  {uploadedCounts.after} uploaded ✓
+                </span>
+              )}
+            </button>
+            <div className="flex gap-3">
+              <Button variant="outline" className="flex-1" onClick={() => setStep(1)}>
+                Skip Photos
+              </Button>
+              <Button className="flex-1" onClick={() => setStep(1)}>
+                {uploadedCounts.after > 0 ? 'Continue' : 'Continue'} <ArrowRight className="h-4 w-4 ml-1.5" />
+              </Button>
+            </div>
+          </div>
+        )}
+
+        {/* Step 1: Complete or Stage */}
+        {step === 1 && (
+          <div className="space-y-5">
+            <div className="text-center">
+              <div className="w-16 h-16 bg-blue-100 rounded-full flex items-center justify-center mx-auto mb-3">
+                <CheckCircle2 className="h-9 w-9 text-blue-600" />
+              </div>
+              <h3 className="text-lg font-bold text-gray-900">How did it go?</h3>
+              <p className="text-sm text-gray-500 mt-1">Is the job fully done or more work needed?</p>
+            </div>
+            <div className="grid gap-3">
+              <button
+                onClick={() => { setPendingStatus('completed'); setStep(2); }}
+                className="flex items-center gap-4 p-4 bg-green-50 border-2 border-green-200 rounded-2xl hover:border-green-400 hover:bg-green-100 transition-colors text-left"
+              >
+                <CheckCircle className="h-9 w-9 text-green-600 flex-shrink-0" />
+                <div>
+                  <p className="font-bold text-green-800">Job Complete</p>
+                  <p className="text-sm text-green-600">All work is done, ready to invoice.</p>
+                </div>
+              </button>
+              <button
+                onClick={() => { setPendingStatus('on_hold'); setStep(2); }}
+                className="flex items-center gap-4 p-4 bg-amber-50 border-2 border-amber-200 rounded-2xl hover:border-amber-400 hover:bg-amber-100 transition-colors text-left"
+              >
+                <Layers className="h-9 w-9 text-amber-600 flex-shrink-0" />
+                <div>
+                  <p className="font-bold text-amber-800">Stage Complete</p>
+                  <p className="text-sm text-amber-600">This phase is done, more work to come.</p>
+                </div>
+              </button>
+            </div>
+            <button onClick={() => setStep(0)} className="w-full text-sm text-gray-400 hover:text-gray-600 flex items-center justify-center gap-1">
+              <RotateCcw className="h-3.5 w-3.5" /> Back to photos
+            </button>
+          </div>
+        )}
+
+        {/* Step 2: Work Order */}
+        {step === 2 && (
+          <div className="space-y-5">
+            <div className="text-center">
+              <div className="w-16 h-16 bg-purple-100 rounded-full flex items-center justify-center mx-auto mb-3">
+                <ClipboardList className="h-9 w-9 text-purple-600" />
+              </div>
+              <h3 className="text-lg font-bold text-gray-900">Upload Work Order?</h3>
+              <p className="text-sm text-gray-500 mt-1">Attach a signed work order, estimate, or field form.</p>
+            </div>
+            <input ref={workOrderRef} type="file" accept="image/*,.pdf" multiple className="hidden"
+              onChange={e => { if (e.target.files?.length) upload(e.target.files, 'work_order'); e.target.value = ''; }} />
+            <button
+              onClick={() => workOrderRef.current?.click()}
+              disabled={uploading}
+              className="w-full border-2 border-dashed border-purple-300 rounded-2xl py-8 flex flex-col items-center gap-2 text-purple-700 hover:bg-purple-50 transition-colors disabled:opacity-50"
+            >
+              {uploading ? <Loader2 className="h-7 w-7 animate-spin" /> : <Upload className="h-8 w-8" />}
+              <span className="font-medium">{uploading ? 'Uploading...' : 'Tap to upload'}</span>
+              <span className="text-xs text-purple-500">Photo or PDF</span>
+              {uploadedCounts.workOrder > 0 && (
+                <span className="text-xs bg-purple-600 text-white px-2 py-0.5 rounded-full">
+                  {uploadedCounts.workOrder} uploaded ✓
+                </span>
+              )}
+            </button>
+            <div className="flex gap-3">
+              <Button variant="outline" className="flex-1" onClick={() => setStep(3)}>Skip for Now</Button>
+              <Button className="flex-1" onClick={() => setStep(3)}>
+                Continue <ArrowRight className="h-4 w-4 ml-1.5" />
+              </Button>
+            </div>
+          </div>
+        )}
+
+        {/* Step 3: Receipts */}
+        {step === 3 && (
+          <div className="space-y-5">
+            <div className="text-center">
+              <div className="w-16 h-16 bg-emerald-100 rounded-full flex items-center justify-center mx-auto mb-3">
+                <Receipt className="h-9 w-9 text-emerald-600" />
+              </div>
+              <h3 className="text-lg font-bold text-gray-900">Any Receipts?</h3>
+              <p className="text-sm text-gray-500 mt-1">Upload receipts for materials, supplies, or expenses.</p>
+            </div>
+            <div className="grid grid-cols-2 gap-2">
+              <div>
+                <label className="block text-xs text-gray-500 mb-1">Amount ($)</label>
+                <input type="number" step="0.01" min="0" placeholder="0.00"
+                  value={receiptForm.amount}
+                  onChange={e => setReceiptForm(f => ({ ...f, amount: e.target.value }))}
+                  className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500" />
+              </div>
+              <div>
+                <label className="block text-xs text-gray-500 mb-1">Category</label>
+                <select value={receiptForm.category}
+                  onChange={e => setReceiptForm(f => ({ ...f, category: e.target.value }))}
+                  className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-emerald-500">
+                  {RECEIPT_CATEGORIES.map(c => (
+                    <option key={c} value={c}>{c.replace('_', ' ').replace(/\b\w/g, l => l.toUpperCase())}</option>
+                  ))}
+                </select>
+              </div>
+              <div className="col-span-2">
+                <label className="block text-xs text-gray-500 mb-1">Vendor / Store (optional)</label>
+                <input type="text" placeholder="Home Depot, etc."
+                  value={receiptForm.vendor}
+                  onChange={e => setReceiptForm(f => ({ ...f, vendor: e.target.value }))}
+                  className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500" />
+              </div>
+            </div>
+            <input ref={receiptRef} type="file" accept="image/*,.pdf" multiple className="hidden"
+              onChange={e => {
+                if (e.target.files?.length) {
+                  const extra: Record<string, string> = { receiptCategory: receiptForm.category };
+                  if (receiptForm.amount) extra.costAmount = receiptForm.amount;
+                  if (receiptForm.vendor) extra.vendorName = receiptForm.vendor;
+                  upload(e.target.files, 'receipt', extra);
+                }
+                e.target.value = '';
+              }} />
+            <button
+              onClick={() => receiptRef.current?.click()}
+              disabled={uploading}
+              className="w-full border-2 border-dashed border-emerald-300 rounded-2xl py-6 flex flex-col items-center gap-2 text-emerald-700 hover:bg-emerald-50 transition-colors disabled:opacity-50"
+            >
+              {uploading ? <Loader2 className="h-6 w-6 animate-spin" /> : <Receipt className="h-7 w-7" />}
+              <span className="font-medium text-sm">{uploading ? 'Uploading...' : 'Tap to upload receipt'}</span>
+              {uploadedCounts.receipt > 0 && (
+                <span className="text-xs bg-emerald-600 text-white px-2 py-0.5 rounded-full">
+                  {uploadedCounts.receipt} uploaded ✓
+                </span>
+              )}
+            </button>
+            <div className="flex gap-3">
+              <Button variant="outline" className="flex-1" onClick={() => pendingStatus && onComplete(pendingStatus)}>
+                No Receipts — Done
+              </Button>
+              <Button
+                className="flex-1 bg-emerald-600 hover:bg-emerald-700"
+                disabled={uploading}
+                onClick={() => pendingStatus && onComplete(pendingStatus)}
+              >
+                <CheckCircle className="h-4 w-4 mr-1.5" />
+                {pendingStatus === 'completed' ? 'Mark Complete' : 'Mark Stage Done'}
+              </Button>
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 // ── Photos Tab ────────────────────────────────────────────────────────────────
 
-function PhotosTab({ jobId }: { jobId: string }) {
+function PhotosTab({ jobId, defaultCategory = 'before', showUploadPrompt = false }: {
+  jobId: string;
+  defaultCategory?: string;
+  showUploadPrompt?: boolean;
+}) {
   const qc = useQueryClient();
   const fileRef = useRef<HTMLInputElement>(null);
   const [uploading, setUploading] = useState(false);
-  const [category, setCategory] = useState<string>('before');
+  const [category, setCategory] = useState<string>(defaultCategory);
   const [visibility, setVisibility] = useState<'internal' | 'customer_visible'>('internal');
   const [notes, setNotes] = useState('');
   const [filter, setFilter] = useState<string>('all');
@@ -161,6 +455,20 @@ function PhotosTab({ jobId }: { jobId: string }) {
 
   return (
     <div className="space-y-4">
+      {/* Before-photo prompt when job just started */}
+      {showUploadPrompt && (
+        <div
+          onClick={() => fileRef.current?.click()}
+          className="flex items-center gap-3 p-4 bg-blue-50 border-2 border-dashed border-blue-300 rounded-2xl cursor-pointer hover:bg-blue-100 transition-colors"
+        >
+          <Camera className="h-8 w-8 text-blue-500 flex-shrink-0" />
+          <div>
+            <p className="font-semibold text-blue-800">Upload Before Photos</p>
+            <p className="text-sm text-blue-600">Tap here to capture the job site before starting work.</p>
+          </div>
+        </div>
+      )}
+
       {/* Upload bar */}
       <div className="bg-gray-50 rounded-xl p-3 space-y-2">
         <div className="flex flex-wrap gap-2">
@@ -226,7 +534,6 @@ function PhotosTab({ jobId }: { jobId: string }) {
               <button onClick={() => setLightbox(f)} className="w-full aspect-square rounded-lg overflow-hidden block">
                 <AuthImg src={f.url} className="w-full h-full" alt={f.notes ?? f.photoCategory} />
               </button>
-              {/* Badges */}
               <div className="absolute top-1 left-1 flex gap-1">
                 <span className={`text-xs px-1.5 py-0.5 rounded font-medium capitalize ${
                   f.photoCategory === 'before' ? 'bg-blue-600 text-white' :
@@ -423,7 +730,6 @@ function ReceiptsTab({ jobId }: { jobId: string }) {
 
   return (
     <div className="space-y-4">
-      {/* Upload form */}
       <div className="bg-gray-50 rounded-xl p-3 space-y-2">
         <div className="grid grid-cols-2 gap-2">
           <div>
@@ -470,7 +776,6 @@ function ReceiptsTab({ jobId }: { jobId: string }) {
         </div>
       </div>
 
-      {/* Running total */}
       {files.length > 0 && (
         <div className="flex items-center justify-between bg-emerald-50 border border-emerald-200 rounded-xl px-4 py-2.5">
           <span className="text-sm text-emerald-700 font-medium flex items-center gap-1.5">
@@ -480,7 +785,6 @@ function ReceiptsTab({ jobId }: { jobId: string }) {
         </div>
       )}
 
-      {/* Receipt list */}
       {isLoading ? (
         <div className="flex justify-center py-8"><Loader2 className="h-5 w-5 animate-spin text-gray-400" /></div>
       ) : files.length === 0 ? (
@@ -558,7 +862,6 @@ function CostSummaryTab({ jobId }: { jobId: string }) {
           <p className="text-2xl font-bold text-gray-700">{data.count}</p>
         </div>
       </div>
-
       {Object.keys(data.byCategory).length > 0 && (
         <div className="bg-white border border-gray-200 rounded-xl overflow-hidden">
           <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide px-4 py-2 bg-gray-50 border-b">By Category</p>
@@ -570,7 +873,6 @@ function CostSummaryTab({ jobId }: { jobId: string }) {
           ))}
         </div>
       )}
-
       {data.count === 0 && (
         <div className="text-center py-10 text-gray-400">
           <DollarSign className="h-9 w-9 mx-auto mb-2 opacity-30" />
@@ -593,8 +895,20 @@ export function JobDetailModal({ jobId, onClose }: Props) {
     title: string; description: string; priority: string; serviceType: string;
     scheduledStart: string; scheduledEnd: string; technicianIds: string[];
   } | null>(null);
+  const [startDismissed, setStartDismissed] = useState(false);
+  const [showFinishWizard, setShowFinishWizard] = useState(false);
+  const [photoPrompt, setPhotoPrompt] = useState(false);
 
   const isAdmin = user?.role === 'owner' || user?.role === 'admin';
+  const isTech = user?.role === 'technician';
+
+  // Reset overlays when switching jobs
+  useEffect(() => {
+    setStartDismissed(false);
+    setShowFinishWizard(false);
+    setPhotoPrompt(false);
+    setTab('details');
+  }, [jobId]);
 
   const { data, isLoading } = useQuery({
     queryKey: ['jobs', jobId],
@@ -638,10 +952,8 @@ export function JobDetailModal({ jobId, onClose }: Props) {
 
   const { mutate: saveEdit, isPending: isSavingEdit } = useMutation({
     mutationFn: (form: NonNullable<typeof editForm>) => api.patch(`/jobs/${jobId}`, {
-      title: form.title,
-      description: form.description || null,
-      priority: form.priority,
-      serviceType: form.serviceType,
+      title: form.title, description: form.description || null,
+      priority: form.priority, serviceType: form.serviceType,
       scheduledStart: form.scheduledStart ? new Date(form.scheduledStart).toISOString() : null,
       scheduledEnd: form.scheduledEnd ? new Date(form.scheduledEnd).toISOString() : null,
       technicianId: form.technicianIds[0] || null,
@@ -655,7 +967,25 @@ export function JobDetailModal({ jobId, onClose }: Props) {
     onSuccess: () => { setNoteText(''); qc.invalidateQueries({ queryKey: ['jobs', jobId] }); },
   });
 
+  const handleStartJob = () => {
+    updateStatus('in_progress');
+    setStartDismissed(true);
+    setPhotoPrompt(true);
+    setTab('photos');
+  };
+
+  const handleFinishComplete = (status: JobStatus) => {
+    updateStatus(status);
+    setShowFinishWizard(false);
+    setPhotoPrompt(false);
+    setTab('details');
+  };
+
   const transitions = job ? STATUS_TRANSITIONS[job.status] : [];
+
+  // For techs, show the start overlay on scheduled/en_route jobs they haven't dismissed
+  const showStartOverlay = !startDismissed && isTech &&
+    job && (job.status === 'scheduled' || job.status === 'en_route');
 
   const tabs: { id: TabType; label: string; icon?: React.ReactNode; adminOnly?: boolean }[] = [
     { id: 'details', label: 'Details' },
@@ -690,21 +1020,57 @@ export function JobDetailModal({ jobId, onClose }: Props) {
         {isLoading && <div className="py-12 text-center text-muted-foreground">Loading...</div>}
 
         {job && (
-          <div className="space-y-4">
-            {/* Status actions */}
-            {transitions.length > 0 && (
-              <div className="flex flex-wrap gap-2 p-3 bg-gray-50 rounded-lg">
-                <span className="text-sm text-gray-600 self-center mr-1">Move to:</span>
-                {transitions.map((s) => (
-                  <Button key={s} size="sm"
-                    variant={s === 'cancelled' ? 'ghost' : s === 'completed' ? 'default' : 'outline'}
-                    className={s === 'cancelled' ? 'text-destructive hover:text-destructive' : ''}
-                    loading={isUpdatingStatus} onClick={() => updateStatus(s)}>
-                    {STATUS_LABELS[s]}
-                  </Button>
-                ))}
-              </div>
+          <div className="relative space-y-4">
+            {/* Start Job Overlay (tech only, scheduled/en_route) */}
+            {showStartOverlay && (
+              <StartJobOverlay
+                jobTitle={job.title}
+                address={`${job.serviceAddress.street}, ${job.serviceAddress.city}`}
+                onStart={handleStartJob}
+                onViewOnly={() => setStartDismissed(true)}
+                loading={isUpdatingStatus}
+              />
             )}
+
+            {/* Finish Job Wizard Overlay */}
+            {showFinishWizard && (
+              <FinishWizardOverlay
+                jobId={job.id}
+                onComplete={handleFinishComplete}
+                onCancel={() => setShowFinishWizard(false)}
+              />
+            )}
+
+            {/* Status actions */}
+            <div className="flex flex-wrap gap-2 p-3 bg-gray-50 rounded-lg items-center">
+              {/* Finish Job button for in_progress */}
+              {job.status === 'in_progress' && (
+                <Button
+                  className="bg-green-600 hover:bg-green-700 text-white"
+                  size="sm"
+                  onClick={() => setShowFinishWizard(true)}
+                >
+                  <CheckCircle2 className="h-4 w-4 mr-1.5" /> Finish Job
+                </Button>
+              )}
+              {transitions.length > 0 && (
+                <>
+                  <span className="text-sm text-gray-500 self-center">
+                    {job.status === 'in_progress' ? 'Or move to:' : 'Move to:'}
+                  </span>
+                  {transitions
+                    .filter(s => !(job.status === 'in_progress' && s === 'completed'))
+                    .map((s) => (
+                      <Button key={s} size="sm"
+                        variant={s === 'cancelled' ? 'ghost' : 'outline'}
+                        className={s === 'cancelled' ? 'text-destructive hover:text-destructive' : ''}
+                        loading={isUpdatingStatus} onClick={() => updateStatus(s)}>
+                        {STATUS_LABELS[s]}
+                      </Button>
+                    ))}
+                </>
+              )}
+            </div>
 
             {/* Tabs */}
             <div className="flex border-b overflow-x-auto">
@@ -804,7 +1170,6 @@ export function JobDetailModal({ jobId, onClose }: Props) {
                   </div>
                 )}
 
-                {/* Portal access code */}
                 <div className="bg-blue-50 border border-blue-200 rounded-xl p-3 flex items-center justify-between">
                   <div>
                     <p className="text-xs font-semibold text-blue-700">Customer Portal Access Code</p>
@@ -880,8 +1245,7 @@ export function JobDetailModal({ jobId, onClose }: Props) {
               </div>
             )}
 
-            {/* ── Tab content rendered by sub-components ── */}
-            {tab === 'photos' && <PhotosTab jobId={job.id} />}
+            {tab === 'photos' && <PhotosTab jobId={job.id} defaultCategory="before" showUploadPrompt={photoPrompt} />}
             {tab === 'work_orders' && <WorkOrdersTab jobId={job.id} />}
             {tab === 'receipts' && <ReceiptsTab jobId={job.id} />}
             {tab === 'cost_summary' && isAdmin && <CostSummaryTab jobId={job.id} />}
