@@ -28,7 +28,7 @@ export function CreateJobModal({ open, onClose }: Props) {
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [scheduleMode, setScheduleMode] = useState<'open' | 'now'>('open');
   const [aiParsing, setAiParsing] = useState(false);
-  const [aiHint, setAiHint] = useState<{ customerName?: string; address?: string } | null>(null);
+  const [aiHint, setAiHint] = useState<{ customerName?: string; address?: string; addressMatched?: boolean } | null>(null);
   const [dragging, setDragging] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -124,27 +124,63 @@ export function CreateJobModal({ open, onClose }: Props) {
       }
       setForm((f) => ({ ...f, ...updates }));
 
-      // Try to match customer by name
+      // Try to match customer by name — multi-strategy fuzzy match
+      let matchedCustomer: typeof customers[0] | undefined;
       if (extracted.customerName) {
-        const lower = extracted.customerName.toLowerCase();
-        const match = customers.find((c) =>
-          `${c.firstName} ${c.lastName}`.toLowerCase().includes(lower) ||
-          lower.includes(c.firstName.toLowerCase())
-        );
-        if (match) {
-          setForm((f) => ({ ...f, ...updates, customerId: match.id }));
-          const primary = match.serviceAddresses.find((a) => a.isPrimary) ?? match.serviceAddresses[0];
-          if (primary) setForm((f) => ({ ...f, ...updates, customerId: match.id, serviceAddressId: primary.id }));
-        }
+        const raw = extracted.customerName.toLowerCase().trim();
+        // Tokenize: split on spaces and hyphens so "Sosa-Regan" → ["sosa","regan"]
+        const tokens = raw.split(/[\s\-]+/).filter(Boolean);
+
+        const score = (c: typeof customers[0]) => {
+          const full = `${c.firstName} ${c.lastName}`.toLowerCase();
+          const first = c.firstName.toLowerCase();
+          const last = c.lastName.toLowerCase();
+          const lastTokens = last.split(/[\s\-]+/);
+          if (full === raw) return 100;                          // exact full match
+          if (full.includes(raw) || raw.includes(full)) return 90; // substring either way
+          if (lastTokens.some(lt => tokens.includes(lt))) return 70; // last name token match
+          if (tokens.includes(first)) return 60;                // first name token match
+          // partial: any extracted token matches any customer name token
+          const custTokens = full.split(/[\s\-]+/);
+          const overlap = tokens.filter(t => t.length > 2 && custTokens.some(ct => ct.includes(t) || t.includes(ct)));
+          if (overlap.length >= 2) return 50;
+          if (overlap.length === 1 && tokens.length === 1) return 40;
+          return 0;
+        };
+
+        const scored = customers.map(c => ({ c, s: score(c) })).filter(x => x.s >= 40);
+        scored.sort((a, b) => b.s - a.s);
+        matchedCustomer = scored[0]?.c;
       }
 
-      // Show address hint if extracted but no match
-      const hasAddress = extracted.street || extracted.city;
+      const extractedAddress = [extracted.street, extracted.city, extracted.state, extracted.zip].filter(Boolean).join(', ');
+      const hasAddress = !!(extracted.street || extracted.city);
+      let addressMatched = false;
+
+      if (matchedCustomer) {
+        // Try to find the extracted address among the customer's service addresses
+        let matchedAddr = matchedCustomer.serviceAddresses.find((a) => {
+          if (!extracted.street) return false;
+          return a.street.toLowerCase().includes(extracted.street.toLowerCase().slice(0, 8)) ||
+            extracted.street.toLowerCase().includes(a.street.toLowerCase().slice(0, 8));
+        });
+        // Fall back to primary address if no street match
+        if (!matchedAddr) matchedAddr = matchedCustomer.serviceAddresses.find((a) => a.isPrimary) ?? matchedCustomer.serviceAddresses[0];
+        if (matchedAddr) addressMatched = true;
+
+        setForm((f) => ({
+          ...f, ...updates,
+          customerId: matchedCustomer!.id,
+          serviceAddressId: matchedAddr?.id ?? '',
+        }));
+      } else {
+        setForm((f) => ({ ...f, ...updates }));
+      }
+
       setAiHint({
         customerName: extracted.customerName,
-        address: hasAddress
-          ? [extracted.street, extracted.city, extracted.state, extracted.zip].filter(Boolean).join(', ')
-          : undefined,
+        address: hasAddress ? extractedAddress : undefined,
+        addressMatched,
       });
     } catch {
       // silently fail — form stays blank for manual entry
@@ -202,10 +238,15 @@ export function CreateJobModal({ open, onClose }: Props) {
         {aiHint && (
           <div className="flex items-start gap-2 bg-blue-50 border border-blue-200 rounded-xl px-4 py-3 text-sm text-blue-800">
             <Sparkles className="h-4 w-4 mt-0.5 flex-shrink-0 text-blue-500" />
-            <div className="flex-1">
+            <div className="flex-1 space-y-0.5">
               <span className="font-medium">AI filled in what it found.</span>
               {aiHint.customerName && <span> Customer: <strong>{aiHint.customerName}</strong>.</span>}
-              {aiHint.address && <span> Address: <strong>{aiHint.address}</strong>.</span>}
+              {aiHint.address && !aiHint.addressMatched && (
+                <span className="text-amber-700"> Address found (<strong>{aiHint.address}</strong>) — not on file yet, select or add below.</span>
+              )}
+              {aiHint.address && aiHint.addressMatched && (
+                <span> Address: <strong>{aiHint.address}</strong>.</span>
+              )}
               <span className="text-blue-600"> Review and adjust below.</span>
             </div>
             <button onClick={() => setAiHint(null)} className="text-blue-400 hover:text-blue-600">
@@ -244,6 +285,11 @@ export function CreateJobModal({ open, onClose }: Props) {
                 </option>
               ))}
             </Select>
+            {aiHint?.address && !aiHint.addressMatched && form.customerId && (
+              <p className="mt-1 text-xs text-amber-700 flex items-center gap-1">
+                <span>AI found: <strong>{aiHint.address}</strong> — add this address to the customer first, then select it here.</span>
+              </p>
+            )}
           </div>
 
           <div className="col-span-2">
