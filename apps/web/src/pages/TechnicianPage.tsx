@@ -1,6 +1,6 @@
 import { useState, useRef } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { MapPin, Navigation, ChevronDown, ChevronUp, Clock, Phone, DollarSign, LogOut, CheckCircle, Timer, Map, GraduationCap, ExternalLink } from 'lucide-react';
+import { MapPin, Navigation, ChevronDown, ChevronUp, Clock, Phone, DollarSign, LogOut, CheckCircle, Timer, Map, GraduationCap, ExternalLink, Plus } from 'lucide-react';
 import { TimeTrackingPage } from './TimeTrackingPage';
 import { TrainingPage } from './TrainingPage';
 import { Badge } from '@fsp/ui';
@@ -9,6 +9,7 @@ import { useAuthStore } from '../store/authStore';
 import { getSocket } from '../lib/socket';
 import { useTenantPermissions } from '../lib/permissions';
 import { JobDetailModal } from '../components/jobs/JobDetailModal';
+import { CreateJobModal } from '../components/jobs/CreateJobModal';
 
 const fmt = (c: number) =>
   '$' + (c / 100).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -247,6 +248,7 @@ export function TechnicianPage() {
   const watchRef = useRef<number | null>(null);
   const [completedToast, setCompletedToast] = useState<string | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [showCreate, setShowCreate] = useState(false);
 
   const today = new Date().toISOString().split('T')[0];
   const todayLabel = new Date().toLocaleDateString('en-US', {
@@ -343,6 +345,13 @@ export function TechnicianPage() {
               {isAvailable ? 'Available' : 'Unavailable'}
             </span>
             <div className="flex-1" />
+            <button
+              onClick={() => setShowCreate(true)}
+              className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-sm font-semibold bg-emerald-600 text-white hover:bg-emerald-700 transition-colors"
+            >
+              <Plus className="h-4 w-4" />
+              New Job
+            </button>
             <button
               onClick={tracking ? stopTracking : startTracking}
               className={`flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-semibold transition-colors ${
@@ -460,6 +469,7 @@ export function TechnicianPage() {
       </main>}
 
       <JobDetailModal jobId={selectedId} onClose={() => setSelectedId(null)} />
+      <CreateJobModal open={showCreate} onClose={() => setShowCreate(false)} />
     </div>
   );
 }
