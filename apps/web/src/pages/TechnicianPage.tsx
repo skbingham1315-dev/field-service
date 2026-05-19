@@ -1,6 +1,6 @@
 import { useState, useRef } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { MapPin, Navigation, ChevronDown, ChevronUp, Clock, Phone, DollarSign, LogOut, CheckCircle, Timer, Map, GraduationCap } from 'lucide-react';
+import { MapPin, Navigation, ChevronDown, ChevronUp, Clock, Phone, DollarSign, LogOut, CheckCircle, Timer, Map, GraduationCap, ExternalLink } from 'lucide-react';
 import { TimeTrackingPage } from './TimeTrackingPage';
 import { TrainingPage } from './TrainingPage';
 import { Badge } from '@fsp/ui';
@@ -8,6 +8,7 @@ import { api } from '../lib/api';
 import { useAuthStore } from '../store/authStore';
 import { getSocket } from '../lib/socket';
 import { useTenantPermissions } from '../lib/permissions';
+import { JobDetailModal } from '../components/jobs/JobDetailModal';
 
 const fmt = (c: number) =>
   '$' + (c / 100).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -71,12 +72,14 @@ function JobCard({
   showPhone,
   onStatusChange,
   onCompleted,
+  onViewDetails,
 }: {
   job: Job;
   showPricing: boolean;
   showPhone: boolean;
   onStatusChange: () => void;
   onCompleted: (jobTitle: string) => void;
+  onViewDetails: (id: string) => void;
 }) {
   const [expanded, setExpanded] = useState(false);
   const qc = useQueryClient();
@@ -175,6 +178,14 @@ function JobCard({
             </div>
           )}
 
+          <button
+            onClick={() => onViewDetails(job.id)}
+            className="w-full flex items-center justify-center gap-2 py-2.5 px-4 border border-indigo-200 bg-indigo-50 text-indigo-700 rounded-xl text-sm font-medium hover:bg-indigo-100 transition-colors"
+          >
+            <ExternalLink className="h-4 w-4" />
+            Photos / Receipts / Work Orders
+          </button>
+
           <div className="flex flex-wrap gap-3">
             {job.status === 'scheduled' && (
               <button
@@ -235,6 +246,7 @@ export function TechnicianPage() {
   const [tracking, setTracking] = useState(false);
   const watchRef = useRef<number | null>(null);
   const [completedToast, setCompletedToast] = useState<string | null>(null);
+  const [selectedId, setSelectedId] = useState<string | null>(null);
 
   const today = new Date().toISOString().split('T')[0];
   const todayLabel = new Date().toLocaleDateString('en-US', {
@@ -247,7 +259,6 @@ export function TechnicianPage() {
     queryKey: ['schedule', 'today'],
     queryFn: async () => {
       const params = new URLSearchParams({ date: today });
-      if (user?.id) params.set('technicianId', user.id);
       const { data } = await api.get(`/schedule?${params}`);
       return data;
     },
@@ -442,10 +453,13 @@ export function TechnicianPage() {
                 setCompletedToast(title);
                 setTimeout(() => setCompletedToast(null), 5000);
               }}
+              onViewDetails={setSelectedId}
             />
           ))
         )}
       </main>}
+
+      <JobDetailModal jobId={selectedId} onClose={() => setSelectedId(null)} />
     </div>
   );
 }
