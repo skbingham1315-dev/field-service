@@ -409,6 +409,8 @@ function PhotosTab({ jobId, defaultCategory = 'before', showUploadPrompt = false
   const qc = useQueryClient();
   const fileRef = useRef<HTMLInputElement>(null);
   const [uploading, setUploading] = useState(false);
+  const [uploadError, setUploadError] = useState('');
+  const [uploadCount, setUploadCount] = useState(0);
   const [category, setCategory] = useState<string>(defaultCategory);
   const [visibility, setVisibility] = useState<'internal' | 'customer_visible'>('internal');
   const [notes, setNotes] = useState('');
@@ -422,6 +424,8 @@ function PhotosTab({ jobId, defaultCategory = 'before', showUploadPrompt = false
 
   const handleUpload = async (fileList: FileList) => {
     setUploading(true);
+    setUploadError('');
+    setUploadCount(0);
     try {
       for (const file of Array.from(fileList)) {
         const fd = new FormData();
@@ -430,10 +434,16 @@ function PhotosTab({ jobId, defaultCategory = 'before', showUploadPrompt = false
         fd.append('photoCategory', category);
         fd.append('visibility', visibility);
         if (notes.trim()) fd.append('notes', notes.trim());
-        await api.post(`/job-files/${jobId}`, fd);
+        await api.post(`/job-files/${jobId}`, fd, {
+          headers: { 'Content-Type': 'multipart/form-data' },
+        });
+        setUploadCount(n => n + 1);
       }
       setNotes('');
       qc.invalidateQueries({ queryKey: ['job-files', jobId, 'photo'] });
+    } catch (err: any) {
+      const msg = err?.response?.data?.message ?? err?.message ?? 'Upload failed';
+      setUploadError(msg);
     } finally {
       setUploading(false);
     }
@@ -501,6 +511,17 @@ function PhotosTab({ jobId, defaultCategory = 'before', showUploadPrompt = false
           className="w-full px-3 py-1.5 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
         />
       </div>
+
+      {uploadError && (
+        <div className="text-sm text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2">
+          Upload failed: {uploadError}
+        </div>
+      )}
+      {!uploading && uploadCount > 0 && !uploadError && (
+        <div className="text-sm text-green-700 bg-green-50 border border-green-200 rounded-lg px-3 py-2">
+          {uploadCount} photo{uploadCount > 1 ? 's' : ''} uploaded successfully
+        </div>
+      )}
 
       {/* Filter */}
       {files.length > 0 && (
@@ -681,6 +702,8 @@ function ReceiptsTab({ jobId }: { jobId: string }) {
   const qc = useQueryClient();
   const fileRef = useRef<HTMLInputElement>(null);
   const [uploading, setUploading] = useState(false);
+  const [uploadError, setUploadError] = useState('');
+  const [uploadCount, setUploadCount] = useState(0);
   const [form, setForm] = useState({
     costAmount: '', receiptCategory: 'materials', vendorName: '',
     purchaseDate: '', notes: '', costBillable: false,
@@ -695,6 +718,8 @@ function ReceiptsTab({ jobId }: { jobId: string }) {
 
   const handleUpload = async (fileList: FileList) => {
     setUploading(true);
+    setUploadError('');
+    setUploadCount(0);
     try {
       for (const file of Array.from(fileList)) {
         const fd = new FormData();
@@ -706,10 +731,16 @@ function ReceiptsTab({ jobId }: { jobId: string }) {
         if (form.purchaseDate) fd.append('purchaseDate', form.purchaseDate);
         if (form.notes) fd.append('notes', form.notes);
         fd.append('costBillable', String(form.costBillable));
-        await api.post(`/job-files/${jobId}`, fd);
+        await api.post(`/job-files/${jobId}`, fd, {
+          headers: { 'Content-Type': 'multipart/form-data' },
+        });
+        setUploadCount(n => n + 1);
       }
       setForm(f => ({ ...f, costAmount: '', vendorName: '', purchaseDate: '', notes: '' }));
       qc.invalidateQueries({ queryKey: ['job-files', jobId, 'receipt'] });
+    } catch (err: any) {
+      const msg = err?.response?.data?.message ?? err?.message ?? 'Upload failed';
+      setUploadError(msg);
     } finally {
       setUploading(false);
     }
@@ -775,6 +806,17 @@ function ReceiptsTab({ jobId }: { jobId: string }) {
             onChange={e => { if (e.target.files?.length) handleUpload(e.target.files); e.target.value = ''; }} />
         </div>
       </div>
+
+      {uploadError && (
+        <div className="text-sm text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2">
+          Upload failed: {uploadError}
+        </div>
+      )}
+      {!uploading && uploadCount > 0 && !uploadError && (
+        <div className="text-sm text-green-700 bg-green-50 border border-green-200 rounded-lg px-3 py-2">
+          {uploadCount} receipt{uploadCount > 1 ? 's' : ''} uploaded successfully
+        </div>
+      )}
 
       {files.length > 0 && (
         <div className="flex items-center justify-between bg-emerald-50 border border-emerald-200 rounded-xl px-4 py-2.5">
