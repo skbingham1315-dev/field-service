@@ -94,7 +94,7 @@ jobFilesRouter.post('/:jobId', upload.single('file'), async (req, res) => {
     },
   });
 
-  res.status(201).json({ success: true, data: { ...file, url: `/api/v1/job-files/${jobId}/${file.id}/data` } } satisfies ApiResponse);
+  res.status(201).json({ success: true, data: { ...file, url: `/job-files/${jobId}/${file.id}/data` } } satisfies ApiResponse);
 });
 
 // ── GET /:jobId — list files ──────────────────────────────────────────────────
@@ -126,7 +126,7 @@ jobFilesRouter.get('/:jobId', async (req, res) => {
 
   const withUrls = files.map(f => ({
     ...f,
-    url: `/api/v1/job-files/${jobId}/${f.id}/data`,
+    url: `/job-files/${jobId}/${f.id}/data`,
   }));
 
   res.json({ success: true, data: withUrls } satisfies ApiResponse);
@@ -241,7 +241,7 @@ jobFilesRouter.get('/:jobId/cost-summary', requireRole('owner', 'admin'), async 
       total: Math.round(total * 100) / 100,
       count: receipts.length,
       byCategory,
-      receipts: receipts.map(r => ({ ...r, url: `/api/v1/job-files/${jobId}/${r.id}/data` })),
+      receipts: receipts.map(r => ({ ...r, url: `/job-files/${jobId}/${r.id}/data` })),
     },
   } satisfies ApiResponse);
 });

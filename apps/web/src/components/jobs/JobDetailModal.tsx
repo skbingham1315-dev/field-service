@@ -73,7 +73,7 @@ function AuthImg({ src, className, alt }: { src: string; className?: string; alt
     </div>
   );
   if (!blobSrc) return <div className={`${className} bg-gray-100 animate-pulse`} />;
-  return <img src={blobSrc} className={`${className} object-cover`} alt={alt ?? ''} />;
+  return <img src={blobSrc} className={`${className} object-cover`} alt={alt ?? ''} onError={() => setError(true)} />;
 }
 
 // ── Share Job Link ─────────────────────────────────────────────────────────────
