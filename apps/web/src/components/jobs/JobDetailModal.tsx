@@ -4,7 +4,7 @@ import {
   Camera, MessageSquare, User, MapPin, Clock, Receipt,
   CheckCircle2, PlayCircle, Navigation, XCircle, Upload, Lock, Unlock, Edit2,
   FileText, DollarSign, Loader2, Trash2, Eye, EyeOff, X, ClipboardList,
-  CheckCircle, ArrowRight, RotateCcw, Layers,
+  CheckCircle, ArrowRight, RotateCcw, Layers, Copy, Check,
 } from 'lucide-react';
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle,
@@ -74,6 +74,41 @@ function AuthImg({ src, className, alt }: { src: string; className?: string; alt
   );
   if (!blobSrc) return <div className={`${className} bg-gray-100 animate-pulse`} />;
   return <img src={blobSrc} className={`${className} object-cover`} alt={alt ?? ''} />;
+}
+
+// ── Share Job Link ─────────────────────────────────────────────────────────────
+
+function ShareJobLink({ jobId }: { jobId: string }) {
+  const [copied, setCopied] = useState(false);
+  const code = jobId.slice(-8).toUpperCase();
+  const url = `${window.location.origin}/job-portal?code=${code}`;
+
+  const copy = () => {
+    navigator.clipboard.writeText(url).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2500);
+    });
+  };
+
+  return (
+    <div className="bg-indigo-50 border border-indigo-200 rounded-xl p-3 space-y-2">
+      <div className="flex items-center justify-between">
+        <div>
+          <p className="text-xs font-semibold text-indigo-800">Customer Job Link</p>
+          <p className="text-xs text-indigo-600 mt-0.5">Share so they can track progress, see photos &amp; updates</p>
+        </div>
+        <code className="text-sm font-mono font-bold text-indigo-800 bg-indigo-100 px-2 py-1 rounded-lg">{code}</code>
+      </div>
+      <button
+        onClick={copy}
+        className={`w-full flex items-center justify-center gap-2 py-2 rounded-lg text-xs font-semibold transition-colors ${
+          copied ? 'bg-green-100 text-green-700 border border-green-200' : 'bg-indigo-100 text-indigo-700 border border-indigo-200 hover:bg-indigo-200'
+        }`}
+      >
+        {copied ? <><Check className="h-3.5 w-3.5" /> Copied!</> : <><Copy className="h-3.5 w-3.5" /> Copy Customer Link</>}
+      </button>
+    </div>
+  );
 }
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -1235,15 +1270,7 @@ export function JobDetailModal({ jobId, onClose }: Props) {
                   </div>
                 )}
 
-                <div className="bg-blue-50 border border-blue-200 rounded-xl p-3 flex items-center justify-between">
-                  <div>
-                    <p className="text-xs font-semibold text-blue-700">Customer Portal Access Code</p>
-                    <p className="text-xs text-blue-600">Share with customer: job ID + their email</p>
-                  </div>
-                  <code className="text-sm font-mono font-bold text-blue-800 bg-blue-100 px-3 py-1 rounded-lg">
-                    {job.id.slice(-8).toUpperCase()}
-                  </code>
-                </div>
+                <ShareJobLink jobId={job.id} />
               </div>
             )}
 

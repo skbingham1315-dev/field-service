@@ -127,11 +127,12 @@ async function sendMagicLinkEmail(
 
 const JOB_SESSION_SECRET = process.env.JWT_SECRET ?? 'dev_secret';
 
-// POST /portal/job-auth  { jobCode: string (last 8 of job.id), email: string }
+// POST /portal/job-auth  { jobCode: string (last 8 of job.id), email?: string }
+// Email is optional — job code alone is sufficient for access
 portalRouter.post('/job-auth', async (req: Request, res: Response): Promise<void> => {
   const { jobCode, email } = req.body as { jobCode?: string; email?: string };
-  if (!jobCode?.trim() || !email?.trim()) {
-    res.status(400).json({ error: 'jobCode and email are required' });
+  if (!jobCode?.trim()) {
+    res.status(400).json({ error: 'jobCode is required' });
     return;
   }
 
@@ -146,10 +147,13 @@ portalRouter.post('/job-auth', async (req: Request, res: Response): Promise<void
     take: 5,
   });
 
-  const job = jobs.find(j => j.customer.email?.toLowerCase() === email.trim().toLowerCase());
+  // If email provided, verify it matches for extra security; otherwise code-only is fine
+  let job = email?.trim()
+    ? jobs.find(j => j.customer.email?.toLowerCase() === email.trim().toLowerCase())
+    : jobs[0];
+
   if (!job) {
-    // Generic error — don't reveal which half is wrong
-    res.status(401).json({ error: 'Job code and email do not match a record' });
+    res.status(401).json({ error: 'Job code not found. Please check the code and try again.' });
     return;
   }
 
