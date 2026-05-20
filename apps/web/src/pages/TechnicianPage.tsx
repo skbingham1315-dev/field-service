@@ -346,13 +346,6 @@ export function TechnicianPage() {
             </span>
             <div className="flex-1" />
             <button
-              onClick={() => setShowCreate(true)}
-              className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-sm font-semibold bg-emerald-600 text-white hover:bg-emerald-700 transition-colors"
-            >
-              <Plus className="h-4 w-4" />
-              New Job
-            </button>
-            <button
               onClick={tracking ? stopTracking : startTracking}
               className={`flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-semibold transition-colors ${
                 tracking
@@ -438,7 +431,18 @@ export function TechnicianPage() {
         </div>
       )}
 
-      {activeTab === 'jobs' && <main className="px-4 py-4 space-y-3 max-w-2xl mx-auto">
+      {activeTab === 'jobs' && (
+        <button
+          onClick={() => setShowCreate(true)}
+          className="fixed bottom-6 right-5 z-30 flex items-center gap-2 px-5 py-3.5 rounded-2xl text-sm font-bold text-white shadow-lg shadow-emerald-500/30 active:scale-95 transition-transform"
+          style={{ background: 'linear-gradient(135deg, #059669, #10b981)' }}
+        >
+          <Plus className="h-5 w-5" />
+          New Job
+        </button>
+      )}
+
+      {activeTab === 'jobs' && <main className="px-4 py-4 space-y-3 max-w-2xl mx-auto pb-24">
         {isLoading ? (
           <div className="space-y-3">
             {[1, 2, 3].map((i) => (
