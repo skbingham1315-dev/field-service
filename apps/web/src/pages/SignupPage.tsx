@@ -174,6 +174,7 @@ function RegisterForm({ plan, onBack }: { plan: PlanId; onBack: () => void }) {
     lastName: '',
     email: '',
     password: '',
+    inviteCode: '',
   });
   const [slugStatus, setSlugStatus] = useState<'idle' | 'checking' | 'available' | 'taken'>('idle');
   const [error, setError] = useState('');
@@ -325,6 +326,19 @@ function RegisterForm({ plan, onBack }: { plan: PlanId; onBack: () => void }) {
                 placeholder="At least 8 characters"
                 minLength={8}
                 className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
+              />
+            </div>
+
+            <div>
+              <label className="block text-xs font-medium text-gray-700 mb-1">
+                Invite Code <span className="text-gray-400 font-normal">(optional)</span>
+              </label>
+              <input
+                value={form.inviteCode}
+                onChange={set('inviteCode')}
+                placeholder="e.g. A3F72C91"
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 uppercase tracking-widest"
+                maxLength={8}
               />
             </div>
 

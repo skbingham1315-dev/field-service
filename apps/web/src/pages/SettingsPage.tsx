@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { Copy, Check, Wrench, TrendingUp, Shield, MessageSquare, Mail, CheckCircle2, AlertTriangle, Send, Loader2, ExternalLink, Download, RefreshCw } from 'lucide-react';
+import { Copy, Check, Wrench, TrendingUp, Shield, MessageSquare, Mail, CheckCircle2, AlertTriangle, Send, Loader2, ExternalLink, Download, RefreshCw, Ticket, Trash2, Plus } from 'lucide-react';
 import { Button, Badge } from '@fsp/ui';
 import { api } from '../lib/api';
 import { useAuthStore } from '../store/authStore';
@@ -53,7 +53,7 @@ const ROLE_LABEL: Record<UserRole, string> = {
   sales: 'Sales Rep',
 };
 
-type Tab = 'profile' | 'team' | 'company' | 'permissions' | 'notifications' | 'integrations';
+type Tab = 'profile' | 'team' | 'company' | 'permissions' | 'notifications' | 'integrations' | 'invite-codes';
 
 function ProfileTab() {
   const qc = useQueryClient();
@@ -1153,6 +1153,148 @@ function IntegrationsTab() {
   );
 }
 
+// ── Invite Codes Tab ──────────────────────────────────────────────────────────
+
+interface InviteCode {
+  id: string;
+  code: string;
+  note?: string;
+  trialDays: number;
+  maxUses: number;
+  uses: number;
+  usedAt?: string;
+  expiresAt?: string;
+  createdAt: string;
+}
+
+function InviteCodesTab() {
+  const qc = useQueryClient();
+  const [showForm, setShowForm] = useState(false);
+  const [form, setForm] = useState({ note: '', trialDays: '30', maxUses: '1' });
+  const [creating, setCreating] = useState(false);
+  const [copiedId, setCopiedId] = useState<string | null>(null);
+
+  const { data: codes = [], isLoading } = useQuery<InviteCode[]>({
+    queryKey: ['invite-codes'],
+    queryFn: () => api.get('/invite-codes').then(r => r.data.data),
+  });
+
+  const deleteMutation = useMutation({
+    mutationFn: (id: string) => api.delete(`/invite-codes/${id}`),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['invite-codes'] }),
+  });
+
+  const handleCreate = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setCreating(true);
+    try {
+      await api.post('/invite-codes', {
+        note: form.note || undefined,
+        trialDays: parseInt(form.trialDays) || 30,
+        maxUses: parseInt(form.maxUses) || 1,
+      });
+      qc.invalidateQueries({ queryKey: ['invite-codes'] });
+      setShowForm(false);
+      setForm({ note: '', trialDays: '30', maxUses: '1' });
+    } catch { /* ignore */ } finally { setCreating(false); }
+  };
+
+  const copyCode = (code: string, id: string) => {
+    navigator.clipboard.writeText(code);
+    setCopiedId(id);
+    setTimeout(() => setCopiedId(null), 2000);
+  };
+
+  return (
+    <div className="space-y-5">
+      <div className="flex items-center justify-between">
+        <div>
+          <h3 className="font-semibold text-gray-900">Invite Codes</h3>
+          <p className="text-sm text-gray-500 mt-0.5">Generate unique codes to give testers/partners access when signing up.</p>
+        </div>
+        <button onClick={() => setShowForm(s => !s)}
+          className="flex items-center gap-1.5 px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-semibold rounded-xl transition-colors">
+          <Plus className="h-4 w-4" /> New Code
+        </button>
+      </div>
+
+      {showForm && (
+        <form onSubmit={handleCreate} className="bg-gray-50 border border-gray-200 rounded-xl p-4 space-y-3">
+          <p className="text-sm font-semibold text-gray-700">Generate New Invite Code</p>
+          <div>
+            <label className="block text-xs font-medium text-gray-600 mb-1">Label / Note <span className="text-gray-400">(who is this for?)</span></label>
+            <input value={form.note} onChange={e => setForm(f => ({ ...f, note: e.target.value }))}
+              placeholder="e.g. Taylor - TurfCare testing"
+              className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500" />
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="block text-xs font-medium text-gray-600 mb-1">Trial Days</label>
+              <input type="number" min="1" max="365" value={form.trialDays}
+                onChange={e => setForm(f => ({ ...f, trialDays: e.target.value }))}
+                className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500" />
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-gray-600 mb-1">Max Uses</label>
+              <input type="number" min="1" max="100" value={form.maxUses}
+                onChange={e => setForm(f => ({ ...f, maxUses: e.target.value }))}
+                className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500" />
+            </div>
+          </div>
+          <div className="flex gap-2 justify-end">
+            <button type="button" onClick={() => setShowForm(false)}
+              className="px-4 py-2 text-sm text-gray-600 border border-gray-300 rounded-lg hover:bg-gray-100">
+              Cancel
+            </button>
+            <button type="submit" disabled={creating}
+              className="flex items-center gap-1.5 px-4 py-2 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white text-sm font-semibold rounded-lg">
+              {creating ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Ticket className="h-3.5 w-3.5" />}
+              Generate Code
+            </button>
+          </div>
+        </form>
+      )}
+
+      {isLoading && <div className="flex justify-center py-8"><Loader2 className="h-5 w-5 animate-spin text-gray-400" /></div>}
+
+      {codes.length === 0 && !isLoading && (
+        <div className="text-center py-10 text-gray-400 text-sm">No invite codes yet. Generate one to share with testers.</div>
+      )}
+
+      <div className="space-y-2">
+        {codes.map(c => {
+          const isUsedUp = c.uses >= c.maxUses;
+          const isExpired = c.expiresAt ? new Date(c.expiresAt) < new Date() : false;
+          const status = isExpired ? 'Expired' : isUsedUp ? 'Used' : 'Active';
+          const statusColor = status === 'Active' ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-500';
+          return (
+            <div key={c.id} className="bg-white border border-gray-200 rounded-xl px-4 py-3 flex items-center gap-4">
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center gap-2">
+                  <span className="font-mono font-bold text-gray-900 tracking-widest text-sm">{c.code}</span>
+                  <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${statusColor}`}>{status}</span>
+                </div>
+                {c.note && <p className="text-xs text-gray-500 mt-0.5">{c.note}</p>}
+                <p className="text-xs text-gray-400 mt-0.5">
+                  {c.uses}/{c.maxUses} uses · {c.trialDays} day trial · Created {new Date(c.createdAt).toLocaleDateString()}
+                </p>
+              </div>
+              <button onClick={() => copyCode(c.code, c.id)}
+                className="p-1.5 text-gray-400 hover:text-indigo-600 rounded-lg transition-colors" title="Copy code">
+                {copiedId === c.id ? <Check className="h-4 w-4 text-green-600" /> : <Copy className="h-4 w-4" />}
+              </button>
+              <button onClick={() => { if (confirm('Revoke this invite code?')) deleteMutation.mutate(c.id); }}
+                className="p-1.5 text-gray-400 hover:text-red-500 rounded-lg transition-colors" title="Revoke">
+                <Trash2 className="h-4 w-4" />
+              </button>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 export function SettingsPage() {
   const { user } = useAuthStore();
   const [tab, setTab] = useState<Tab>('profile');
@@ -1161,6 +1303,8 @@ export function SettingsPage() {
   const canSeeCompany = user?.role && ['owner', 'admin'].includes(user.role);
   const canSeePermissions = user?.role === 'owner' || user?.role === 'admin';
 
+  const isOwner = user?.role === 'owner';
+
   const tabs: Array<{ id: Tab; label: string }> = [
     { id: 'profile', label: 'Profile' },
     ...(canSeeTeam ? [{ id: 'team' as Tab, label: 'Team' }] : []),
@@ -1168,6 +1312,7 @@ export function SettingsPage() {
     ...(canSeePermissions ? [{ id: 'permissions' as Tab, label: 'Permissions' }] : []),
     ...(canSeeCompany ? [{ id: 'notifications' as Tab, label: 'Notifications' }] : []),
     ...(canSeeCompany ? [{ id: 'integrations' as Tab, label: 'Integrations' }] : []),
+    ...(isOwner ? [{ id: 'invite-codes' as Tab, label: 'Invite Codes' }] : []),
   ];
 
   return (
@@ -1197,6 +1342,7 @@ export function SettingsPage() {
         {tab === 'permissions' && canSeePermissions && <PermissionsTab />}
         {tab === 'notifications' && canSeeCompany && <NotificationsTab />}
         {tab === 'integrations' && canSeeCompany && <IntegrationsTab />}
+        {tab === 'invite-codes' && isOwner && <InviteCodesTab />}
       </div>
     </div>
   );

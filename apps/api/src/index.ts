@@ -153,6 +153,34 @@ async function main() {
     logger.error('job_files table setup failed: ' + String(e));
   }
 
+  // Invite codes table
+  try {
+    await prisma.$executeRawUnsafe(`
+      CREATE TABLE IF NOT EXISTS "invite_codes" (
+        "id"                 TEXT NOT NULL DEFAULT gen_random_uuid(),
+        "code"               TEXT NOT NULL,
+        "createdByTenantId"  TEXT NOT NULL,
+        "note"               TEXT,
+        "trialDays"          INTEGER NOT NULL DEFAULT 30,
+        "maxUses"            INTEGER NOT NULL DEFAULT 1,
+        "uses"               INTEGER NOT NULL DEFAULT 0,
+        "usedAt"             TIMESTAMP(3),
+        "expiresAt"          TIMESTAMP(3),
+        "createdAt"          TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        CONSTRAINT "invite_codes_pkey" PRIMARY KEY ("id"),
+        CONSTRAINT "invite_codes_code_key" UNIQUE ("code")
+      )
+    `);
+    // Activate the tsturfcare testing account if it exists
+    await prisma.$executeRawUnsafe(`
+      UPDATE "tenants" SET status = 'active'
+      WHERE slug = 'tsturfcare' AND status != 'active'
+    `);
+    logger.info('invite_codes table ensured + tsturfcare activated');
+  } catch (e) {
+    logger.warn('invite_codes setup skipped: ' + String(e));
+  }
+
   // Verify DB connection
   await prisma.$connect();
   logger.info('✅ PostgreSQL connected');

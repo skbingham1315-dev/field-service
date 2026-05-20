@@ -37,6 +37,7 @@ import { exportRouter } from './routes/export';
 import { trainingRouter } from './routes/training';
 import { trainingInteractiveRouter } from './routes/training-interactive';
 import { jobFilesRouter } from './routes/job-files';
+import { inviteCodesRouter } from './routes/invite-codes';
 
 export const app = express();
 
@@ -149,6 +150,7 @@ apiV1.use('/export', exportRouter);
 apiV1.use('/training', trainingRouter);
 apiV1.use('/training-interactive', trainingInteractiveRouter);
 apiV1.use('/job-files', jobFilesRouter);
+apiV1.use('/invite-codes', inviteCodesRouter);
 
 app.use('/api/v1', apiV1);
 app.use('/webhooks', webhooksRouter);

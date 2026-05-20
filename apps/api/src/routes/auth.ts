@@ -82,7 +82,7 @@ authRouter.post('/login', async (req, res) => {
 
 // POST /api/v1/auth/register — create new tenant + owner account
 authRouter.post('/register', async (req, res) => {
-  const { companyName, slug, firstName, lastName, email, password, plan } = req.body as {
+  const { companyName, slug, firstName, lastName, email, password, plan, inviteCode } = req.body as {
     companyName: string;
     slug: string;
     firstName: string;
@@ -90,10 +90,24 @@ authRouter.post('/register', async (req, res) => {
     email: string;
     password: string;
     plan: string;
+    inviteCode?: string;
   };
 
   if (!companyName || !slug || !firstName || !lastName || !email || !password) {
     throw new AppError('All fields are required', 400, 'VALIDATION_ERROR');
+  }
+
+  // Validate invite code if provided
+  let inviteRecord: Record<string, unknown> | null = null;
+  if (inviteCode) {
+    const rows = await prisma.$queryRawUnsafe<Record<string, unknown>[]>(
+      `SELECT * FROM invite_codes WHERE code = $1 AND uses < "maxUses" AND ("expiresAt" IS NULL OR "expiresAt" > NOW())`,
+      inviteCode.trim().toUpperCase()
+    ).catch(() => [] as Record<string, unknown>[]);
+    if (!rows.length) {
+      throw new AppError('Invalid or expired invite code', 400, 'INVALID_INVITE_CODE');
+    }
+    inviteRecord = rows[0];
   }
   if (password.length < 8) {
     throw new AppError('Password must be at least 8 characters', 400, 'VALIDATION_ERROR');
@@ -130,6 +144,14 @@ authRouter.post('/register', async (req, res) => {
       stripeCustomerId: stripeCustomerId ?? null,
     },
   });
+
+  // Mark invite code used
+  if (inviteRecord) {
+    await prisma.$executeRawUnsafe(
+      `UPDATE invite_codes SET uses = uses + 1, "usedAt" = NOW() WHERE id = $1`,
+      inviteRecord.id
+    ).catch(() => { /* non-fatal */ });
+  }
 
   const user = await prisma.user.create({
     data: {
