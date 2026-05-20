@@ -85,36 +85,46 @@ timeEntriesRouter.post('/', async (req, res) => {
   if (openEntry) {
     const resolvedClockOut = clockOut ? new Date(clockOut) : new Date();
     const resolvedHours = hours || (openEntry.clockIn ? calcHours(openEntry.clockIn, resolvedClockOut) : 0);
-    const updated = await prisma.timeEntry.update({
-      where: { id: openEntry.id },
-      data: {
-        clockOut: resolvedClockOut,
-        hoursWorked: resolvedHours,
-        jobId: jobId || openEntry.jobId,
-        notes: notes || openEntry.notes,
-        status: 'pending',
-      },
-      include: { job: { select: { id: true, title: true } } },
-    });
+    const [updated] = await Promise.all([
+      prisma.timeEntry.update({
+        where: { id: openEntry.id },
+        data: {
+          clockOut: resolvedClockOut,
+          hoursWorked: resolvedHours,
+          jobId: jobId || openEntry.jobId,
+          notes: notes || openEntry.notes,
+          status: 'pending',
+        },
+        include: { job: { select: { id: true, title: true } } },
+      }),
+      // Clock-out → mark unavailable
+      prisma.user.update({ where: { id: userId }, data: { isAvailable: false } }),
+    ]);
     res.status(200).json({ success: true, data: updated } satisfies ApiResponse);
     return;
   }
 
   // Otherwise create a new entry (multiple entries per day are allowed, e.g. different jobs)
-  const entry = await prisma.timeEntry.create({
-    data: {
-      tenantId,
-      userId,
-      date: dayStart,
-      clockIn: clockIn ? new Date(clockIn) : null,
-      clockOut: clockOut ? new Date(clockOut) : null,
-      hoursWorked: hours,
-      jobId: jobId || null,
-      notes: notes || null,
-      status: 'pending',
-    },
-    include: { job: { select: { id: true, title: true } } },
-  });
+  const [entry] = await Promise.all([
+    prisma.timeEntry.create({
+      data: {
+        tenantId,
+        userId,
+        date: dayStart,
+        clockIn: clockIn ? new Date(clockIn) : null,
+        clockOut: clockOut ? new Date(clockOut) : null,
+        hoursWorked: hours,
+        jobId: jobId || null,
+        notes: notes || null,
+        status: 'pending',
+      },
+      include: { job: { select: { id: true, title: true } } },
+    }),
+    // Clock-in (no clockOut yet) → mark available
+    ...(clockIn && !clockOut
+      ? [prisma.user.update({ where: { id: userId }, data: { isAvailable: true } })]
+      : []),
+  ]);
 
   res.status(201).json({ success: true, data: entry } satisfies ApiResponse);
 });
