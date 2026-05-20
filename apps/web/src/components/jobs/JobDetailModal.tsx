@@ -469,9 +469,7 @@ function PhotosTab({ jobId, defaultCategory = 'before', showUploadPrompt = false
         fd.append('photoCategory', category);
         fd.append('visibility', visibility);
         if (notes.trim()) fd.append('notes', notes.trim());
-        await api.post(`/job-files/${jobId}`, fd, {
-          headers: { 'Content-Type': 'multipart/form-data' },
-        });
+        await api.post(`/job-files/${jobId}`, fd);
         setUploadCount(n => n + 1);
       }
       setNotes('');
@@ -766,9 +764,7 @@ function ReceiptsTab({ jobId }: { jobId: string }) {
         if (form.purchaseDate) fd.append('purchaseDate', form.purchaseDate);
         if (form.notes) fd.append('notes', form.notes);
         fd.append('costBillable', String(form.costBillable));
-        await api.post(`/job-files/${jobId}`, fd, {
-          headers: { 'Content-Type': 'multipart/form-data' },
-        });
+        await api.post(`/job-files/${jobId}`, fd);
         setUploadCount(n => n + 1);
       }
       setForm(f => ({ ...f, costAmount: '', vendorName: '', purchaseDate: '', notes: '' }));

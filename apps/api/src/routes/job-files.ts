@@ -4,7 +4,8 @@ import { authenticate, requireRole } from '../middleware/authenticate';
 import { prisma } from '@fsp/db';
 import { AppError } from '../middleware/errorHandler';
 import type { ApiResponse } from '@fsp/types';
-import sharp from 'sharp';
+import sharpLib from 'sharp';
+const sharp = sharpLib;
 
 export const jobFilesRouter = Router();
 jobFilesRouter.use(authenticate);
@@ -147,18 +148,20 @@ jobFilesRouter.get('/:jobId/:fileId/data', async (req, res) => {
   const isHeic = file.mimeType === 'image/heic' || file.mimeType === 'image/heif';
 
   if (isHeic) {
-    const jpeg = await sharp(file.data as Buffer).jpeg({ quality: 85 }).toBuffer();
-    res.setHeader('Content-Type', 'image/jpeg');
-    res.setHeader('Content-Disposition', `inline; filename="${encodeURIComponent(file.originalName.replace(/\.heic$/i, '.jpg').replace(/\.heif$/i, '.jpg'))}"`);
-    res.setHeader('Cache-Control', 'private, max-age=3600');
-    return res.send(jpeg);
+    try {
+      const jpeg = await sharp(file.data as Buffer).jpeg({ quality: 85 }).toBuffer();
+      res.setHeader('Content-Type', 'image/jpeg');
+      res.setHeader('Content-Disposition', `inline; filename="${encodeURIComponent(file.originalName.replace(/\.heic$/i, '.jpg').replace(/\.heif$/i, '.jpg'))}"`);
+      res.setHeader('Cache-Control', 'private, max-age=3600');
+      return res.send(jpeg);
+    } catch { /* fall through to raw send */ }
   }
 
-  res.setHeader('Content-Type', file.mimeType);
+  const buf = Buffer.isBuffer(file.data) ? file.data : Buffer.from(file.data as Uint8Array);
+  res.setHeader('Content-Type', isHeic ? 'image/jpeg' : file.mimeType);
   res.setHeader('Content-Disposition', `inline; filename="${encodeURIComponent(file.originalName)}"`);
-  res.setHeader('Content-Length', file.fileSizeBytes.toString());
   res.setHeader('Cache-Control', 'private, max-age=3600');
-  res.send(file.data);
+  res.send(buf);
 });
 
 // ── PATCH /:jobId/:fileId — update metadata/visibility ───────────────────────
