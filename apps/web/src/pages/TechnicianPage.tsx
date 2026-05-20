@@ -372,7 +372,7 @@ export function TechnicianPage() {
       </header>
 
       {activeTab === 'time' && <TimeTrackingPage />}
-      {activeTab === 'training' && <TrainingPage />}
+      {activeTab === 'training' && <TrainingPage roleOverride="technician" />}
 
       {activeTab === 'map' && (
         <div className="flex flex-col gap-3 px-4 py-4 max-w-2xl mx-auto w-full">

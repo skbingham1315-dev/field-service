@@ -72,10 +72,12 @@ function FileIcon({ type }: { type?: string }) {
 
 // ── Main TrainingPage ─────────────────────────────────────────────────────────
 
-export function TrainingPage() {
+export function TrainingPage({ roleOverride }: { roleOverride?: 'technician' | 'sales' }) {
   const user = useAuthStore(s => s.user);
-  const isOwner = user?.role === 'owner' || user?.role === 'admin';
-  const isSales = user?.role === 'sales' || user?.secondaryRoles?.includes('sales');
+  // When rendered inside TechnicianPage/SalesPage (including owner preview), roleOverride
+  // forces the correct view regardless of the logged-in user's actual role.
+  const isOwner = !roleOverride && (user?.role === 'owner' || user?.role === 'admin');
+  const isSales = roleOverride === 'sales' || (!roleOverride && (user?.role === 'sales' || user?.secondaryRoles?.includes('sales')));
   const qc = useQueryClient();
 
   const [activeTab, setActiveTab] = useState<string>(
@@ -153,7 +155,7 @@ export function TrainingPage() {
   const tabs = isSales ? salesTabs : techTabs;
 
   return (
-    <div className="flex flex-col h-full">
+    <div className="flex flex-col">
       {/* Tab bar */}
       <div className="flex gap-1 px-4 pt-4 pb-0 border-b border-gray-200 overflow-x-auto flex-shrink-0">
         {tabs.map(({ id, label, icon: Icon }) => (
@@ -169,7 +171,7 @@ export function TrainingPage() {
       </div>
 
       {/* Tab content */}
-      <div className="flex-1 overflow-y-auto p-4">
+      <div className="p-4">
         {activeTab === 'home' && isSales && (
           <TrainingHome
             progress={progress ?? null}
@@ -193,7 +195,7 @@ export function TrainingPage() {
         )}
 
         {activeTab === 'coach' && (
-          <TrainingCoach userRole={user?.role ?? 'technician'} />
+          <TrainingCoach userRole={roleOverride ?? user?.role ?? 'technician'} />
         )}
 
         {activeTab === 'exercises' && isSales && (
@@ -326,7 +328,7 @@ function OwnerTrainingView({
     : resources;
 
   return (
-    <div className="flex flex-col h-full">
+    <div className="flex flex-col">
       <div className="flex gap-1 px-4 pt-4 pb-0 border-b border-gray-200 flex-shrink-0">
         {[
           { id: 'resources', label: 'Resources', icon: BookOpen },
@@ -343,7 +345,7 @@ function OwnerTrainingView({
         ))}
       </div>
 
-      <div className="flex-1 overflow-y-auto p-4">
+      <div className="p-4">
         {/* Resources tab */}
         {activeTab === 'resources' && (
           <div className="p-2 space-y-5 max-w-3xl mx-auto">

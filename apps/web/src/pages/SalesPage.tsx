@@ -762,7 +762,7 @@ export function SalesPage() {
 
         {tab === 'training' && (
           <div className="-mx-4 -mt-4">
-            <TrainingPage />
+            <TrainingPage roleOverride="sales" />
           </div>
         )}
 
