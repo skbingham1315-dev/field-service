@@ -4,6 +4,7 @@ import { authenticate, requireRole } from '../middleware/authenticate';
 import { prisma } from '@fsp/db';
 import { AppError } from '../middleware/errorHandler';
 import type { ApiResponse } from '@fsp/types';
+import sharp from 'sharp';
 
 export const jobFilesRouter = Router();
 jobFilesRouter.use(authenticate);
@@ -141,6 +142,16 @@ jobFilesRouter.get('/:jobId/:fileId/data', async (req, res) => {
   const file = await prisma.jobFile.findUnique({ where: { id: fileId } });
   if (!file || file.jobId !== jobId || file.tenantId !== tenantId || file.deletedAt) {
     throw new AppError('File not found', 404, 'NOT_FOUND');
+  }
+
+  const isHeic = file.mimeType === 'image/heic' || file.mimeType === 'image/heif';
+
+  if (isHeic) {
+    const jpeg = await sharp(file.data as Buffer).jpeg({ quality: 85 }).toBuffer();
+    res.setHeader('Content-Type', 'image/jpeg');
+    res.setHeader('Content-Disposition', `inline; filename="${encodeURIComponent(file.originalName.replace(/\.heic$/i, '.jpg').replace(/\.heif$/i, '.jpg'))}"`);
+    res.setHeader('Cache-Control', 'private, max-age=3600');
+    return res.send(jpeg);
   }
 
   res.setHeader('Content-Type', file.mimeType);
