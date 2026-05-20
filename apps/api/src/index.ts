@@ -15,7 +15,13 @@ async function main() {
     await prisma.$executeRawUnsafe(
       `UPDATE "_prisma_migrations" SET finished_at = NOW(), applied_steps_count = 1, logs = NULL WHERE migration_name IN ('20260504000001_training_target_users','20260504000002_training_files') AND finished_at IS NULL`
     );
-    // Ensure training_files table exists (migration may not have run via deploy)
+    logger.info('Migration record patched');
+  } catch {
+    logger.warn('Migration patch skipped (may already be clean)');
+  }
+
+  // Ensure ancillary tables/columns exist regardless of migration state
+  try {
     await prisma.$executeRawUnsafe(`
       CREATE TABLE IF NOT EXISTS "training_files" (
         "id"        TEXT NOT NULL,
@@ -41,11 +47,14 @@ async function main() {
         END IF;
       END $$
     `);
-    // Training milestone columns
     await prisma.$executeRawUnsafe(`ALTER TABLE "users" ADD COLUMN IF NOT EXISTS "trainingBonusRate" DOUBLE PRECISION NOT NULL DEFAULT 0`);
     await prisma.$executeRawUnsafe(`ALTER TABLE "training_user_progress" ADD COLUMN IF NOT EXISTS "milestonesEarned" INTEGER NOT NULL DEFAULT 0`);
+  } catch {
+    logger.warn('Training table setup skipped');
+  }
 
-    // Job files table (photos, work orders, receipts stored in Postgres)
+  // Job files table — must always exist; isolated so other failures cannot block it
+  try {
     await prisma.$executeRawUnsafe(`
       CREATE TABLE IF NOT EXISTS "job_files" (
         "id"              TEXT NOT NULL,
@@ -92,9 +101,9 @@ async function main() {
         END IF;
       END $$
     `);
-    logger.info('Migration record patched');
+    logger.info('job_files table ensured');
   } catch (e) {
-    logger.warn('Migration patch skipped (may already be clean)');
+    logger.error('job_files table setup failed: ' + String(e));
   }
 
   // Verify DB connection
