@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useAuthStore } from '../store/authStore';
 import { Loader2, CheckCircle2 } from 'lucide-react';
 
@@ -32,12 +32,18 @@ export function LoginPage({ onSignup, onForgotPassword }: { onSignup?: () => voi
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
 
+  useEffect(() => {
+    const saved = localStorage.getItem('fsp_workspace');
+    if (saved) setForm(f => ({ ...f, tenantSlug: saved }));
+  }, []);
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
     setLoading(true);
     try {
       await login(form.email, form.password, form.tenantSlug);
+      localStorage.setItem('fsp_workspace', form.tenantSlug);
     } catch {
       setError('Invalid credentials. Please try again.');
     } finally {
