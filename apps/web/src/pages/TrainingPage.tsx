@@ -182,6 +182,7 @@ export function TrainingPage({ roleOverride }: { roleOverride?: 'technician' | '
         {activeTab === 'library' && isSales && (
           <TrainingLibrary
             sectionsRead={progress?.sectionsRead ?? []}
+            hasCompletedPractice={rolePlaySessions.length > 0}
             onSectionRead={() => refetchProgress()}
             onPracticeSection={() => setActiveTab('practice')}
           />

@@ -13,7 +13,7 @@ async function main() {
   // Fix any failed migration record so prisma migrate deploy can proceed
   try {
     await prisma.$executeRawUnsafe(
-      `UPDATE "_prisma_migrations" SET finished_at = NOW(), applied_steps_count = 1, logs = NULL WHERE migration_name IN ('20260504000001_training_target_users','20260504000002_training_files') AND finished_at IS NULL`
+      `UPDATE "_prisma_migrations" SET finished_at = NOW(), applied_steps_count = 1, logs = NULL WHERE migration_name IN ('20260504000001_training_target_users','20260504000002_training_files','20260504000002_training_interactive') AND finished_at IS NULL`
     );
     logger.info('Migration record patched');
   } catch {
@@ -48,7 +48,54 @@ async function main() {
       END $$
     `);
     await prisma.$executeRawUnsafe(`ALTER TABLE "users" ADD COLUMN IF NOT EXISTS "trainingBonusRate" DOUBLE PRECISION NOT NULL DEFAULT 0`);
+    await prisma.$executeRawUnsafe(`
+      CREATE TABLE IF NOT EXISTS "training_user_progress" (
+        "id"             TEXT NOT NULL DEFAULT gen_random_uuid(),
+        "tenantId"       TEXT NOT NULL,
+        "userId"         TEXT NOT NULL,
+        "sectionsRead"   TEXT[] NOT NULL DEFAULT '{}',
+        "exercisesDone"  TEXT[] NOT NULL DEFAULT '{}',
+        "rolePlayCount"  INTEGER NOT NULL DEFAULT 0,
+        "currentStreak"  INTEGER NOT NULL DEFAULT 0,
+        "milestonesEarned" INTEGER NOT NULL DEFAULT 0,
+        "lastActivityAt" TIMESTAMP(3),
+        "updatedAt"      TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        CONSTRAINT "training_user_progress_pkey" PRIMARY KEY ("id"),
+        CONSTRAINT "training_user_progress_userId_key" UNIQUE ("userId")
+      )
+    `);
     await prisma.$executeRawUnsafe(`ALTER TABLE "training_user_progress" ADD COLUMN IF NOT EXISTS "milestonesEarned" INTEGER NOT NULL DEFAULT 0`);
+    await prisma.$executeRawUnsafe(`
+      CREATE TABLE IF NOT EXISTS "role_play_sessions" (
+        "id"         TEXT NOT NULL DEFAULT gen_random_uuid(),
+        "tenantId"   TEXT NOT NULL,
+        "userId"     TEXT NOT NULL,
+        "scenario"   TEXT NOT NULL,
+        "difficulty" TEXT NOT NULL,
+        "objection"  TEXT,
+        "transcript" JSONB NOT NULL,
+        "debrief"    TEXT,
+        "rating"     TEXT,
+        "createdAt"  TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        CONSTRAINT "role_play_sessions_pkey" PRIMARY KEY ("id")
+      )
+    `);
+    await prisma.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "role_play_sessions_tenantId_userId_idx" ON "role_play_sessions"("tenantId", "userId")`);
+    await prisma.$executeRawUnsafe(`
+      CREATE TABLE IF NOT EXISTS "training_exercise_answers" (
+        "id"         TEXT NOT NULL DEFAULT gen_random_uuid(),
+        "tenantId"   TEXT NOT NULL,
+        "userId"     TEXT NOT NULL,
+        "exerciseId" TEXT NOT NULL,
+        "answer"     TEXT NOT NULL,
+        "aiFeedback" TEXT,
+        "status"     TEXT NOT NULL DEFAULT 'in_progress',
+        "createdAt"  TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        "updatedAt"  TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        CONSTRAINT "training_exercise_answers_pkey" PRIMARY KEY ("id"),
+        CONSTRAINT "training_exercise_answers_userId_exerciseId_key" UNIQUE ("userId", "exerciseId")
+      )
+    `);
   } catch {
     logger.warn('Training table setup skipped');
   }

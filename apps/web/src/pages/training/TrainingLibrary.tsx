@@ -5,11 +5,12 @@ import { api } from '../../lib/api';
 
 interface Props {
   sectionsRead: string[];
+  hasCompletedPractice: boolean;
   onSectionRead: (sectionId: string) => void;
   onPracticeSection?: (sectionId: string) => void;
 }
 
-export function TrainingLibrary({ sectionsRead, onSectionRead, onPracticeSection }: Props) {
+export function TrainingLibrary({ sectionsRead, hasCompletedPractice, onSectionRead, onPracticeSection }: Props) {
   const [selectedSection, setSelectedSection] = useState<typeof SECTIONS[0] | null>(null);
   const [marking, setMarking] = useState(false);
 
@@ -83,25 +84,36 @@ export function TrainingLibrary({ sectionsRead, onSectionRead, onPracticeSection
             )}
 
             {/* Actions */}
-            <div className="mt-5 flex gap-3">
-              <button
-                onClick={() => !isRead && handleMarkRead(selectedSection.id)}
-                disabled={marking}
-                className={`flex-1 flex items-center justify-center gap-2 py-2.5 rounded-xl text-sm font-semibold transition-colors ${
-                  isRead
-                    ? 'bg-green-50 text-green-700 border border-green-200'
-                    : 'bg-violet-600 hover:bg-violet-700 text-white'
-                }`}>
-                <CheckCircle2 className="h-4 w-4" />
-                {isRead ? 'Completed' : marking ? 'Marking...' : 'Mark as Read'}
-              </button>
-              {onPracticeSection && (
-                <button
-                  onClick={() => onPracticeSection(selectedSection.id)}
-                  className="flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-semibold border border-amber-300 text-amber-700 hover:bg-amber-50 transition-colors">
-                  <Zap className="h-4 w-4" /> Practice This
-                </button>
+            <div className="mt-5 space-y-2">
+              {!hasCompletedPractice && !isRead && (
+                <div className="flex items-center gap-2 px-3 py-2 bg-amber-50 border border-amber-200 rounded-xl text-xs text-amber-800">
+                  <Zap className="h-3.5 w-3.5 flex-shrink-0" />
+                  Complete a <strong>Practice</strong> session first to unlock "Mark as Read"
+                </div>
               )}
+              <div className="flex gap-3">
+                <button
+                  onClick={() => !isRead && hasCompletedPractice && handleMarkRead(selectedSection.id)}
+                  disabled={marking || (!isRead && !hasCompletedPractice)}
+                  title={!hasCompletedPractice && !isRead ? 'Complete a Practice session first' : undefined}
+                  className={`flex-1 flex items-center justify-center gap-2 py-2.5 rounded-xl text-sm font-semibold transition-colors ${
+                    isRead
+                      ? 'bg-green-50 text-green-700 border border-green-200'
+                      : hasCompletedPractice
+                      ? 'bg-violet-600 hover:bg-violet-700 text-white'
+                      : 'bg-gray-100 text-gray-400 cursor-not-allowed'
+                  }`}>
+                  <CheckCircle2 className="h-4 w-4" />
+                  {isRead ? 'Completed' : marking ? 'Marking...' : 'Mark as Read'}
+                </button>
+                {onPracticeSection && (
+                  <button
+                    onClick={() => onPracticeSection(selectedSection.id)}
+                    className="flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-semibold border border-amber-300 text-amber-700 hover:bg-amber-50 transition-colors">
+                    <Zap className="h-4 w-4" /> Practice This
+                  </button>
+                )}
+              </div>
             </div>
           </div>
         </div>

@@ -36,6 +36,7 @@ export function TrainingRolePlay({ sessions, onSessionSaved }: Props) {
   const [loading, setLoading] = useState(false);
   const [debrief, setDebrief] = useState<{ text: string; rating: string } | null>(null);
   const [savingSession, setSavingSession] = useState(false);
+  const [endError, setEndError] = useState('');
   const bottomRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -82,6 +83,7 @@ export function TrainingRolePlay({ sessions, onSessionSaved }: Props) {
 
   const endSession = async () => {
     if (messages.length < 2) { setScreen('setup'); return; }
+    setEndError('');
     setSavingSession(true);
     try {
       const { data } = await api.post('/training-interactive/role-play-sessions', {
@@ -93,7 +95,10 @@ export function TrainingRolePlay({ sessions, onSessionSaved }: Props) {
       setDebrief({ text: data.data.debrief ?? '', rating: data.data.rating ?? 'getting_there' });
       setScreen('debrief');
       onSessionSaved();
-    } catch { /* ignore */ } finally { setSavingSession(false); }
+    } catch (err: unknown) {
+      const msg = (err as { response?: { data?: { message?: string } } })?.response?.data?.message ?? 'Failed to generate debrief. Try again.';
+      setEndError(msg);
+    } finally { setSavingSession(false); }
   };
 
   const scenarioLabel = SCENARIOS.find(s => s.value === config.scenario)?.label ?? config.scenario;
@@ -197,6 +202,12 @@ export function TrainingRolePlay({ sessions, onSessionSaved }: Props) {
             End Session & Get Debrief
           </button>
         </div>
+
+        {endError && (
+          <div className="mb-2 px-3 py-2 bg-red-50 border border-red-200 rounded-lg text-xs text-red-700 font-medium">
+            {endError}
+          </div>
+        )}
 
         {/* Messages */}
         <div className="flex-1 overflow-y-auto space-y-3 pb-3">
