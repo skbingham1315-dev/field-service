@@ -125,6 +125,20 @@ function PayRunTab() {
     queryFn: () => api.get('/users').then(r => r.data.data as TeamMember[]),
   });
 
+  const [pendingAction, setPendingAction] = useState<string | null>(null);
+
+  const approveRun = async (id: string) => {
+    setPendingAction(id + ':approve');
+    try { await api.post(`/payroll/${id}/approve`); qc.invalidateQueries({ queryKey: ['payroll-runs'] }); }
+    finally { setPendingAction(null); }
+  };
+
+  const markPaidRun = async (id: string) => {
+    setPendingAction(id + ':paid');
+    try { await api.post(`/payroll/${id}/mark-paid`); qc.invalidateQueries({ queryKey: ['payroll-runs'] }); }
+    finally { setPendingAction(null); }
+  };
+
   const today = new Date().toISOString().split('T')[0];
   const twoWeeksAgo = new Date(Date.now() - 14 * 86400000).toISOString().split('T')[0];
 
@@ -158,6 +172,26 @@ function PayRunTab() {
               {run.status}
             </span>
             <p className="text-base font-bold text-gray-900">{fmtUSD(run.totalGross)}</p>
+            {run.status === 'draft' && (
+              <button
+                onClick={() => approveRun(run.id)}
+                disabled={pendingAction !== null}
+                className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white text-xs font-semibold rounded-lg transition-colors"
+              >
+                {pendingAction === run.id + ':approve' ? <Loader2 className="h-3 w-3 animate-spin" /> : <CheckCircle className="h-3 w-3" />}
+                Approve
+              </button>
+            )}
+            {run.status === 'approved' && (
+              <button
+                onClick={() => markPaidRun(run.id)}
+                disabled={pendingAction !== null}
+                className="flex items-center gap-1.5 px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white text-xs font-semibold rounded-lg transition-colors"
+              >
+                {pendingAction === run.id + ':paid' ? <Loader2 className="h-3 w-3 animate-spin" /> : <DollarSign className="h-3 w-3" />}
+                Mark Paid
+              </button>
+            )}
             <a href={`/api/v1/compensation/payroll/export/${run.id}`} target="_blank" rel="noreferrer"
               className="p-1.5 text-gray-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-colors" title="Export CSV">
               <Download className="h-4 w-4" />
