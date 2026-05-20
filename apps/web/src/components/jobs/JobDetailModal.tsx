@@ -4,7 +4,7 @@ import {
   Camera, MessageSquare, User, MapPin, Clock, Receipt,
   CheckCircle2, PlayCircle, Navigation, XCircle, Upload, Lock, Unlock, Edit2,
   FileText, DollarSign, Loader2, Trash2, Eye, EyeOff, X, ClipboardList,
-  CheckCircle, ArrowRight, RotateCcw, Layers, Copy, Check,
+  CheckCircle, ArrowRight, RotateCcw, Layers, Copy, Check, Plus, Link2,
 } from 'lucide-react';
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle,
@@ -960,6 +960,262 @@ function CostSummaryTab({ jobId }: { jobId: string }) {
   );
 }
 
+// ── Complete + Invoice Prompt ─────────────────────────────────────────────────
+
+function CompleteInvoicePrompt({
+  job,
+  onClose,
+}: {
+  job: {
+    id: string;
+    title: string;
+    customer: { id: string; firstName: string; lastName: string };
+    lineItems: Array<{ description: string; quantity: number; unitPrice: number }>;
+  };
+  onClose: () => void;
+}) {
+  const qc = useQueryClient();
+  const [mode, setMode] = useState<'choose' | 'create' | 'attach'>('choose');
+  const [creating, setCreating] = useState(false);
+  const [attaching, setAttaching] = useState(false);
+  const [createError, setCreateError] = useState('');
+
+  // Create invoice form state
+  const defaultItems = job.lineItems.length > 0
+    ? job.lineItems.map(li => ({ description: li.description, qty: String(li.quantity), price: (li.unitPrice / 100).toFixed(2) }))
+    : [{ description: job.title, qty: '1', price: '' }];
+  const [lineItems, setLineItems] = useState(defaultItems);
+  const [dueDate, setDueDate] = useState('');
+  const [invoiceNotes, setInvoiceNotes] = useState('');
+
+  // Attach to existing
+  const { data: existingInvoices = [] } = useQuery<Array<{ id: string; invoiceNumber: string; total: number; status: string }>>({
+    queryKey: ['invoices', 'customer', job.customer.id],
+    queryFn: async () => {
+      const { data } = await api.get(`/invoices?customerId=${job.customer.id}&status=draft`);
+      return data.data ?? [];
+    },
+    enabled: mode === 'attach',
+  });
+  const [selectedInvoiceId, setSelectedInvoiceId] = useState('');
+
+  const handleCreate = async () => {
+    const items = lineItems.filter(li => li.description.trim() && li.price);
+    if (!items.length) { setCreateError('Add at least one line item with amount'); return; }
+    setCreating(true);
+    setCreateError('');
+    try {
+      await api.post('/invoices', {
+        customerId: job.customer.id,
+        jobId: job.id,
+        lineItems: items.map(li => ({
+          description: li.description,
+          quantity: parseFloat(li.qty) || 1,
+          unitPrice: Math.round(parseFloat(li.price) * 100),
+        })),
+        dueDate: dueDate || undefined,
+        notes: invoiceNotes || undefined,
+      });
+      qc.invalidateQueries({ queryKey: ['invoices'] });
+      onClose();
+    } catch (err: unknown) {
+      setCreateError((err as { response?: { data?: { message?: string } } })?.response?.data?.message ?? 'Failed to create invoice');
+    } finally { setCreating(false); }
+  };
+
+  const handleAttach = async () => {
+    if (!selectedInvoiceId) return;
+    setAttaching(true);
+    try {
+      await api.patch(`/invoices/${selectedInvoiceId}`, { jobId: job.id });
+      qc.invalidateQueries({ queryKey: ['invoices'] });
+      onClose();
+    } catch { /* ignore */ } finally { setAttaching(false); }
+  };
+
+  const inp = 'w-full px-3 py-2 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-green-500/40 focus:border-green-400 bg-white';
+
+  return (
+    <div className="fixed inset-0 z-[70] bg-black/50 flex items-center justify-center p-4">
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md max-h-[85vh] flex flex-col">
+        {/* Header */}
+        <div className="flex items-center justify-between px-5 py-4 border-b flex-shrink-0">
+          <div className="flex items-center gap-3">
+            <div className="h-9 w-9 rounded-full bg-green-100 flex items-center justify-center flex-shrink-0">
+              <CheckCircle className="h-5 w-5 text-green-600" />
+            </div>
+            <div>
+              <p className="font-bold text-gray-900 text-sm">Job Completed!</p>
+              <p className="text-xs text-gray-500">{job.customer.firstName} {job.customer.lastName}</p>
+            </div>
+          </div>
+          <button onClick={onClose} className="text-gray-400 hover:text-gray-600 p-1">
+            <X className="h-5 w-5" />
+          </button>
+        </div>
+
+        <div className="flex-1 overflow-y-auto px-5 py-4">
+          {mode === 'choose' && (
+            <div className="space-y-3">
+              <p className="text-sm text-gray-600 mb-4">Would you like to invoice this job?</p>
+              <button
+                onClick={() => setMode('create')}
+                className="w-full flex items-center gap-4 p-4 bg-green-50 border-2 border-green-200 hover:border-green-400 hover:bg-green-100 rounded-2xl transition-colors text-left"
+              >
+                <Plus className="h-8 w-8 text-green-600 flex-shrink-0" />
+                <div>
+                  <p className="font-semibold text-gray-900">Create New Invoice</p>
+                  <p className="text-xs text-gray-500 mt-0.5">Generate a fresh invoice for this job</p>
+                </div>
+              </button>
+              <button
+                onClick={() => setMode('attach')}
+                className="w-full flex items-center gap-4 p-4 bg-blue-50 border-2 border-blue-200 hover:border-blue-400 hover:bg-blue-100 rounded-2xl transition-colors text-left"
+              >
+                <Link2 className="h-8 w-8 text-blue-600 flex-shrink-0" />
+                <div>
+                  <p className="font-semibold text-gray-900">Attach to Existing Invoice</p>
+                  <p className="text-xs text-gray-500 mt-0.5">Link this job to a draft invoice</p>
+                </div>
+              </button>
+              <button
+                onClick={onClose}
+                className="w-full py-3 text-sm text-gray-400 hover:text-gray-600 transition-colors"
+              >
+                Skip for now
+              </button>
+            </div>
+          )}
+
+          {mode === 'create' && (
+            <div className="space-y-4">
+              <button onClick={() => setMode('choose')} className="text-xs text-gray-500 hover:text-gray-700 flex items-center gap-1">
+                ← Back
+              </button>
+              <div>
+                <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Line Items</p>
+                <div className="space-y-2">
+                  {lineItems.map((li, i) => (
+                    <div key={i} className="flex gap-2 items-start">
+                      <input
+                        value={li.description}
+                        onChange={e => setLineItems(items => items.map((x, j) => j === i ? { ...x, description: e.target.value } : x))}
+                        placeholder="Description"
+                        className={`${inp} flex-1`}
+                      />
+                      <input
+                        value={li.qty}
+                        onChange={e => setLineItems(items => items.map((x, j) => j === i ? { ...x, qty: e.target.value } : x))}
+                        placeholder="Qty"
+                        type="number"
+                        min="1"
+                        className={`${inp} w-16`}
+                      />
+                      <div className="relative">
+                        <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-sm">$</span>
+                        <input
+                          value={li.price}
+                          onChange={e => setLineItems(items => items.map((x, j) => j === i ? { ...x, price: e.target.value } : x))}
+                          placeholder="0.00"
+                          type="number"
+                          min="0"
+                          step="0.01"
+                          className={`${inp} w-24 pl-6`}
+                        />
+                      </div>
+                      {lineItems.length > 1 && (
+                        <button onClick={() => setLineItems(items => items.filter((_, j) => j !== i))} className="text-gray-300 hover:text-red-400 pt-2">
+                          <X className="h-4 w-4" />
+                        </button>
+                      )}
+                    </div>
+                  ))}
+                  <button
+                    onClick={() => setLineItems(items => [...items, { description: '', qty: '1', price: '' }])}
+                    className="text-xs text-green-600 hover:text-green-700 font-medium flex items-center gap-1"
+                  >
+                    <Plus className="h-3.5 w-3.5" /> Add line item
+                  </button>
+                </div>
+              </div>
+              <div>
+                <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">Due Date</label>
+                <input type="date" value={dueDate} onChange={e => setDueDate(e.target.value)} className={inp}
+                  min={new Date().toISOString().split('T')[0]} />
+              </div>
+              <div>
+                <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">Notes (optional)</label>
+                <textarea value={invoiceNotes} onChange={e => setInvoiceNotes(e.target.value)} rows={2}
+                  placeholder="Payment terms, thank you message..." className={`${inp} resize-none`} />
+              </div>
+              {createError && <p className="text-xs text-red-600 font-medium">{createError}</p>}
+            </div>
+          )}
+
+          {mode === 'attach' && (
+            <div className="space-y-4">
+              <button onClick={() => setMode('choose')} className="text-xs text-gray-500 hover:text-gray-700 flex items-center gap-1">
+                ← Back
+              </button>
+              {existingInvoices.length === 0 ? (
+                <div className="text-center py-8 text-gray-400">
+                  <FileText className="h-10 w-10 mx-auto mb-2 opacity-30" />
+                  <p className="text-sm">No draft invoices found for this customer.</p>
+                  <button onClick={() => setMode('create')} className="mt-3 text-xs text-green-600 hover:underline">
+                    Create a new invoice instead
+                  </button>
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Select a draft invoice to attach this job to</p>
+                  {existingInvoices.map(inv => (
+                    <label key={inv.id} className={`flex items-center gap-3 p-3 rounded-xl border-2 cursor-pointer transition-colors ${
+                      selectedInvoiceId === inv.id ? 'border-blue-400 bg-blue-50' : 'border-gray-200 hover:border-gray-300'
+                    }`}>
+                      <input type="radio" name="invoice" value={inv.id} checked={selectedInvoiceId === inv.id}
+                        onChange={() => setSelectedInvoiceId(inv.id)} className="text-blue-600" />
+                      <div className="flex-1 min-w-0">
+                        <p className="font-semibold text-gray-900 text-sm">Invoice #{inv.invoiceNumber}</p>
+                        <p className="text-xs text-gray-500">{fmtUSD(inv.total / 100)} · {inv.status}</p>
+                      </div>
+                    </label>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+
+        {/* Footer */}
+        {mode === 'create' && (
+          <div className="px-5 py-4 border-t flex-shrink-0">
+            <button
+              onClick={handleCreate}
+              disabled={creating}
+              className="w-full flex items-center justify-center gap-2 py-3 bg-green-600 hover:bg-green-700 disabled:opacity-60 text-white font-semibold rounded-xl text-sm transition-colors"
+            >
+              {creating ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}
+              {creating ? 'Creating...' : 'Create Invoice'}
+            </button>
+          </div>
+        )}
+        {mode === 'attach' && existingInvoices.length > 0 && (
+          <div className="px-5 py-4 border-t flex-shrink-0">
+            <button
+              onClick={handleAttach}
+              disabled={!selectedInvoiceId || attaching}
+              className="w-full flex items-center justify-center gap-2 py-3 bg-blue-600 hover:bg-blue-700 disabled:opacity-60 text-white font-semibold rounded-xl text-sm transition-colors"
+            >
+              {attaching ? <Loader2 className="h-4 w-4 animate-spin" /> : <Link2 className="h-4 w-4" />}
+              {attaching ? 'Attaching...' : 'Attach to Invoice'}
+            </button>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 // ── Main Modal ────────────────────────────────────────────────────────────────
 
 export function JobDetailModal({ jobId, onClose }: Props) {
@@ -1007,7 +1263,7 @@ export function JobDetailModal({ jobId, onClose }: Props) {
     scheduledEnd?: string;
     actualStart?: string;
     actualEnd?: string;
-    customer: { firstName: string; lastName: string; phone?: string; email?: string };
+    customer: { id: string; firstName: string; lastName: string; phone?: string; email?: string };
     serviceAddress: { street: string; city: string; state: string; zip: string };
     technician?: { id: string; firstName: string; lastName: string; phone?: string };
     assignedTechnicians: Array<{ userId: string; user: { id: string; firstName: string; lastName: string } }>;
@@ -1022,9 +1278,19 @@ export function JobDetailModal({ jobId, onClose }: Props) {
   });
   const allTechs: Array<{ id: string; firstName: string; lastName: string }> = techData?.data ?? [];
 
+  const [showInvoicePrompt, setShowInvoicePrompt] = useState(false);
+
   const { mutate: updateStatus, isPending: isUpdatingStatus } = useMutation({
     mutationFn: (status: JobStatus) => api.patch(`/jobs/${jobId}`, { status }),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['jobs'] }),
+  });
+
+  const { mutate: completeJob, isPending: isCompletingJob } = useMutation({
+    mutationFn: () => api.patch(`/jobs/${jobId}`, { status: 'completed' }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['jobs'] });
+      setShowInvoicePrompt(true);
+    },
   });
 
   const { mutate: selfAssign, isPending: isSelfAssigning } = useMutation({
@@ -1114,6 +1380,14 @@ export function JobDetailModal({ jobId, onClose }: Props) {
               />
             )}
 
+            {/* Complete + Invoice Prompt */}
+            {showInvoicePrompt && job && (
+              <CompleteInvoicePrompt
+                job={job}
+                onClose={() => setShowInvoicePrompt(false)}
+              />
+            )}
+
             {/* Finish Job Wizard Overlay */}
             {showFinishWizard && (
               <FinishWizardOverlay
@@ -1143,8 +1417,20 @@ export function JobDetailModal({ jobId, onClose }: Props) {
                 );
               })()}
 
-              {/* Finish Job button for in_progress */}
-              {job.status === 'in_progress' && (
+              {/* Admin "Complete Job" button — visible on any active status */}
+              {isAdmin && !['completed', 'cancelled'].includes(job.status) && (
+                <Button
+                  className="bg-green-600 hover:bg-green-700 text-white"
+                  size="sm"
+                  loading={isCompletingJob}
+                  onClick={() => completeJob()}
+                >
+                  <CheckCircle className="h-4 w-4 mr-1.5" /> Complete Job
+                </Button>
+              )}
+
+              {/* Finish Job button for techs in_progress */}
+              {!isAdmin && job.status === 'in_progress' && (
                 <Button
                   className="bg-green-600 hover:bg-green-700 text-white"
                   size="sm"

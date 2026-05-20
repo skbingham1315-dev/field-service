@@ -156,10 +156,14 @@ invoicesRouter.patch('/:id', async (req, res) => {
     throw new AppError('Paid and voided invoices cannot be edited', 400, 'INVALID_STATUS');
   }
 
-  const { lineItems, dueDate, notes, discountAmount } = req.body;
+  const { lineItems, dueDate, notes, discountAmount, jobId: bodyJobId } = req.body;
 
   // Recalculate if line items changed
-  let updateData: Record<string, unknown> = { notes, dueDate: dueDate ? new Date(dueDate) : undefined };
+  let updateData: Record<string, unknown> = {
+    notes,
+    dueDate: dueDate ? new Date(dueDate) : undefined,
+    ...(bodyJobId !== undefined ? { jobId: bodyJobId || null } : {}),
+  };
 
   if (lineItems) {
     const tenant = await prisma.tenant.findUniqueOrThrow({ where: { id: req.user!.tenantId } });
