@@ -33,7 +33,13 @@ scheduleRouter.get('/', async (req, res) => {
     tenantId: req.user!.tenantId,
     scheduledStart: { gte: start, lt: end },
   };
-  if (technicianId) where.technicianId = technicianId;
+  // Match jobs where tech is lead OR in assignedTechnicians junction table
+  if (technicianId) {
+    where.OR = [
+      { technicianId },
+      { assignedTechnicians: { some: { userId: technicianId } } },
+    ];
+  }
 
   const jobs = await prisma.job.findMany({
     where,
@@ -119,6 +125,13 @@ scheduleRouter.post('/assign', async (req, res) => {
     },
     include: jobInclude,
   });
+
+  // Keep jobTechnician junction table in sync so assignedTechnicians reflects drag-drop assignments.
+  // Preserves any additional techs already on the job; just upserts the new lead.
+  await prisma.jobTechnician.deleteMany({ where: { jobId } });
+  if (technicianId) {
+    await prisma.jobTechnician.create({ data: { jobId, userId: technicianId } });
+  }
 
   // Broadcast to all dispatchers/techs in this tenant
   io?.to(`tenant:${req.user!.tenantId}`).emit('job:assigned', {
