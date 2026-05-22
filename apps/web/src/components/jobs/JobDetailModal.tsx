@@ -54,17 +54,33 @@ const RECEIPT_CATEGORIES = ['materials', 'fuel', 'dump_fees', 'equipment', 'subc
 
 // ── Authenticated image component ─────────────────────────────────────────────
 
+const API_BASE = import.meta.env.VITE_API_URL ? `${import.meta.env.VITE_API_URL}/api/v1` : '/api/v1';
+
 function AuthImg({ src, className, alt }: { src: string; className?: string; alt?: string }) {
   const [blobSrc, setBlobSrc] = useState('');
   const [error, setError] = useState(false);
 
   useEffect(() => {
     if (!src) return;
+    let cancelled = false;
     let objectUrl = '';
-    api.get(src, { responseType: 'blob' })
-      .then(r => { objectUrl = URL.createObjectURL(r.data); setBlobSrc(objectUrl); })
-      .catch(() => setError(true));
-    return () => { if (objectUrl) URL.revokeObjectURL(objectUrl); };
+
+    const token = useAuthStore.getState().accessToken;
+    fetch(`${API_BASE}${src}`, {
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+    })
+      .then(r => { if (!r.ok) throw new Error(`${r.status}`); return r.blob(); })
+      .then(blob => {
+        if (cancelled) return;
+        objectUrl = URL.createObjectURL(blob);
+        setBlobSrc(objectUrl);
+      })
+      .catch(() => { if (!cancelled) setError(true); });
+
+    return () => {
+      cancelled = true;
+      if (objectUrl) URL.revokeObjectURL(objectUrl);
+    };
   }, [src]);
 
   if (error) return (
