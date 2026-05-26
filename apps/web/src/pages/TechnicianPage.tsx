@@ -6,7 +6,7 @@ import { TrainingPage } from './TrainingPage';
 import { Badge } from '@fsp/ui';
 import { api } from '../lib/api';
 import { useAuthStore } from '../store/authStore';
-import { getSocket } from '../lib/socket';
+import { getSocket, connectSocket } from '../lib/socket';
 import { useTenantPermissions } from '../lib/permissions';
 import { JobDetailModal } from '../components/jobs/JobDetailModal';
 import { CreateJobModal } from '../components/jobs/CreateJobModal';
@@ -285,17 +285,23 @@ export function TechnicianPage() {
 
   const startTracking = () => {
     if (!navigator.geolocation) return;
+    // Ensure socket is connected before emitting
+    connectSocket();
     watchRef.current = navigator.geolocation.watchPosition(
       (pos) => {
-        getSocket().emit('technician:location', {
+        const payload = {
           lat: pos.coords.latitude,
           lng: pos.coords.longitude,
           heading: pos.coords.heading ?? undefined,
           speed: pos.coords.speed ?? undefined,
-        });
+        };
+        // Emit via socket for real-time dispatch map updates
+        getSocket().emit('technician:location', payload);
+        // Also persist via REST as a reliable fallback
+        api.post('/users/me/location', payload).catch(() => {});
       },
-      undefined,
-      { enableHighAccuracy: true },
+      () => { setTracking(false); }, // on error (e.g. permission denied) stop tracking
+      { enableHighAccuracy: true, maximumAge: 10_000 },
     );
     setTracking(true);
   };

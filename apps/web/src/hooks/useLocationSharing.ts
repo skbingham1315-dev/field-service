@@ -1,6 +1,7 @@
 import { useEffect, useRef } from 'react';
 import { api } from '../lib/api';
 import { useAuthStore } from '../store/authStore';
+import { connectSocket, getSocket } from '../lib/socket';
 
 const INTERVAL_MS = 30_000; // post location every 30 seconds
 
@@ -15,14 +16,21 @@ export function useLocationSharing() {
   useEffect(() => {
     if (!isFieldRole || !navigator.geolocation) return;
 
+    // Connect socket so real-time location events reach the dispatch map
+    connectSocket();
+
     const postLocation = (pos: GeolocationPosition) => {
       lastPosRef.current = pos;
-      api.post('/users/me/location', {
+      const payload = {
         lat: pos.coords.latitude,
         lng: pos.coords.longitude,
         heading: pos.coords.heading ?? undefined,
         speed: pos.coords.speed ?? undefined,
-      }).catch(() => {/* silent — don't disrupt UX on network error */});
+      };
+      // REST — persists lastLat/lastLng to DB (map polling reads this)
+      api.post('/users/me/location', payload).catch(() => {});
+      // Socket — real-time broadcast to dispatchers watching the live map
+      getSocket().emit('technician:location', payload);
     };
 
     // Get initial position (triggers browser permission prompt)
