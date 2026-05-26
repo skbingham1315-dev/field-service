@@ -1,4 +1,4 @@
-import { useState, useRef, useCallback } from 'react';
+import { useState, useRef, useCallback, useMemo } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from '../lib/api';
 import {
@@ -139,6 +139,13 @@ function PayRunTab() {
     finally { setPendingAction(null); }
   };
 
+  const deleteRun = async (id: string) => {
+    if (!confirm('Delete this pay run and all its entries? This cannot be undone.')) return;
+    setPendingAction(id + ':delete');
+    try { await api.delete(`/payroll/${id}`); qc.invalidateQueries({ queryKey: ['payroll-runs'] }); }
+    finally { setPendingAction(null); }
+  };
+
   const today = new Date().toISOString().split('T')[0];
   const twoWeeksAgo = new Date(Date.now() - 14 * 86400000).toISOString().split('T')[0];
 
@@ -196,6 +203,14 @@ function PayRunTab() {
               className="p-1.5 text-gray-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-colors" title="Export CSV">
               <Download className="h-4 w-4" />
             </a>
+            {run.status !== 'paid' && (
+              <button
+                onClick={() => deleteRun(run.id)}
+                disabled={pendingAction !== null}
+                className="p-1.5 text-gray-400 hover:text-red-500 hover:bg-red-50 disabled:opacity-50 rounded-lg transition-colors" title="Delete pay run">
+                {pendingAction === run.id + ':delete' ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}
+              </button>
+            )}
             <button onClick={() => setExpanded(expanded === run.id ? null : run.id)}
               className="p-1.5 text-gray-400 hover:text-gray-600 rounded-lg">
               {expanded === run.id ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
@@ -1559,6 +1574,16 @@ function HoursTab() {
 
   const pendingCount = entries.filter(e => e.status === 'pending').length;
 
+  // Build set of userId:date combos that appear more than once (duplicate day entries)
+  const dupDayKeys = useMemo(() => {
+    const counts: Record<string, number> = {};
+    for (const e of entries) {
+      const key = `${e.userId}:${e.date.slice(0, 10)}`;
+      counts[key] = (counts[key] ?? 0) + 1;
+    }
+    return new Set(Object.entries(counts).filter(([, n]) => n > 1).map(([k]) => k));
+  }, [entries]);
+
   const STATUS_COLOR: Record<string, string> = {
     pending: 'bg-yellow-100 text-yellow-700',
     approved: 'bg-blue-100 text-blue-700',
@@ -1621,10 +1646,19 @@ function HoursTab() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-100">
-                {entries.map(e => (
-                  <tr key={e.id} className="hover:bg-gray-50">
+                {entries.map(e => {
+                  const isDup = dupDayKeys.has(`${e.userId}:${e.date.slice(0, 10)}`);
+                  return (
+                  <tr key={e.id} className={isDup ? 'bg-amber-50 hover:bg-amber-100' : 'hover:bg-gray-50'}>
                     <td className="px-4 py-3 font-medium text-gray-800">
-                      {e.user ? `${e.user.firstName} ${e.user.lastName}` : '—'}
+                      <div className="flex items-center gap-1.5">
+                        {e.user ? `${e.user.firstName} ${e.user.lastName}` : '—'}
+                        {isDup && (
+                          <span title="Multiple entries on this day — possible duplicate" className="inline-flex items-center gap-0.5 text-[10px] font-semibold text-amber-700 bg-amber-100 border border-amber-300 px-1.5 py-0.5 rounded-full">
+                            <AlertTriangle className="h-2.5 w-2.5" /> Dup
+                          </span>
+                        )}
+                      </div>
                     </td>
                     <td className="px-4 py-3 text-gray-600">{fmtEntryDate(e.date)}</td>
                     <td className="px-4 py-3 text-gray-500 text-xs">
@@ -1666,7 +1700,8 @@ function HoursTab() {
                       </div>
                     </td>
                   </tr>
-                ))}
+                  );
+                })}
               </tbody>
             </table>
           </div>

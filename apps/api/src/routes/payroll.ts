@@ -225,3 +225,14 @@ payrollRouter.post('/:id/mark-paid', async (req, res) => {
   ]);
   res.json({ success: true, data: { message: 'Payroll marked as paid' } } satisfies ApiResponse);
 });
+
+// DELETE /api/v1/payroll/:id — delete a pay run and its entries
+payrollRouter.delete('/:id', async (req, res) => {
+  const run = await prisma.payrollRun.findUnique({ where: { id: req.params.id } });
+  if (!run || run.tenantId !== req.user!.tenantId) {
+    res.status(404).json({ success: false, message: 'Not found' }); return;
+  }
+  await prisma.payrollEntry.deleteMany({ where: { payrollRunId: run.id } });
+  await prisma.payrollRun.delete({ where: { id: run.id } });
+  res.json({ success: true, data: { message: 'Pay run deleted' } } satisfies ApiResponse);
+});
