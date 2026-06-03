@@ -56,6 +56,33 @@ const RECEIPT_CATEGORIES = ['materials', 'fuel', 'dump_fees', 'equipment', 'subc
 
 const API_BASE = import.meta.env.VITE_API_URL ? `${import.meta.env.VITE_API_URL}/api/v1` : '/api/v1';
 
+// Use native fetch for all file uploads so iOS Safari multipart boundaries are never corrupted by axios
+async function uploadFile(path: string, fd: FormData): Promise<void> {
+  const token = useAuthStore.getState().accessToken;
+  const res = await fetch(`${API_BASE}${path}`, {
+    method: 'POST',
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+    body: fd,
+  });
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({}));
+    throw new Error((data as { message?: string })?.message ?? `Upload failed (${res.status})`);
+  }
+}
+
+// Use native fetch to open binary files (avoids axios Content-Type interference on mobile)
+async function openFileFetch(url: string): Promise<void> {
+  const token = useAuthStore.getState().accessToken;
+  const res = await fetch(`${API_BASE}${url}`, {
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+  });
+  if (!res.ok) throw new Error(`${res.status}`);
+  const blob = await res.blob();
+  const objectUrl = URL.createObjectURL(blob);
+  window.open(objectUrl, '_blank');
+  setTimeout(() => URL.revokeObjectURL(objectUrl), 10_000);
+}
+
 function AuthImg({ src, className, alt }: { src: string; className?: string; alt?: string }) {
   const [blobSrc, setBlobSrc] = useState('');
   const [error, setError] = useState(false);
@@ -223,7 +250,7 @@ function FinishWizardOverlay({
         fd.append('fileType', fileType);
         if (fileType === 'photo') fd.append('photoCategory', 'after');
         Object.entries(extra).forEach(([k, v]) => fd.append(k, v));
-        await api.post(`/job-files/${jobId}`, fd);
+        await uploadFile(`/job-files/${jobId}`, fd);
       }
       setUploadedCounts(c => ({
         ...c,
@@ -485,7 +512,7 @@ function PhotosTab({ jobId, defaultCategory = 'before', showUploadPrompt = false
         fd.append('photoCategory', category);
         fd.append('visibility', visibility);
         if (notes.trim()) fd.append('notes', notes.trim());
-        await api.post(`/job-files/${jobId}`, fd);
+        await uploadFile(`/job-files/${jobId}`, fd);
         setUploadCount(n => n + 1);
       }
       setNotes('');
@@ -674,7 +701,7 @@ function WorkOrdersTab({ jobId }: { jobId: string }) {
         fd.append('file', file);
         fd.append('fileType', 'work_order');
         if (notes.trim()) fd.append('notes', notes.trim());
-        await api.post(`/job-files/${jobId}`, fd);
+        await uploadFile(`/job-files/${jobId}`, fd);
       }
       setNotes('');
       qc.invalidateQueries({ queryKey: ['job-files', jobId, 'work_order'] });
@@ -689,9 +716,7 @@ function WorkOrdersTab({ jobId }: { jobId: string }) {
   });
 
   const openFile = async (f: JobFile) => {
-    const r = await api.get(f.url, { responseType: 'blob' });
-    const url = URL.createObjectURL(r.data);
-    window.open(url, '_blank');
+    await openFileFetch(f.url);
   };
 
   return (
@@ -780,7 +805,7 @@ function ReceiptsTab({ jobId }: { jobId: string }) {
         if (form.purchaseDate) fd.append('purchaseDate', form.purchaseDate);
         if (form.notes) fd.append('notes', form.notes);
         fd.append('costBillable', String(form.costBillable));
-        await api.post(`/job-files/${jobId}`, fd);
+        await uploadFile(`/job-files/${jobId}`, fd);
         setUploadCount(n => n + 1);
       }
       setForm(f => ({ ...f, costAmount: '', vendorName: '', purchaseDate: '', notes: '' }));
@@ -799,9 +824,7 @@ function ReceiptsTab({ jobId }: { jobId: string }) {
   });
 
   const openFile = async (f: JobFile) => {
-    const r = await api.get(f.url, { responseType: 'blob' });
-    const url = URL.createObjectURL(r.data);
-    window.open(url, '_blank');
+    await openFileFetch(f.url);
   };
 
   const inp = 'w-full px-3 py-1.5 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500';

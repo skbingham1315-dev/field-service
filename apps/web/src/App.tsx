@@ -27,14 +27,18 @@ export function App() {
   const [showSignup, setShowSignup] = useState(false);
   const [showForgot, setShowForgot] = useState(false);
   const [billingSuccess, setBillingSuccess] = useState(false);
+  // Force re-render on popstate so path-based routes respond to browser back/forward
+  const [, setNavTick] = useState(0);
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     if (params.get('billing') === 'success') {
       setBillingSuccess(true);
-      // Clean the URL
       window.history.replaceState({}, '', window.location.pathname);
     }
+    const onPop = () => setNavTick(n => n + 1);
+    window.addEventListener('popstate', onPop);
+    return () => window.removeEventListener('popstate', onPop);
   }, []);
 
   // Public routes — no auth required

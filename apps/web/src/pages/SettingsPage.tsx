@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { Copy, Check, Wrench, TrendingUp, Shield, MessageSquare, Mail, CheckCircle2, AlertTriangle, Send, Loader2, ExternalLink, Download, RefreshCw, Ticket, Trash2, Plus } from 'lucide-react';
+import { Copy, Check, Wrench, TrendingUp, Shield, MessageSquare, Mail, CheckCircle2, AlertTriangle, Send, Loader2, ExternalLink, Download, RefreshCw, Ticket, Trash2, Plus, Bot, Eye, EyeOff } from 'lucide-react';
 import { Button, Badge } from '@fsp/ui';
 import { api } from '../lib/api';
 import { useAuthStore } from '../store/authStore';
@@ -53,7 +53,7 @@ const ROLE_LABEL: Record<UserRole, string> = {
   sales: 'Sales Rep',
 };
 
-type Tab = 'profile' | 'team' | 'company' | 'permissions' | 'notifications' | 'integrations' | 'invite-codes';
+type Tab = 'profile' | 'team' | 'company' | 'permissions' | 'notifications' | 'integrations' | 'invite-codes' | 'ai';
 
 function ProfileTab() {
   const qc = useQueryClient();
@@ -1295,6 +1295,126 @@ function InviteCodesTab() {
   );
 }
 
+// ── AI Assistant Tab ──────────────────────────────────────────────────────────
+
+const AI_PROVIDERS = [
+  { id: 'anthropic', label: 'Claude (Anthropic)', placeholder: 'sk-ant-api03-...', models: 'claude-opus-4-6' },
+  { id: 'openai',    label: 'ChatGPT (OpenAI)',   placeholder: 'sk-proj-...',       models: 'gpt-4o' },
+  { id: 'gemini',    label: 'Gemini (Google)',     placeholder: 'AIza...',           models: 'gemini-2.0-flash' },
+] as const;
+
+function AITab() {
+  const qc = useQueryClient();
+  const [provider, setProvider] = useState('anthropic');
+  const [apiKey, setApiKey] = useState('');
+  const [showKey, setShowKey] = useState(false);
+  const [saved, setSaved] = useState(false);
+
+  const { data: config, isLoading } = useQuery({
+    queryKey: ['ai-config'],
+    queryFn: () => api.get('/ai/config').then(r => r.data.data as { aiProvider: string | null; aiApiKeySet: boolean; aiApiKeyHint: string | null }),
+  });
+
+  useEffect(() => {
+    if (config?.aiProvider) setProvider(config.aiProvider);
+  }, [config?.aiProvider]);
+
+  const saveMutation = useMutation({
+    mutationFn: () => api.post('/ai/config', { aiProvider: provider, ...(apiKey ? { aiApiKey: apiKey } : {}) }),
+    onSuccess: () => {
+      setSaved(true);
+      setApiKey('');
+      qc.invalidateQueries({ queryKey: ['ai-config'] });
+      setTimeout(() => setSaved(false), 2500);
+    },
+  });
+
+  const selectedProvider = AI_PROVIDERS.find(p => p.id === provider)!;
+
+  return (
+    <div className="space-y-6">
+      <div className="bg-white rounded-2xl border border-gray-200 p-6 space-y-5">
+        <div className="flex items-center gap-3 mb-2">
+          <div className="h-9 w-9 rounded-xl bg-violet-100 flex items-center justify-center">
+            <Bot className="h-5 w-5 text-violet-600" />
+          </div>
+          <div>
+            <h2 className="text-base font-semibold text-gray-900">AI Assistant</h2>
+            <p className="text-xs text-gray-500">Connect your own AI API key. Your key is stored securely and used only for your account.</p>
+          </div>
+        </div>
+
+        {isLoading ? (
+          <div className="flex justify-center py-8"><Loader2 className="h-5 w-5 animate-spin text-gray-400" /></div>
+        ) : (
+          <>
+            {config?.aiApiKeySet && (
+              <div className="flex items-center gap-2 bg-emerald-50 border border-emerald-200 rounded-xl px-4 py-2.5 text-sm text-emerald-700">
+                <CheckCircle2 className="h-4 w-4 flex-shrink-0" />
+                API key configured ({config.aiKeyHint ?? config.aiApiKeyHint}) · using <strong className="ml-1">{AI_PROVIDERS.find(p => p.id === config.aiProvider)?.label ?? config.aiProvider}</strong>
+              </div>
+            )}
+
+            <div>
+              <label className="block text-xs font-semibold text-gray-600 mb-2 uppercase tracking-wide">Provider</label>
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                {AI_PROVIDERS.map(p => (
+                  <button
+                    key={p.id}
+                    onClick={() => setProvider(p.id)}
+                    className={`text-left px-4 py-3 rounded-xl border-2 transition-all ${
+                      provider === p.id
+                        ? 'border-violet-500 bg-violet-50'
+                        : 'border-gray-200 hover:border-gray-300'
+                    }`}
+                  >
+                    <p className="text-sm font-semibold text-gray-900">{p.label}</p>
+                    <p className="text-xs text-gray-400 mt-0.5">{p.models}</p>
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div>
+              <label className="block text-xs font-semibold text-gray-600 mb-2 uppercase tracking-wide">
+                API Key {config?.aiApiKeySet && <span className="text-gray-400 font-normal normal-case">(leave blank to keep existing)</span>}
+              </label>
+              <div className="flex gap-2">
+                <div className="flex-1 flex items-center border border-gray-300 rounded-xl overflow-hidden focus-within:ring-2 focus-within:ring-violet-500">
+                  <input
+                    type={showKey ? 'text' : 'password'}
+                    value={apiKey}
+                    onChange={e => setApiKey(e.target.value)}
+                    placeholder={selectedProvider.placeholder}
+                    className="flex-1 px-4 py-2.5 text-sm focus:outline-none font-mono"
+                  />
+                  <button onClick={() => setShowKey(s => !s)} className="px-3 text-gray-400 hover:text-gray-600">
+                    {showKey ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                  </button>
+                </div>
+              </div>
+              <p className="text-xs text-gray-400 mt-1.5">
+                {provider === 'anthropic' && <>Get your key at <span className="font-medium">console.anthropic.com</span></>}
+                {provider === 'openai' && <>Get your key at <span className="font-medium">platform.openai.com/api-keys</span></>}
+                {provider === 'gemini' && <>Get your key at <span className="font-medium">aistudio.google.com/apikey</span></>}
+              </p>
+            </div>
+
+            <button
+              onClick={() => saveMutation.mutate()}
+              disabled={saveMutation.isPending || (!apiKey && !config?.aiApiKeySet)}
+              className="flex items-center gap-2 px-5 py-2.5 bg-violet-600 hover:bg-violet-700 disabled:opacity-50 text-white text-sm font-semibold rounded-xl transition-colors"
+            >
+              {saveMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : saved ? <Check className="h-4 w-4" /> : null}
+              {saved ? 'Saved!' : 'Save AI Settings'}
+            </button>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
 export function SettingsPage() {
   const { user } = useAuthStore();
   const [tab, setTab] = useState<Tab>('profile');
@@ -1313,6 +1433,7 @@ export function SettingsPage() {
     ...(canSeeCompany ? [{ id: 'notifications' as Tab, label: 'Notifications' }] : []),
     ...(canSeeCompany ? [{ id: 'integrations' as Tab, label: 'Integrations' }] : []),
     ...(isOwner ? [{ id: 'invite-codes' as Tab, label: 'Invite Codes' }] : []),
+    ...(canSeeCompany ? [{ id: 'ai' as Tab, label: 'AI Assistant' }] : []),
   ];
 
   return (
@@ -1343,6 +1464,7 @@ export function SettingsPage() {
         {tab === 'notifications' && canSeeCompany && <NotificationsTab />}
         {tab === 'integrations' && canSeeCompany && <IntegrationsTab />}
         {tab === 'invite-codes' && isOwner && <InviteCodesTab />}
+        {tab === 'ai' && canSeeCompany && <AITab />}
       </div>
     </div>
   );

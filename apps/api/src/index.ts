@@ -181,6 +181,15 @@ async function main() {
     logger.warn('invite_codes setup skipped: ' + String(e));
   }
 
+  // AI provider config columns on tenants
+  try {
+    await prisma.$executeRawUnsafe(`ALTER TABLE "tenants" ADD COLUMN IF NOT EXISTS "aiProvider" TEXT`);
+    await prisma.$executeRawUnsafe(`ALTER TABLE "tenants" ADD COLUMN IF NOT EXISTS "aiApiKey" TEXT`);
+    logger.info('AI provider columns ensured');
+  } catch (e) {
+    logger.warn('AI provider column setup skipped: ' + String(e));
+  }
+
   // Verify DB connection
   await prisma.$connect();
   logger.info('✅ PostgreSQL connected');

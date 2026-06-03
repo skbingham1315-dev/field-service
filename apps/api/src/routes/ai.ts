@@ -1,14 +1,14 @@
 import { Router } from 'express';
 import Anthropic from '@anthropic-ai/sdk';
-import { authenticate } from '../middleware/authenticate';
+import OpenAI from 'openai';
+import { authenticate, requireRole } from '../middleware/authenticate';
 import { prisma } from '@fsp/db';
 import { sendSms } from '../lib/sms';
 import { geocodeAndSave } from '../lib/geocode';
+import type { ApiResponse } from '@fsp/types';
 
 export const aiRouter = Router();
 aiRouter.use(authenticate);
-
-const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 
 const TOOLS: Anthropic.Tool[] = [
   {
@@ -352,6 +352,114 @@ async function executeTool(name: string, input: Record<string, unknown>, tenantI
   }
 }
 
+// ── AI Config endpoints ────────────────────────────────────────────────────────
+
+aiRouter.get('/config', requireRole('owner', 'admin'), async (req, res) => {
+  const tenant = await prisma.$queryRawUnsafe<Array<{ aiProvider: string | null; aiApiKey: string | null }>>(
+    `SELECT "aiProvider", "aiApiKey" FROM "tenants" WHERE id = $1`, req.user!.tenantId,
+  );
+  const row = tenant[0];
+  res.json({
+    success: true,
+    data: {
+      aiProvider: row?.aiProvider ?? null,
+      // Only return last 4 chars of key so UI can show it's set without exposing full key
+      aiApiKeySet: !!(row?.aiApiKey),
+      aiApiKeyHint: row?.aiApiKey ? `...${row.aiApiKey.slice(-4)}` : null,
+    },
+  } satisfies ApiResponse);
+});
+
+aiRouter.post('/config', requireRole('owner', 'admin'), async (req, res) => {
+  const { aiProvider, aiApiKey } = req.body as { aiProvider: string; aiApiKey?: string };
+  const validProviders = ['anthropic', 'openai', 'gemini'];
+  if (!validProviders.includes(aiProvider)) {
+    res.status(400).json({ success: false, message: 'Invalid provider. Choose: anthropic, openai, gemini' });
+    return;
+  }
+  const updates: string[] = [`"aiProvider" = $2`];
+  const params: unknown[] = [req.user!.tenantId, aiProvider];
+  if (aiApiKey !== undefined && aiApiKey !== '') {
+    updates.push(`"aiApiKey" = $${params.length + 1}`);
+    params.push(aiApiKey);
+  }
+  await prisma.$executeRawUnsafe(
+    `UPDATE "tenants" SET ${updates.join(', ')} WHERE id = $1`, ...params,
+  );
+  res.json({ success: true, data: { message: 'AI config saved' } } satisfies ApiResponse);
+});
+
+// Convert Anthropic tool format → OpenAI tool format
+function toOpenAITools(tools: Anthropic.Tool[]): OpenAI.Chat.ChatCompletionTool[] {
+  return tools.map(t => ({
+    type: 'function' as const,
+    function: { name: t.name, description: t.description, parameters: t.input_schema as Record<string, unknown> },
+  }));
+}
+
+// ── Claude (Anthropic) chat ────────────────────────────────────────────────────
+
+async function chatWithClaude(
+  apiKey: string, systemPrompt: string, messages: Array<{ role: 'user' | 'assistant'; content: string }>,
+  tools: Anthropic.Tool[], tenantId: string, userId: string,
+): Promise<string> {
+  const client = new Anthropic({ apiKey });
+  const anthropicMessages = messages.map(m => ({ role: m.role, content: m.content }));
+  const extraMessages: Anthropic.MessageParam[] = [];
+
+  let response = await client.messages.create({ model: 'claude-opus-4-6', max_tokens: 1024, system: systemPrompt, tools, messages: anthropicMessages });
+
+  while (response.stop_reason === 'tool_use') {
+    const toolUses = response.content.filter((b): b is Anthropic.ToolUseBlock => b.type === 'tool_use');
+    const toolResults: Anthropic.ToolResultBlockParam[] = [];
+    for (const tu of toolUses) {
+      const result = await executeTool(tu.name, tu.input as Record<string, unknown>, tenantId, userId);
+      toolResults.push({ type: 'tool_result', tool_use_id: tu.id, content: JSON.stringify(result) });
+    }
+    extraMessages.push({ role: 'assistant', content: response.content });
+    extraMessages.push({ role: 'user', content: toolResults });
+    response = await client.messages.create({ model: 'claude-opus-4-6', max_tokens: 1024, system: systemPrompt, tools, messages: [...anthropicMessages, ...extraMessages] });
+  }
+  return response.content.filter((b): b is Anthropic.TextBlock => b.type === 'text').map(b => b.text).join('');
+}
+
+// ── OpenAI / Gemini chat (Gemini uses OpenAI-compatible API) ──────────────────
+
+async function chatWithOpenAI(
+  apiKey: string, provider: 'openai' | 'gemini',
+  systemPrompt: string, messages: Array<{ role: 'user' | 'assistant'; content: string }>,
+  tools: Anthropic.Tool[], tenantId: string, userId: string,
+): Promise<string> {
+  const isGemini = provider === 'gemini';
+  const client = new OpenAI({
+    apiKey,
+    ...(isGemini ? { baseURL: 'https://generativelanguage.googleapis.com/v1beta/openai/' } : {}),
+  });
+  const model = isGemini ? 'gemini-2.0-flash' : 'gpt-4o';
+  const oaiTools = toOpenAITools(tools);
+
+  const oaiMessages: OpenAI.Chat.ChatCompletionMessageParam[] = [
+    { role: 'system', content: systemPrompt },
+    ...messages.map(m => ({ role: m.role as 'user' | 'assistant', content: m.content })),
+  ];
+
+  let response = await client.chat.completions.create({ model, max_tokens: 1024, tools: oaiTools, messages: oaiMessages });
+
+  while (response.choices[0]?.finish_reason === 'tool_calls') {
+    const msg = response.choices[0].message;
+    oaiMessages.push(msg);
+    const toolCalls = msg.tool_calls ?? [];
+    for (const tc of toolCalls) {
+      const result = await executeTool(tc.function.name, JSON.parse(tc.function.arguments || '{}'), tenantId, userId);
+      oaiMessages.push({ role: 'tool', tool_call_id: tc.id, content: JSON.stringify(result) });
+    }
+    response = await client.chat.completions.create({ model, max_tokens: 1024, tools: oaiTools, messages: oaiMessages });
+  }
+  return response.choices[0]?.message?.content ?? '';
+}
+
+// ── Main chat endpoint ─────────────────────────────────────────────────────────
+
 aiRouter.post('/chat', async (req, res) => {
   const { messages, timezone } = req.body as { messages: Array<{ role: 'user' | 'assistant'; content: string }>; timezone?: string };
   const { tenantId, role, sub: userId } = req.user!;
@@ -361,14 +469,25 @@ aiRouter.post('/chat', async (req, res) => {
     return;
   }
 
-  if (!process.env.ANTHROPIC_API_KEY) {
-    res.status(503).json({ success: false, message: 'AI assistant not configured.' });
+  // Look up tenant's configured AI provider
+  const tenantRows = await prisma.$queryRawUnsafe<Array<{ aiProvider: string | null; aiApiKey: string | null }>>(
+    `SELECT "aiProvider", "aiApiKey" FROM "tenants" WHERE id = $1`, tenantId,
+  );
+  const tenantAiProvider = (tenantRows[0]?.aiProvider ?? null) as 'anthropic' | 'openai' | 'gemini' | null;
+  const tenantAiKey = tenantRows[0]?.aiApiKey ?? null;
+
+  // Fall back to server-level Anthropic key if tenant hasn't configured their own
+  const effectiveProvider = tenantAiProvider ?? 'anthropic';
+  const effectiveKey = tenantAiKey ?? process.env.ANTHROPIC_API_KEY ?? '';
+
+  if (!effectiveKey) {
+    res.status(503).json({ success: false, message: 'AI assistant not configured. Ask your admin to add an API key in Settings → AI Assistant.' });
     return;
   }
 
   const tools = TOOLS.filter((t) => allowedTools(role).includes(t.name));
   const tz = timezone || 'America/Phoenix';
-  const today = new Date().toLocaleDateString('en-CA', { timeZone: tz }); // YYYY-MM-DD in user's tz
+  const today = new Date().toLocaleDateString('en-CA', { timeZone: tz });
   const nowLocal = new Date().toLocaleString('en-US', { timeZone: tz, weekday: 'long', year: 'numeric', month: 'long', day: 'numeric', hour: 'numeric', minute: '2-digit', timeZoneName: 'short' });
 
   const systemPrompt = `You are an AI assistant for a field service management platform.
@@ -377,46 +496,15 @@ The user's role is: ${role}.
 You help with ${role === 'technician' ? 'checking schedules and jobs' : role === 'sales' ? 'creating customers and scheduling appointments' : 'creating jobs, finding customers, scheduling, and sending reminders'}.
 Be concise and action-oriented. When creating jobs or customers, confirm details only if something is ambiguous.
 Always use tools to take real actions — never fabricate IDs or data.
-IMPORTANT: All scheduled times the user mentions are in their local timezone (${tz}). When calling create_job or update_job, convert the time to an ISO datetime string that correctly represents their local time (e.g. if user says "9am tomorrow" in ${tz}, use the correct ISO string for 9am in that timezone).
+IMPORTANT: All scheduled times the user mentions are in their local timezone (${tz}). Convert to ISO datetime for create_job/update_job.
 When you complete an action, tell the user clearly what was done.`;
 
-  const anthropicMessages = messages.map((m) => ({ role: m.role, content: m.content }));
-
-  let response = await client.messages.create({
-    model: 'claude-opus-4-6',
-    max_tokens: 1024,
-    system: systemPrompt,
-    tools,
-    messages: anthropicMessages,
-  });
-
-  const extraMessages: Anthropic.MessageParam[] = [];
-
-  while (response.stop_reason === 'tool_use') {
-    const toolUses = response.content.filter((b): b is Anthropic.ToolUseBlock => b.type === 'tool_use');
-    const toolResults: Anthropic.ToolResultBlockParam[] = [];
-
-    for (const tu of toolUses) {
-      const result = await executeTool(tu.name, tu.input as Record<string, unknown>, tenantId, userId);
-      toolResults.push({ type: 'tool_result', tool_use_id: tu.id, content: JSON.stringify(result) });
-    }
-
-    extraMessages.push({ role: 'assistant', content: response.content });
-    extraMessages.push({ role: 'user', content: toolResults });
-
-    response = await client.messages.create({
-      model: 'claude-opus-4-6',
-      max_tokens: 1024,
-      system: systemPrompt,
-      tools,
-      messages: [...anthropicMessages, ...extraMessages],
-    });
+  let text: string;
+  if (effectiveProvider === 'anthropic') {
+    text = await chatWithClaude(effectiveKey, systemPrompt, messages, tools, tenantId, userId);
+  } else {
+    text = await chatWithOpenAI(effectiveKey, effectiveProvider as 'openai' | 'gemini', systemPrompt, messages, tools, tenantId, userId);
   }
-
-  const text = response.content
-    .filter((b): b is Anthropic.TextBlock => b.type === 'text')
-    .map((b) => b.text)
-    .join('');
 
   res.json({ success: true, data: { message: text } });
 });
