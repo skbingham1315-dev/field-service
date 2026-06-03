@@ -1351,7 +1351,7 @@ function AITab() {
             {config?.aiApiKeySet && (
               <div className="flex items-center gap-2 bg-emerald-50 border border-emerald-200 rounded-xl px-4 py-2.5 text-sm text-emerald-700">
                 <CheckCircle2 className="h-4 w-4 flex-shrink-0" />
-                API key configured ({config.aiKeyHint ?? config.aiApiKeyHint}) · using <strong className="ml-1">{AI_PROVIDERS.find(p => p.id === config.aiProvider)?.label ?? config.aiProvider}</strong>
+                API key configured ({config.aiApiKeyHint}) · using <strong className="ml-1">{AI_PROVIDERS.find(p => p.id === config.aiProvider)?.label ?? config.aiProvider}</strong>
               </div>
             )}
 
