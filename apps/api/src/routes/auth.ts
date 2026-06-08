@@ -343,3 +343,4 @@ authRouter.post('/reset-password', async (req, res) => {
 
   res.json({ success: true, data: { message: 'Password reset successfully. You can now log in.' } });
 });
+

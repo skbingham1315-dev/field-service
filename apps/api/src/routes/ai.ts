@@ -450,7 +450,8 @@ async function chatWithOpenAI(
     oaiMessages.push(msg);
     const toolCalls = msg.tool_calls ?? [];
     for (const tc of toolCalls) {
-      const result = await executeTool(tc.function.name, JSON.parse(tc.function.arguments || '{}'), tenantId, userId);
+      const fn = (tc as { function: { name: string; arguments: string } }).function;
+      const result = await executeTool(fn.name, JSON.parse(fn.arguments || '{}'), tenantId, userId);
       oaiMessages.push({ role: 'tool', tool_call_id: tc.id, content: JSON.stringify(result) });
     }
     response = await client.chat.completions.create({ model, max_tokens: 1024, tools: oaiTools, messages: oaiMessages });
