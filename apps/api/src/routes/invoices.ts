@@ -369,7 +369,7 @@ invoicesRouter.delete('/:id', requireRole('owner', 'admin'), async (req, res) =>
     throw new AppError('Invoice not found', 404, 'NOT_FOUND');
   }
   await prisma.invoiceLineItem.deleteMany({ where: { invoiceId: req.params.id } });
-  await prisma.invoicePayment.deleteMany({ where: { invoiceId: req.params.id } });
+  await prisma.payment.deleteMany({ where: { invoiceId: req.params.id } });
   await prisma.invoice.delete({ where: { id: req.params.id } });
   res.json({ success: true, data: { message: 'Invoice deleted' } } satisfies ApiResponse);
 });
