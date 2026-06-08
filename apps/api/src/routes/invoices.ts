@@ -362,6 +362,18 @@ invoicesRouter.post('/:id/void', requireRole('owner', 'admin'), async (req, res)
   res.json({ success: true, data: updated } satisfies ApiResponse);
 });
 
+// DELETE /api/v1/invoices/:id — owner/admin only, hard delete
+invoicesRouter.delete('/:id', requireRole('owner', 'admin'), async (req, res) => {
+  const invoice = await prisma.invoice.findUnique({ where: { id: req.params.id } });
+  if (!invoice || invoice.tenantId !== req.user!.tenantId) {
+    throw new AppError('Invoice not found', 404, 'NOT_FOUND');
+  }
+  await prisma.invoiceLineItem.deleteMany({ where: { invoiceId: req.params.id } });
+  await prisma.invoicePayment.deleteMany({ where: { invoiceId: req.params.id } });
+  await prisma.invoice.delete({ where: { id: req.params.id } });
+  res.json({ success: true, data: { message: 'Invoice deleted' } } satisfies ApiResponse);
+});
+
 // POST /api/v1/invoices/:id/payment-intent — Stripe online payment
 invoicesRouter.post('/:id/payment-intent', async (req, res) => {
   const invoice = await prisma.invoice.findUnique({

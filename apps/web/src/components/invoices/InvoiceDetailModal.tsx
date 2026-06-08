@@ -106,6 +106,11 @@ export function InvoiceDetailModal({ invoiceId, onClose }: Props) {
     onSuccess: () => { qc.invalidateQueries({ queryKey: ['invoices'] }); onClose(); },
   });
 
+  const { mutate: deleteInvoice, isPending: isDeleting } = useMutation({
+    mutationFn: () => api.delete(`/invoices/${invoiceId}`),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['invoices'] }); onClose(); },
+  });
+
   const { mutate: saveEdit, isPending: isSaving } = useMutation({
     mutationFn: () => api.patch(`/invoices/${invoiceId}`, {
       dueDate: editDueDate || undefined,
@@ -129,6 +134,7 @@ export function InvoiceDetailModal({ invoiceId, onClose }: Props) {
   const canPay = invoice && invoice.status !== 'void' && invoice.amountDue > 0;
   const canVoid = invoice && !['paid', 'void'].includes(invoice.status) &&
     ['owner', 'admin'].includes(user?.role ?? '');
+  const canDelete = invoice && ['owner', 'admin'].includes(user?.role ?? '');
 
   return (
     <>
@@ -184,6 +190,20 @@ export function InvoiceDetailModal({ invoiceId, onClose }: Props) {
                   </div>
                 )}
                 <div className="flex-1" />
+                {canDelete && !editing && (
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    className="text-destructive hover:text-destructive"
+                    onClick={() => {
+                      if (confirm('Permanently delete this invoice? This cannot be undone.')) deleteInvoice();
+                    }}
+                    loading={isDeleting}
+                  >
+                    <Trash2 className="h-3.5 w-3.5 mr-1.5" />
+                    Delete
+                  </Button>
+                )}
                 {canVoid && !editing && (
                   <Button
                     size="sm"
