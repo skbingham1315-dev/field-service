@@ -298,6 +298,61 @@ export async function sendPaymentReceived(opts: {
   await sendEmail(opts.to, subject, html);
 }
 
+// ── Balance Due Reminder ──────────────────────────────────────────────────────
+
+export async function sendBalanceDue(opts: {
+  to: string;
+  customerName: string;
+  invoiceNumber: string;
+  amountPaid: number;
+  amountDue: number;
+  total: number;
+  companyName: string;
+  dueDate?: string;
+  paymentUrl: string;
+}): Promise<void> {
+  const subject = `Balance due on Invoice ${opts.invoiceNumber} — ${opts.companyName}`;
+  const html = baseHtml(
+    opts.companyName,
+    subject,
+    `<h2 style="margin:0 0 8px;color:#111827;font-size:20px;">Balance Due on Your Invoice</h2>
+    <p style="margin:0 0 24px;color:#374151;">Hi ${opts.customerName},</p>
+    <p style="margin:0 0 24px;color:#374151;">
+      Thank you for your recent payment! There's still a balance remaining on Invoice ${opts.invoiceNumber}.
+    </p>
+    <table width="100%" cellpadding="0" cellspacing="0" style="border:1px solid #e5e7eb;border-radius:6px;overflow:hidden;margin-bottom:24px;">
+      <tr style="background:#f9fafb;">
+        <td style="padding:12px 16px;color:#6b7280;font-size:13px;font-weight:600;border-bottom:1px solid #e5e7eb;">INVOICE NUMBER</td>
+        <td style="padding:12px 16px;color:#111827;font-size:13px;border-bottom:1px solid #e5e7eb;">${opts.invoiceNumber}</td>
+      </tr>
+      <tr>
+        <td style="padding:12px 16px;color:#6b7280;font-size:13px;font-weight:600;border-bottom:1px solid #e5e7eb;">INVOICE TOTAL</td>
+        <td style="padding:12px 16px;font-size:13px;color:#111827;border-bottom:1px solid #e5e7eb;">${formatCents(opts.total)}</td>
+      </tr>
+      <tr>
+        <td style="padding:12px 16px;color:#6b7280;font-size:13px;font-weight:600;border-bottom:1px solid #e5e7eb;">AMOUNT PAID</td>
+        <td style="padding:12px 16px;font-size:13px;font-weight:700;color:#16a34a;border-bottom:1px solid #e5e7eb;">${formatCents(opts.amountPaid)}</td>
+      </tr>
+      <tr>
+        <td style="padding:12px 16px;color:#6b7280;font-size:13px;font-weight:600;${opts.dueDate ? 'border-bottom:1px solid #e5e7eb;' : ''}">BALANCE DUE</td>
+        <td style="padding:12px 16px;font-size:16px;font-weight:700;color:#dc2626;${opts.dueDate ? 'border-bottom:1px solid #e5e7eb;' : ''}">${formatCents(opts.amountDue)}</td>
+      </tr>
+      ${opts.dueDate ? `<tr>
+        <td style="padding:12px 16px;color:#6b7280;font-size:13px;font-weight:600;">DUE DATE</td>
+        <td style="padding:12px 16px;color:#111827;font-size:13px;">${new Date(opts.dueDate).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}</td>
+      </tr>` : ''}
+    </table>
+    <div style="text-align:center;margin:28px 0;">
+      <a href="${opts.paymentUrl}" style="display:inline-block;background:#2563eb;color:#ffffff;font-size:16px;font-weight:700;padding:14px 36px;border-radius:8px;text-decoration:none;">
+        Pay Balance — ${formatCents(opts.amountDue)}
+      </a>
+      <p style="margin:12px 0 0;color:#6b7280;font-size:12px;">Secure payment powered by Stripe. Same link, always shows your current balance.</p>
+    </div>
+    <p style="margin:0;color:#374151;">Please contact us if you have any questions.</p>`,
+  );
+  await sendEmail(opts.to, subject, html);
+}
+
 // ── Password Reset ────────────────────────────────────────────────────────────
 
 export async function sendPasswordReset(opts: {

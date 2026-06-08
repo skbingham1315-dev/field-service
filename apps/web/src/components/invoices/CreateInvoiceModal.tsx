@@ -107,6 +107,10 @@ export function CreateInvoiceModal({ open, onClose }: Props) {
   const [newCust, setNewCust] = useState<NewCustomerForm>({ firstName: '', lastName: '', email: '', phone: '' });
   const [newCustError, setNewCustError] = useState('');
   const [pickerOpenIdx, setPickerOpenIdx] = useState<number | null>(null);
+  // Down payment
+  const [downPayType, setDownPayType] = useState<'none' | 'percent' | 'fixed'>('none');
+  const [downPayValue, setDownPayValue] = useState('');
+  const [downPayDueDate, setDownPayDueDate] = useState('');
 
   const { data: customersData } = useQuery({
     queryKey: ['customers', 'all'],
@@ -143,9 +147,22 @@ export function CreateInvoiceModal({ open, onClose }: Props) {
     saveNewCustomer();
   };
 
+  const subtotalCents = Math.round(lineItems.reduce((sum, li) => {
+    const q = parseFloat(li.quantity) || 0;
+    const p = parseFloat(li.unitPrice) || 0;
+    return sum + q * p;
+  }, 0) * 100);
+
+  const downPaymentAmountCents = (() => {
+    if (downPayType === 'none') return undefined;
+    const v = parseFloat(downPayValue) || 0;
+    if (downPayType === 'percent') return Math.round(subtotalCents * (v / 100));
+    return Math.round(v * 100);
+  })();
+
   const { mutate: createInvoice, isPending } = useMutation({
     mutationFn: async () => {
-      const payload = {
+      const payload: Record<string, unknown> = {
         customerId,
         lineItems: lineItems.map((li) => ({
           description: li.description,
@@ -156,6 +173,10 @@ export function CreateInvoiceModal({ open, onClose }: Props) {
         dueDate: dueDate || undefined,
         notes: notes || undefined,
       };
+      if (downPaymentAmountCents != null) {
+        payload.downPaymentAmount = downPaymentAmountCents;
+        if (downPayDueDate) payload.downPaymentDueDate = downPayDueDate;
+      }
       const { data } = await api.post('/invoices', payload);
       return data;
     },
@@ -190,6 +211,9 @@ export function CreateInvoiceModal({ open, onClose }: Props) {
     setNewCust({ firstName: '', lastName: '', email: '', phone: '' });
     setNewCustError('');
     setPickerOpenIdx(null);
+    setDownPayType('none');
+    setDownPayValue('');
+    setDownPayDueDate('');
     onClose();
   };
 
@@ -205,11 +229,7 @@ export function CreateInvoiceModal({ open, onClose }: Props) {
     setLineItems((prev) => prev.map((li, idx) => (idx === i ? { ...li, [field]: value } : li)));
   };
 
-  const subtotal = lineItems.reduce((sum, li) => {
-    const q = parseFloat(li.quantity) || 0;
-    const p = parseFloat(li.unitPrice) || 0;
-    return sum + q * p;
-  }, 0);
+  const subtotal = subtotalCents / 100;
 
   return (
     <Dialog open={open} onOpenChange={(o) => !o && handleClose()}>
@@ -385,6 +405,52 @@ export function CreateInvoiceModal({ open, onClose }: Props) {
               <span>Total (excl. tax)</span>
               <span>${subtotal.toFixed(2)}</span>
             </div>
+          </div>
+
+          {/* Down payment */}
+          <div>
+            <p className="text-sm font-medium text-foreground mb-2">Down Payment</p>
+            <div className="flex gap-2 mb-2">
+              {(['none', 'percent', 'fixed'] as const).map((t) => (
+                <button
+                  key={t}
+                  type="button"
+                  onClick={() => { setDownPayType(t); setDownPayValue(''); }}
+                  className={`px-3 py-1.5 text-sm rounded-lg border transition-colors ${
+                    downPayType === t
+                      ? 'bg-blue-600 text-white border-blue-600'
+                      : 'border-gray-200 text-gray-600 hover:bg-gray-50'
+                  }`}
+                >
+                  {t === 'none' ? 'None' : t === 'percent' ? '% of total' : 'Fixed $'}
+                </button>
+              ))}
+            </div>
+            {downPayType !== 'none' && (
+              <div className="grid grid-cols-2 gap-3">
+                <Input
+                  label={downPayType === 'percent' ? 'Percentage (%)' : 'Amount ($)'}
+                  type="number"
+                  min="0"
+                  step={downPayType === 'percent' ? '1' : '0.01'}
+                  max={downPayType === 'percent' ? '100' : undefined}
+                  value={downPayValue}
+                  onChange={(e) => setDownPayValue(e.target.value)}
+                  placeholder={downPayType === 'percent' ? '50' : '500.00'}
+                />
+                <Input
+                  label="Down Payment Due Date"
+                  type="date"
+                  value={downPayDueDate}
+                  onChange={(e) => setDownPayDueDate(e.target.value)}
+                />
+              </div>
+            )}
+            {downPayType !== 'none' && downPaymentAmountCents != null && downPaymentAmountCents > 0 && (
+              <p className="text-xs text-blue-600 mt-1">
+                Down payment: ${(downPaymentAmountCents / 100).toFixed(2)} — remaining balance due after payment
+              </p>
+            )}
           </div>
 
           {/* Notes */}

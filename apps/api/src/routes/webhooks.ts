@@ -4,7 +4,8 @@ import Stripe from 'stripe';
 import twilio from 'twilio';
 import { prisma } from '@fsp/db';
 import { logger } from '../lib/logger';
-import { saveInboundSms } from '../lib/sms';
+import { sendPaymentReceived, sendBalanceDue } from '../lib/email';
+import { sendSms, saveInboundSms } from '../lib/sms';
 import { io } from '../socket';
 
 export const webhooksRouter = Router();
@@ -39,20 +40,89 @@ webhooksRouter.post('/stripe', async (req: Request, res: Response) => {
       const pi = event.data.object as Stripe.PaymentIntent;
       const invoiceId = pi.metadata?.invoiceId;
       if (invoiceId) {
-        await prisma.invoice.update({
-          where: { id: invoiceId },
-          data: { status: 'paid', amountPaid: pi.amount_received, amountDue: 0, paidAt: new Date() },
-        });
-        await prisma.payment.create({
-          data: {
-            tenantId: pi.metadata.tenantId,
-            invoiceId,
-            amount: pi.amount_received,
-            method: 'stripe',
-            stripePaymentIntentId: pi.id,
-            paidAt: new Date(),
-          },
-        });
+        const invoice = await prisma.invoice.findUnique({ where: { id: invoiceId } });
+        if (invoice) {
+          const paid = pi.amount_received;
+          const newAmountPaid = invoice.amountPaid + paid;
+          const newAmountDue = Math.max(0, invoice.total - newAmountPaid);
+          const newStatus = newAmountDue === 0 ? 'paid' : 'sent';
+
+          await prisma.$transaction(async (tx) => {
+            await tx.payment.create({
+              data: {
+                tenantId: pi.metadata.tenantId,
+                invoiceId,
+                amount: paid,
+                method: 'stripe',
+                stripePaymentIntentId: pi.id,
+                paidAt: new Date(),
+              },
+            });
+            await tx.invoice.update({
+              where: { id: invoiceId },
+              data: {
+                amountPaid: newAmountPaid,
+                amountDue: newAmountDue,
+                status: newStatus as never,
+                paidAt: newStatus === 'paid' ? new Date() : undefined,
+              },
+            });
+          });
+
+          // Fire-and-forget: email + SMS
+          setImmediate(async () => {
+            try {
+              const customer = await prisma.customer.findUnique({ where: { id: invoice.customerId } });
+              const tenant = await prisma.tenant.findUnique({ where: { id: invoice.tenantId } });
+              if (!customer || !tenant) return;
+
+              // Always send payment-received confirmation
+              if (customer.email) {
+                await sendPaymentReceived({
+                  to: customer.email,
+                  customerName: `${customer.firstName} ${customer.lastName}`,
+                  invoiceNumber: invoice.invoiceNumber,
+                  amountPaid: paid,
+                  amountDue: newAmountDue,
+                  companyName: tenant.name,
+                });
+              }
+
+              // If balance remains, send balance-due reminder with persistent pay link
+              if (newAmountDue > 0) {
+                const payTokenRows = await prisma.$queryRawUnsafe<Array<{ payToken: string | null }>>(
+                  `SELECT "payToken" FROM invoices WHERE id = $1`, invoiceId
+                );
+                const payToken = payTokenRows[0]?.payToken;
+                if (payToken) {
+                  const webUrl = process.env.WEB_URL ?? 'http://localhost:5173';
+                  const payUrl = `${webUrl}/pay/${payToken}`;
+                  if (customer.email) {
+                    await sendBalanceDue({
+                      to: customer.email,
+                      customerName: `${customer.firstName} ${customer.lastName}`,
+                      invoiceNumber: invoice.invoiceNumber,
+                      amountPaid: newAmountPaid,
+                      amountDue: newAmountDue,
+                      total: invoice.total,
+                      companyName: tenant.name,
+                      dueDate: invoice.dueDate?.toISOString(),
+                      paymentUrl: payUrl,
+                    });
+                  }
+                  if (customer.phone) {
+                    await sendSms({
+                      tenantId: tenant.id,
+                      customerId: customer.id,
+                      to: customer.phone,
+                      body: `Hi ${customer.firstName}! We received $${(paid / 100).toFixed(2)} — thank you! Remaining balance on invoice ${invoice.invoiceNumber}: $${(newAmountDue / 100).toFixed(2)}. Pay here: ${payUrl}`,
+                    });
+                  }
+                }
+              }
+            } catch (e) { logger.warn('Payment webhook notification failed', { e }); }
+          });
+        }
       }
       break;
     }

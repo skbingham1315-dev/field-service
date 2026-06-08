@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   Send, DollarSign, XCircle, CheckCircle2,
-  Phone, Mail, Calendar, Pencil, Plus, Trash2, X,
+  Phone, Mail, Calendar, Pencil, Plus, Trash2, X, Link, Copy, Check,
 } from 'lucide-react';
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle,
@@ -85,19 +85,36 @@ export function InvoiceDetailModal({ invoiceId, onClose }: Props) {
     paidAt?: string;
     notes?: string;
     createdAt: string;
+    payToken?: string;
+    downPaymentAmount?: number;
+    downPaymentDueDate?: string;
     customer: { id: string; firstName: string; lastName: string; email?: string; phone?: string };
     lineItems: Array<{ id: string; description: string; quantity: number; unitPrice: number; total: number; taxable: boolean }>;
     payments: Array<{ id: string; amount: number; method: string; notes?: string; paidAt: string }>;
   } | undefined;
 
   const [sentConfirm, setSentConfirm] = useState('');
+  const [payToken, setPayToken] = useState<string | null>(null);
+  const [copied, setCopied] = useState(false);
+
+  const copyPayLink = (token: string) => {
+    const url = `${window.location.origin}/pay/${token}`;
+    navigator.clipboard.writeText(url).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    });
+  };
+
   const { mutate: sendInvoice, isPending: isSending } = useMutation({
     mutationFn: () => api.post(`/invoices/${invoiceId}/send`),
-    onSuccess: () => {
+    onSuccess: (resp) => {
       qc.invalidateQueries({ queryKey: ['invoices'] });
+      qc.invalidateQueries({ queryKey: ['invoices', invoiceId] });
+      const token = resp.data?.data?.payToken as string | undefined;
+      if (token) setPayToken(token);
       const email = invoice?.customer?.email;
       setSentConfirm(email ? `Invoice emailed to ${email}` : 'Invoice marked as sent');
-      setTimeout(() => setSentConfirm(''), 5000);
+      setTimeout(() => setSentConfirm(''), 6000);
     },
   });
 
@@ -141,9 +158,12 @@ export function InvoiceDetailModal({ invoiceId, onClose }: Props) {
       <Dialog open={!!invoiceId} onOpenChange={(o) => !o && onClose()}>
         <DialogContent size="xl" className="max-h-[90vh] overflow-y-auto">
           <DialogHeader>
-            <div className="flex items-center gap-3">
+            <div className="flex items-center gap-3 flex-wrap">
               <DialogTitle>{invoice?.invoiceNumber ?? '...'}</DialogTitle>
               {invoice && <Badge variant={STATUS_COLORS[invoice.status]}>{invoice.status}</Badge>}
+              {invoice && invoice.amountPaid > 0 && invoice.amountDue > 0 && (
+                <Badge variant="warning">Partially Paid</Badge>
+              )}
             </div>
           </DialogHeader>
 
@@ -162,13 +182,23 @@ export function InvoiceDetailModal({ invoiceId, onClose }: Props) {
                   </Button>
                 )}
                 {canSend && !editing && (
-                  <div className="flex items-center gap-2">
+                  <div className="flex items-center gap-2 flex-wrap">
                     <Button size="sm" variant="outline" onClick={() => sendInvoice()} loading={isSending}>
                       <Send className="h-3.5 w-3.5 mr-1.5" />
                       {invoice.status === 'draft'
                         ? (invoice.customer?.email ? 'Send Invoice' : 'Mark as Sent')
                         : 'Resend Invoice'}
                     </Button>
+                    {(payToken || invoice.payToken) && (
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => copyPayLink(payToken ?? invoice.payToken!)}
+                      >
+                        {copied ? <Check className="h-3.5 w-3.5 mr-1.5 text-green-600" /> : <Copy className="h-3.5 w-3.5 mr-1.5" />}
+                        {copied ? 'Copied!' : 'Copy Pay Link'}
+                      </Button>
+                    )}
                     {sentConfirm && (
                       <span className="text-xs text-green-600 font-medium flex items-center gap-1">
                         <CheckCircle2 className="h-3.5 w-3.5" />

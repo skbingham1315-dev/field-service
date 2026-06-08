@@ -6,6 +6,7 @@ import { ForgotPasswordPage } from './pages/ForgotPasswordPage';
 import { ResetPasswordPage } from './pages/ResetPasswordPage';
 import { DashboardLayout } from './layouts/DashboardLayout';
 import { ReviewPage } from './pages/ReviewPage';
+import { PayPage } from './pages/PayPage';
 import { PortalApp } from './pages/PortalApp';
 import { CustomerJobPortal } from './pages/CustomerJobPortal';
 import { CheckCircle, X } from 'lucide-react';
@@ -52,6 +53,11 @@ export function App() {
   // Customer portal: /portal/:tenantSlug/*
   if (path.startsWith('/portal/')) {
     return <PortalApp />;
+  }
+
+  const payMatch = path.match(/^\/pay\/([^/]+)$/);
+  if (payMatch) {
+    return <PayPage token={payMatch[1]} />;
   }
 
   const reviewMatch = path.match(/^\/review\/([^/]+)$/);

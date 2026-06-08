@@ -39,6 +39,7 @@ import { trainingInteractiveRouter } from './routes/training-interactive';
 import { jobFilesRouter } from './routes/job-files';
 import { inviteCodesRouter } from './routes/invite-codes';
 import { serviceItemsRouter } from './routes/service-items';
+import { payRouter } from './routes/pay';
 
 export const app = express();
 
@@ -121,6 +122,7 @@ app.get('/health', (_req, res) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() });
 });
 
+
 // ─── Routes ───────────────────────────────────────────────────────────────────
 const apiV1 = express.Router();
 apiV1.use('/auth', authRouter);
@@ -153,6 +155,7 @@ apiV1.use('/training-interactive', trainingInteractiveRouter);
 apiV1.use('/job-files', jobFilesRouter);
 apiV1.use('/invite-codes', inviteCodesRouter);
 apiV1.use('/service-items', serviceItemsRouter);
+apiV1.use('/pay', payRouter);
 
 app.use('/api/v1', apiV1);
 app.use('/webhooks', webhooksRouter);
