@@ -739,6 +739,7 @@ function EditMemberModal({ member, onClose, onSaved }: { member: TeamMember; onC
     payRate: String(member.payRate ?? ''), payType: member.payType ?? 'hourly',
     employmentType: member.employmentType ?? 'w2',
     territory: member.territory ?? '',
+    newPassword: '',
   });
   const [secondaryRoles, setSecondaryRoles] = useState<string[]>(member.secondaryRoles ?? []);
   const [permissions, setPermissions] = useState<Record<string, boolean>>(member.customPermissions ?? {});
@@ -759,6 +760,7 @@ function EditMemberModal({ member, onClose, onSaved }: { member: TeamMember; onC
         secondaryRoles,
         payRate: form.payRate ? Number(form.payRate) : null,
         customPermissions: permissions,
+        ...(form.newPassword ? { password: form.newPassword } : {}),
       });
       onSaved();
     } catch (err: unknown) {
@@ -867,6 +869,20 @@ function EditMemberModal({ member, onClose, onSaved }: { member: TeamMember; onC
               ))}
             </div>
           )}
+
+          <div className="border border-gray-200 rounded-xl p-4 space-y-2">
+            <p className="text-xs font-medium text-gray-700">Reset Password</p>
+            <p className="text-xs text-gray-400">Leave blank to keep their current password.</p>
+            <input
+              type="password"
+              placeholder="New password (min 8 characters)"
+              value={form.newPassword}
+              onChange={set('newPassword')}
+              minLength={8}
+              autoComplete="new-password"
+              className={inp}
+            />
+          </div>
 
           {error && <div className="bg-red-50 border border-red-200 rounded-lg p-3 text-sm text-red-700">{error}</div>}
           <div className="flex gap-3 pt-2">

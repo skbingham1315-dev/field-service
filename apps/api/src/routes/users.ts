@@ -171,14 +171,20 @@ usersRouter.patch('/:userId', requireRole('owner', 'admin'), async (req, res) =>
     throw new AppError('User not found', 404, 'NOT_FOUND');
   }
 
-  const { role, secondaryRoles, status, firstName, lastName, phone, payRate, payType, customPermissions } = req.body as {
+  const { role, secondaryRoles, status, firstName, lastName, phone, payRate, payType, customPermissions, password } = req.body as {
     role?: string; secondaryRoles?: string[]; status?: string; firstName?: string; lastName?: string; phone?: string;
-    payRate?: number | null; payType?: string; customPermissions?: Record<string, unknown> | null;
+    payRate?: number | null; payType?: string; customPermissions?: Record<string, unknown> | null; password?: string;
   };
 
   if (role && userId === req.user!.sub && req.user!.role === 'owner') {
     throw new AppError('Owner cannot change their own role', 403, 'FORBIDDEN');
   }
+
+  if (password !== undefined && password.length < 8) {
+    throw new AppError('Password must be at least 8 characters', 400, 'VALIDATION_ERROR');
+  }
+
+  const passwordHash = password ? await bcrypt.hash(password, 12) : undefined;
 
   const user = await prisma.user.update({
     where: { id: userId },
@@ -190,6 +196,7 @@ usersRouter.patch('/:userId', requireRole('owner', 'admin'), async (req, res) =>
       ...(payRate !== undefined ? { payRate } : {}),
       ...(payType !== undefined ? { payType } : {}),
       ...(customPermissions !== undefined ? { customPermissions: customPermissions as never } : {}),
+      ...(passwordHash ? { passwordHash, refreshTokenHash: null } : {}),
     },
     select: {
       id: true, email: true, firstName: true, lastName: true, phone: true,
