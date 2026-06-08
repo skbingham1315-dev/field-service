@@ -90,9 +90,15 @@ export function InvoiceDetailModal({ invoiceId, onClose }: Props) {
     payments: Array<{ id: string; amount: number; method: string; notes?: string; paidAt: string }>;
   } | undefined;
 
+  const [sentConfirm, setSentConfirm] = useState('');
   const { mutate: sendInvoice, isPending: isSending } = useMutation({
     mutationFn: () => api.post(`/invoices/${invoiceId}/send`),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['invoices'] }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['invoices'] });
+      const email = invoice?.customer?.email;
+      setSentConfirm(email ? `Invoice emailed to ${email}` : 'Invoice marked as sent');
+      setTimeout(() => setSentConfirm(''), 5000);
+    },
   });
 
   const { mutate: voidInvoice, isPending: isVoiding } = useMutation({
@@ -150,10 +156,20 @@ export function InvoiceDetailModal({ invoiceId, onClose }: Props) {
                   </Button>
                 )}
                 {canSend && !editing && (
-                  <Button size="sm" variant="outline" onClick={() => sendInvoice()} loading={isSending}>
-                    <Send className="h-3.5 w-3.5 mr-1.5" />
-                    {invoice.status === 'draft' ? 'Mark as Sent' : 'Resend'}
-                  </Button>
+                  <div className="flex items-center gap-2">
+                    <Button size="sm" variant="outline" onClick={() => sendInvoice()} loading={isSending}>
+                      <Send className="h-3.5 w-3.5 mr-1.5" />
+                      {invoice.status === 'draft'
+                        ? (invoice.customer?.email ? 'Send Invoice' : 'Mark as Sent')
+                        : 'Resend Invoice'}
+                    </Button>
+                    {sentConfirm && (
+                      <span className="text-xs text-green-600 font-medium flex items-center gap-1">
+                        <CheckCircle2 className="h-3.5 w-3.5" />
+                        {sentConfirm}
+                      </span>
+                    )}
+                  </div>
                 )}
                 {canPay && !editing && (
                   <Button size="sm" onClick={() => setShowPayment(true)}>
