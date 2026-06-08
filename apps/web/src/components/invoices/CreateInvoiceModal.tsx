@@ -1,11 +1,79 @@
-import { useState } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Plus, Trash2, UserPlus, ChevronDown, ChevronUp } from 'lucide-react';
+import { Plus, Trash2, UserPlus, ChevronDown, ChevronUp, BookOpen, X } from 'lucide-react';
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter,
   Button, Input, Textarea, Select,
 } from '@fsp/ui';
 import { api } from '../../lib/api';
+
+interface ServiceItem {
+  id: string;
+  name: string;
+  description: string | null;
+  unitPrice: number;
+  taxable: boolean;
+  category: string | null;
+}
+
+function ItemPickerPopover({
+  onSelect,
+  onClose,
+}: {
+  onSelect: (item: ServiceItem) => void;
+  onClose: () => void;
+}) {
+  const [search, setSearch] = useState('');
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => { inputRef.current?.focus(); }, []);
+
+  const { data: items = [] } = useQuery<ServiceItem[]>({
+    queryKey: ['service-items', search],
+    queryFn: async () => {
+      const params = search ? `?search=${encodeURIComponent(search)}` : '';
+      const { data } = await api.get(`/service-items${params}`);
+      return data.data;
+    },
+  });
+
+  return (
+    <div className="absolute z-50 top-full left-0 mt-1 w-72 bg-white border border-gray-200 rounded-xl shadow-xl overflow-hidden">
+      <div className="p-2 border-b border-gray-100 flex items-center gap-2">
+        <input
+          ref={inputRef}
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          placeholder="Search catalog..."
+          className="flex-1 text-sm px-2 py-1 outline-none"
+        />
+        <button onClick={onClose} className="text-gray-400 hover:text-gray-600">
+          <X className="h-4 w-4" />
+        </button>
+      </div>
+      <div className="max-h-52 overflow-y-auto">
+        {items.length === 0 && (
+          <p className="px-4 py-3 text-xs text-gray-400 text-center">
+            {search ? 'No items match' : 'No catalog items yet — add them in Settings'}
+          </p>
+        )}
+        {items.map((item) => (
+          <button
+            key={item.id}
+            onClick={() => { onSelect(item); onClose(); }}
+            className="w-full text-left px-4 py-2.5 hover:bg-blue-50 transition-colors border-b border-gray-50 last:border-0"
+          >
+            <p className="text-sm font-medium text-gray-900">{item.name}</p>
+            <div className="flex items-center gap-2 mt-0.5">
+              <span className="text-xs text-gray-500">${(item.unitPrice / 100).toFixed(2)}</span>
+              {item.category && <span className="text-xs text-gray-400">{item.category}</span>}
+            </div>
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
 
 interface NewCustomerForm {
   firstName: string;
@@ -38,6 +106,7 @@ export function CreateInvoiceModal({ open, onClose }: Props) {
   const [showNewCustomer, setShowNewCustomer] = useState(false);
   const [newCust, setNewCust] = useState<NewCustomerForm>({ firstName: '', lastName: '', email: '', phone: '' });
   const [newCustError, setNewCustError] = useState('');
+  const [pickerOpenIdx, setPickerOpenIdx] = useState<number | null>(null);
 
   const { data: customersData } = useQuery({
     queryKey: ['customers', 'all'],
@@ -120,7 +189,16 @@ export function CreateInvoiceModal({ open, onClose }: Props) {
     setShowNewCustomer(false);
     setNewCust({ firstName: '', lastName: '', email: '', phone: '' });
     setNewCustError('');
+    setPickerOpenIdx(null);
     onClose();
+  };
+
+  const applyServiceItem = (idx: number, item: ServiceItem) => {
+    setLineItems((prev) => prev.map((li, i) =>
+      i === idx
+        ? { ...li, description: item.name, unitPrice: (item.unitPrice / 100).toFixed(2), taxable: item.taxable }
+        : li
+    ));
   };
 
   const updateItem = (i: number, field: keyof LineItem, value: string | boolean) => {
@@ -223,47 +301,63 @@ export function CreateInvoiceModal({ open, onClose }: Props) {
             <p className="text-sm font-medium text-foreground mb-2">Line Items *</p>
             <div className="space-y-2">
               {lineItems.map((li, i) => (
-                <div key={i} className="grid grid-cols-[1fr_80px_100px_40px_32px] gap-2 items-end">
-                  <Input
-                    placeholder="Description"
-                    value={li.description}
-                    onChange={(e) => updateItem(i, 'description', e.target.value)}
-                    error={errors[`desc-${i}`]}
-                  />
-                  <Input
-                    placeholder="Qty"
-                    type="number"
-                    min="0.01"
-                    step="0.01"
-                    value={li.quantity}
-                    onChange={(e) => updateItem(i, 'quantity', e.target.value)}
-                  />
-                  <Input
-                    placeholder="Price ($)"
-                    type="number"
-                    min="0"
-                    step="0.01"
-                    value={li.unitPrice}
-                    onChange={(e) => updateItem(i, 'unitPrice', e.target.value)}
-                    error={errors[`price-${i}`]}
-                  />
-                  <div className="flex items-center justify-center h-9">
-                    <input
-                      type="checkbox"
-                      checked={li.taxable}
-                      onChange={(e) => updateItem(i, 'taxable', e.target.checked)}
-                      title="Taxable"
-                      className="h-4 w-4 rounded border-gray-300"
+                <div key={i} className="relative">
+                  <div className="grid grid-cols-[1fr_80px_100px_40px_32px_32px] gap-2 items-end">
+                    <Input
+                      placeholder="Description"
+                      value={li.description}
+                      onChange={(e) => updateItem(i, 'description', e.target.value)}
+                      error={errors[`desc-${i}`]}
                     />
+                    <Input
+                      placeholder="Qty"
+                      type="number"
+                      min="0.01"
+                      step="0.01"
+                      value={li.quantity}
+                      onChange={(e) => updateItem(i, 'quantity', e.target.value)}
+                    />
+                    <Input
+                      placeholder="Price ($)"
+                      type="number"
+                      min="0"
+                      step="0.01"
+                      value={li.unitPrice}
+                      onChange={(e) => updateItem(i, 'unitPrice', e.target.value)}
+                      error={errors[`price-${i}`]}
+                    />
+                    <div className="flex items-center justify-center h-9">
+                      <input
+                        type="checkbox"
+                        checked={li.taxable}
+                        onChange={(e) => updateItem(i, 'taxable', e.target.checked)}
+                        title="Taxable"
+                        className="h-4 w-4 rounded border-gray-300"
+                      />
+                    </div>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      onClick={() => setPickerOpenIdx(pickerOpenIdx === i ? null : i)}
+                      title="Pick from catalog"
+                    >
+                      <BookOpen className="h-4 w-4 text-blue-400" />
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      onClick={() => setLineItems((p) => p.filter((_, idx) => idx !== i))}
+                      disabled={lineItems.length === 1}
+                    >
+                      <Trash2 className="h-4 w-4 text-gray-400" />
+                    </Button>
                   </div>
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    onClick={() => setLineItems((p) => p.filter((_, idx) => idx !== i))}
-                    disabled={lineItems.length === 1}
-                  >
-                    <Trash2 className="h-4 w-4 text-gray-400" />
-                  </Button>
+                  {pickerOpenIdx === i && (
+                    <ItemPickerPopover
+                      onSelect={(item) => applyServiceItem(i, item)}
+                      onClose={() => setPickerOpenIdx(null)}
+                    />
+                  )}
                 </div>
               ))}
               <div className="flex items-center gap-1 text-xs text-gray-400 pl-1">

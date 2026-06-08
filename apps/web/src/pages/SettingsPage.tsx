@@ -53,7 +53,7 @@ const ROLE_LABEL: Record<UserRole, string> = {
   sales: 'Sales Rep',
 };
 
-type Tab = 'profile' | 'team' | 'company' | 'permissions' | 'notifications' | 'integrations' | 'invite-codes' | 'ai';
+type Tab = 'profile' | 'team' | 'company' | 'permissions' | 'notifications' | 'integrations' | 'invite-codes' | 'ai' | 'service-catalog';
 
 function ProfileTab() {
   const qc = useQueryClient();
@@ -1415,6 +1415,197 @@ function AITab() {
   );
 }
 
+// ── Service Catalog Tab ───────────────────────────────────────────────────────
+
+interface ServiceItem {
+  id: string;
+  name: string;
+  description: string | null;
+  unitPrice: number;
+  taxable: boolean;
+  category: string | null;
+  isActive: boolean;
+}
+
+function ServiceCatalogTab() {
+  const qc = useQueryClient();
+  const [showForm, setShowForm] = useState(false);
+  const [editItem, setEditItem] = useState<ServiceItem | null>(null);
+  const [form, setForm] = useState({ name: '', description: '', unitPrice: '', taxable: true, category: '' });
+  const [saving, setSaving] = useState(false);
+
+  const { data: items = [], isLoading } = useQuery<ServiceItem[]>({
+    queryKey: ['service-items'],
+    queryFn: () => api.get('/service-items').then(r => r.data.data),
+  });
+
+  const resetForm = () => {
+    setForm({ name: '', description: '', unitPrice: '', taxable: true, category: '' });
+    setEditItem(null);
+    setShowForm(false);
+  };
+
+  const openEdit = (item: ServiceItem) => {
+    setForm({
+      name: item.name,
+      description: item.description ?? '',
+      unitPrice: (item.unitPrice / 100).toFixed(2),
+      taxable: item.taxable,
+      category: item.category ?? '',
+    });
+    setEditItem(item);
+    setShowForm(true);
+  };
+
+  const handleSave = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!form.name || !form.unitPrice) return;
+    setSaving(true);
+    try {
+      const payload = {
+        name: form.name,
+        description: form.description || undefined,
+        unitPrice: Math.round(parseFloat(form.unitPrice) * 100),
+        taxable: form.taxable,
+        category: form.category || undefined,
+      };
+      if (editItem) {
+        await api.patch(`/service-items/${editItem.id}`, payload);
+      } else {
+        await api.post('/service-items', payload);
+      }
+      qc.invalidateQueries({ queryKey: ['service-items'] });
+      resetForm();
+    } catch { /* ignore */ } finally { setSaving(false); }
+  };
+
+  const handleDelete = async (id: string) => {
+    if (!confirm('Remove this item from the catalog?')) return;
+    await api.delete(`/service-items/${id}`);
+    qc.invalidateQueries({ queryKey: ['service-items'] });
+  };
+
+  return (
+    <div className="space-y-5">
+      <div className="flex items-center justify-between">
+        <div>
+          <h3 className="font-semibold text-gray-900">Service Catalog</h3>
+          <p className="text-sm text-gray-500 mt-0.5">Reusable items that appear in the invoice and estimate line item picker.</p>
+        </div>
+        <button
+          onClick={() => { resetForm(); setShowForm(s => !s); }}
+          className="flex items-center gap-1.5 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm font-semibold rounded-xl transition-colors"
+        >
+          <Plus className="h-4 w-4" /> Add Item
+        </button>
+      </div>
+
+      {showForm && (
+        <form onSubmit={handleSave} className="bg-gray-50 border border-gray-200 rounded-xl p-4 space-y-3">
+          <p className="text-sm font-semibold text-gray-700">{editItem ? 'Edit Item' : 'New Catalog Item'}</p>
+          <div className="grid grid-cols-2 gap-3">
+            <div className="col-span-2">
+              <label className="block text-xs font-medium text-gray-600 mb-1">Name *</label>
+              <input
+                value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))}
+                placeholder="e.g. Pool Chemical Treatment"
+                required
+                className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+              />
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-gray-600 mb-1">Unit Price *</label>
+              <input
+                type="number" min="0" step="0.01"
+                value={form.unitPrice} onChange={e => setForm(f => ({ ...f, unitPrice: e.target.value }))}
+                placeholder="0.00" required
+                className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+              />
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-gray-600 mb-1">Category</label>
+              <input
+                value={form.category} onChange={e => setForm(f => ({ ...f, category: e.target.value }))}
+                placeholder="e.g. Labor, Parts, Chemical"
+                className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+              />
+            </div>
+            <div className="col-span-2">
+              <label className="block text-xs font-medium text-gray-600 mb-1">Description</label>
+              <input
+                value={form.description} onChange={e => setForm(f => ({ ...f, description: e.target.value }))}
+                placeholder="Optional — appears in invoice line item description"
+                className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+              />
+            </div>
+            <div className="col-span-2 flex items-center gap-2">
+              <input
+                type="checkbox" id="taxable-cb" checked={form.taxable}
+                onChange={e => setForm(f => ({ ...f, taxable: e.target.checked }))}
+                className="rounded border-gray-300"
+              />
+              <label htmlFor="taxable-cb" className="text-sm text-gray-700">Taxable</label>
+            </div>
+          </div>
+          <div className="flex gap-2 justify-end">
+            <button type="button" onClick={resetForm}
+              className="px-4 py-2 text-sm text-gray-600 border border-gray-300 rounded-lg hover:bg-gray-100">
+              Cancel
+            </button>
+            <button type="submit" disabled={saving}
+              className="flex items-center gap-1.5 px-4 py-2 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white text-sm font-semibold rounded-lg">
+              {saving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Check className="h-3.5 w-3.5" />}
+              {editItem ? 'Save Changes' : 'Add Item'}
+            </button>
+          </div>
+        </form>
+      )}
+
+      {isLoading && <div className="flex justify-center py-8"><Loader2 className="h-5 w-5 animate-spin text-gray-400" /></div>}
+
+      {items.length === 0 && !isLoading && !showForm && (
+        <div className="text-center py-10 text-gray-400 text-sm">
+          No catalog items yet. Add your most common services and parts for quick entry.
+        </div>
+      )}
+
+      <div className="space-y-2">
+        {items.map(item => (
+          <div key={item.id} className="bg-white border border-gray-200 rounded-xl px-4 py-3 flex items-center gap-4">
+            <div className="flex-1 min-w-0">
+              <div className="flex items-center gap-2 flex-wrap">
+                <span className="font-medium text-gray-900 text-sm">{item.name}</span>
+                {item.category && (
+                  <span className="text-[11px] bg-blue-50 text-blue-600 px-2 py-0.5 rounded-full font-medium">{item.category}</span>
+                )}
+                {!item.taxable && (
+                  <span className="text-[11px] bg-gray-100 text-gray-500 px-2 py-0.5 rounded-full">Non-taxable</span>
+                )}
+              </div>
+              {item.description && <p className="text-xs text-gray-500 mt-0.5 truncate">{item.description}</p>}
+            </div>
+            <span className="text-sm font-semibold text-gray-900 flex-shrink-0">
+              ${(item.unitPrice / 100).toFixed(2)}
+            </span>
+            <button onClick={() => openEdit(item)}
+              className="p-1.5 text-gray-400 hover:text-blue-600 rounded-lg transition-colors" title="Edit">
+              <Check className="h-4 w-4 opacity-0" />
+            </button>
+            <button onClick={() => openEdit(item)}
+              className="px-3 py-1 text-xs text-blue-600 border border-blue-200 rounded-lg hover:bg-blue-50 transition-colors">
+              Edit
+            </button>
+            <button onClick={() => handleDelete(item.id)}
+              className="p-1.5 text-gray-400 hover:text-red-500 rounded-lg transition-colors" title="Remove">
+              <Trash2 className="h-4 w-4" />
+            </button>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 export function SettingsPage() {
   const { user } = useAuthStore();
   const [tab, setTab] = useState<Tab>('profile');
@@ -1434,6 +1625,7 @@ export function SettingsPage() {
     ...(canSeeCompany ? [{ id: 'integrations' as Tab, label: 'Integrations' }] : []),
     ...(isOwner ? [{ id: 'invite-codes' as Tab, label: 'Invite Codes' }] : []),
     ...(canSeeCompany ? [{ id: 'ai' as Tab, label: 'AI Assistant' }] : []),
+    ...(canSeeCompany ? [{ id: 'service-catalog' as Tab, label: 'Service Catalog' }] : []),
   ];
 
   return (
@@ -1465,6 +1657,7 @@ export function SettingsPage() {
         {tab === 'integrations' && canSeeCompany && <IntegrationsTab />}
         {tab === 'invite-codes' && isOwner && <InviteCodesTab />}
         {tab === 'ai' && canSeeCompany && <AITab />}
+        {tab === 'service-catalog' && canSeeCompany && <ServiceCatalogTab />}
       </div>
     </div>
   );

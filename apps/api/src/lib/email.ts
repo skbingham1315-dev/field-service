@@ -219,6 +219,7 @@ export async function sendInvoiceSent(opts: {
   amountDue: number;
   companyName: string;
   dueDate?: string;
+  paymentUrl?: string;
 }): Promise<void> {
   const subject = `Invoice ${opts.invoiceNumber} from ${opts.companyName} — Payment Due`;
   const html = baseHtml(
@@ -247,6 +248,12 @@ export async function sendInvoiceSent(opts: {
         <td style="padding:12px 16px;color:#111827;font-size:13px;">${new Date(opts.dueDate).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}</td>
       </tr>` : ''}
     </table>
+    ${opts.paymentUrl ? `<div style="text-align:center;margin:28px 0;">
+      <a href="${opts.paymentUrl}" style="display:inline-block;background:#2563eb;color:#ffffff;font-size:16px;font-weight:700;padding:14px 36px;border-radius:8px;text-decoration:none;">
+        Pay Now — ${formatCents(opts.amountDue)}
+      </a>
+      <p style="margin:12px 0 0;color:#6b7280;font-size:12px;">Secure payment powered by Stripe</p>
+    </div>` : ''}
     <p style="margin:0;color:#374151;">Please contact us if you have any questions about this invoice.</p>`,
   );
   await sendEmail(opts.to, subject, html);

@@ -6,6 +6,37 @@ import { prisma } from '@fsp/db';
 import { sendSms } from '../lib/sms';
 import { geocodeAndSave } from '../lib/geocode';
 import type { ApiResponse } from '@fsp/types';
+import crypto from 'crypto';
+
+// ── Encryption helpers for stored API keys ─────────────────────────────────────
+const ENC_KEY_HEX = process.env.AI_KEY_ENCRYPTION_KEY ?? '';
+const ENC_ENABLED = ENC_KEY_HEX.length === 64; // 32-byte key as 64-char hex
+
+function encryptApiKey(plaintext: string): string {
+  if (!ENC_ENABLED) return plaintext;
+  const key = Buffer.from(ENC_KEY_HEX, 'hex');
+  const iv = crypto.randomBytes(12);
+  const cipher = crypto.createCipheriv('aes-256-gcm', key, iv);
+  const encrypted = Buffer.concat([cipher.update(plaintext, 'utf8'), cipher.final()]);
+  const tag = cipher.getAuthTag();
+  return `enc:${iv.toString('hex')}:${tag.toString('hex')}:${encrypted.toString('hex')}`;
+}
+
+function decryptApiKey(stored: string): string {
+  if (!ENC_ENABLED || !stored.startsWith('enc:')) return stored;
+  try {
+    const parts = stored.split(':');
+    const key = Buffer.from(ENC_KEY_HEX, 'hex');
+    const iv = Buffer.from(parts[1], 'hex');
+    const tag = Buffer.from(parts[2], 'hex');
+    const data = Buffer.from(parts[3], 'hex');
+    const decipher = crypto.createDecipheriv('aes-256-gcm', key, iv);
+    decipher.setAuthTag(tag);
+    return decipher.update(data) + decipher.final('utf8');
+  } catch {
+    return stored; // fall back to raw if decryption fails (e.g. old unencrypted value)
+  }
+}
 
 export const aiRouter = Router();
 aiRouter.use(authenticate);
@@ -359,13 +390,14 @@ aiRouter.get('/config', requireRole('owner', 'admin'), async (req, res) => {
     `SELECT "aiProvider", "aiApiKey" FROM "tenants" WHERE id = $1`, req.user!.tenantId,
   );
   const row = tenant[0];
+  // Decrypt to get the real key for the hint, but never return the full key
+  const plainKey = row?.aiApiKey ? decryptApiKey(row.aiApiKey) : null;
   res.json({
     success: true,
     data: {
       aiProvider: row?.aiProvider ?? null,
-      // Only return last 4 chars of key so UI can show it's set without exposing full key
       aiApiKeySet: !!(row?.aiApiKey),
-      aiApiKeyHint: row?.aiApiKey ? `...${row.aiApiKey.slice(-4)}` : null,
+      aiApiKeyHint: plainKey ? `...${plainKey.slice(-4)}` : null,
     },
   } satisfies ApiResponse);
 });
@@ -381,7 +413,7 @@ aiRouter.post('/config', requireRole('owner', 'admin'), async (req, res) => {
   const params: unknown[] = [req.user!.tenantId, aiProvider];
   if (aiApiKey !== undefined && aiApiKey !== '') {
     updates.push(`"aiApiKey" = $${params.length + 1}`);
-    params.push(aiApiKey);
+    params.push(encryptApiKey(aiApiKey));
   }
   await prisma.$executeRawUnsafe(
     `UPDATE "tenants" SET ${updates.join(', ')} WHERE id = $1`, ...params,
@@ -475,14 +507,15 @@ aiRouter.post('/chat', async (req, res) => {
     `SELECT "aiProvider", "aiApiKey" FROM "tenants" WHERE id = $1`, tenantId,
   );
   const tenantAiProvider = (tenantRows[0]?.aiProvider ?? null) as 'anthropic' | 'openai' | 'gemini' | null;
-  const tenantAiKey = tenantRows[0]?.aiApiKey ?? null;
+  const rawStoredKey = tenantRows[0]?.aiApiKey ?? null;
+  const tenantAiKey = rawStoredKey ? decryptApiKey(rawStoredKey) : null;
 
   // Fall back to server-level Anthropic key if tenant hasn't configured their own
   const effectiveProvider = tenantAiProvider ?? 'anthropic';
   const effectiveKey = tenantAiKey ?? process.env.ANTHROPIC_API_KEY ?? '';
 
   if (!effectiveKey) {
-    res.status(503).json({ success: false, message: 'AI assistant not configured. Ask your admin to add an API key in Settings → AI Assistant.' });
+    res.status(503).json({ success: false, message: 'NO_AI_KEY' });
     return;
   }
 

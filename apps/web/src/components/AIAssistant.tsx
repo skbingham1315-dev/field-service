@@ -73,8 +73,12 @@ export function AIAssistant() {
     try {
       const { data } = await api.post('/ai/chat', { messages: next, timezone });
       setMessages([...next, { role: 'assistant', content: data.data.message }]);
-    } catch {
-      setMessages([...next, { role: 'assistant', content: 'Sorry, something went wrong. Please try again.' }]);
+    } catch (err: any) {
+      const serverMsg = err?.response?.data?.message ?? '';
+      const errorContent = serverMsg === 'NO_AI_KEY'
+        ? 'The AI assistant needs an API key to work. Go to **Settings → AI Assistant** to connect your key (Claude, ChatGPT, or Gemini).'
+        : 'Sorry, something went wrong. Please try again.';
+      setMessages([...next, { role: 'assistant', content: errorContent }]);
     } finally {
       setLoading(false);
     }

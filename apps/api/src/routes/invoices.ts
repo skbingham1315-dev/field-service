@@ -233,9 +233,37 @@ invoicesRouter.post('/:id/send', async (req, res) => {
     throw new AppError(`Cannot send a ${invoice.status} invoice`, 400, 'INVALID_STATUS');
   }
 
+  // Create Stripe Checkout Session for online payment if Stripe is configured and amount is due
+  let checkoutUrl: string | undefined;
+  if (process.env.STRIPE_SECRET_KEY && invoice.amountDue > 0) {
+    try {
+      const webUrl = process.env.WEB_URL ?? 'http://localhost:5173';
+      const session = await stripe.checkout.sessions.create({
+        mode: 'payment',
+        payment_method_types: ['card'],
+        line_items: [{
+          price_data: {
+            currency: 'usd',
+            unit_amount: invoice.amountDue,
+            product_data: { name: `Invoice ${invoice.invoiceNumber}` },
+          },
+          quantity: 1,
+        }],
+        metadata: { invoiceId: invoice.id, tenantId: invoice.tenantId },
+        success_url: `${webUrl}?payment=success&invoice=${invoice.invoiceNumber}`,
+        cancel_url: `${webUrl}?payment=cancelled`,
+      });
+      checkoutUrl = session.url ?? undefined;
+    } catch { /* non-critical — send invoice without payment link if Stripe fails */ }
+  }
+
   const updated = await prisma.invoice.update({
     where: { id: req.params.id },
-    data: { status: 'sent', issuedAt: invoice.issuedAt ?? new Date() },
+    data: {
+      status: 'sent',
+      issuedAt: invoice.issuedAt ?? new Date(),
+      ...(checkoutUrl ? { stripePaymentIntentId: null } : {}),
+    },
     include: invoiceInclude,
   });
 
@@ -256,10 +284,12 @@ invoicesRouter.post('/:id/send', async (req, res) => {
           amountDue: updated.amountDue,
           companyName: tenant.name,
           dueDate: updated.dueDate?.toISOString(),
+          paymentUrl: checkoutUrl,
         });
       }
       if (customer.phone) {
-        const body = `Hi ${customer.firstName}! Invoice ${updated.invoiceNumber} for $${(updated.total / 100).toFixed(2)} from ${tenant.name} is ready. Amount due: $${(updated.amountDue / 100).toFixed(2)}.`;
+        const payLink = checkoutUrl ? ` Pay online: ${checkoutUrl}` : '';
+        const body = `Hi ${customer.firstName}! Invoice ${updated.invoiceNumber} for $${(updated.total / 100).toFixed(2)} from ${tenant.name} is ready. Amount due: $${(updated.amountDue / 100).toFixed(2)}.${payLink}`;
         await sendSms({ tenantId: tenant.id, customerId: customer.id, to: customer.phone, body });
       }
     } catch (e) { /* non-critical */ }

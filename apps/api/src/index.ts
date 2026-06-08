@@ -190,6 +190,29 @@ async function main() {
     logger.warn('AI provider column setup skipped: ' + String(e));
   }
 
+  // Service items catalog table
+  try {
+    await prisma.$executeRawUnsafe(`
+      CREATE TABLE IF NOT EXISTS "service_items" (
+        "id"          TEXT NOT NULL,
+        "tenantId"    TEXT NOT NULL,
+        "name"        TEXT NOT NULL,
+        "description" TEXT,
+        "unitPrice"   INTEGER NOT NULL DEFAULT 0,
+        "taxable"     BOOLEAN NOT NULL DEFAULT true,
+        "category"    TEXT,
+        "isActive"    BOOLEAN NOT NULL DEFAULT true,
+        "createdAt"   TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        "updatedAt"   TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        CONSTRAINT "service_items_pkey" PRIMARY KEY ("id")
+      )
+    `);
+    await prisma.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "service_items_tenantId_idx" ON "service_items"("tenantId")`);
+    logger.info('service_items table ensured');
+  } catch (e) {
+    logger.warn('service_items table setup skipped: ' + String(e));
+  }
+
   // Verify DB connection
   await prisma.$connect();
   logger.info('✅ PostgreSQL connected');
