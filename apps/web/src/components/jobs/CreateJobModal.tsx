@@ -5,7 +5,7 @@ import {
   Button, Input, Textarea, Select,
 } from '@fsp/ui';
 import { api } from '../../lib/api';
-import { Upload, Sparkles, X, Calendar, Clock, Plus, MapPin, Building2, Home } from 'lucide-react';
+import { Upload, Sparkles, X, Calendar, Clock, Plus, MapPin, Building2, Home, AlertCircle } from 'lucide-react';
 
 interface Props {
   open: boolean;
@@ -29,6 +29,7 @@ export function CreateJobModal({ open, onClose }: Props) {
   const [scheduleMode, setScheduleMode] = useState<'open' | 'now'>('open');
   const [aiParsing, setAiParsing] = useState(false);
   const [aiHint, setAiHint] = useState<{ customerName?: string; address?: string; addressMatched?: boolean } | null>(null);
+  const [aiError, setAiError] = useState<string | null>(null);
   const [dragging, setDragging] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [showAddAddress, setShowAddAddress] = useState(false);
@@ -126,6 +127,7 @@ export function CreateJobModal({ open, onClose }: Props) {
   const parseFile = useCallback(async (file: File) => {
     setAiParsing(true);
     setAiHint(null);
+    setAiError(null);
     try {
       const fd = new FormData();
       fd.append('file', file);
@@ -220,8 +222,12 @@ export function CreateJobModal({ open, onClose }: Props) {
           zip: extracted.zip ?? '',
         }));
       }
-    } catch {
-      // silently fail — form stays blank for manual entry
+    } catch (err: any) {
+      const msg = err?.response?.data?.error?.message ?? err?.message ?? 'AI parsing failed';
+      const isCredits = msg.toLowerCase().includes('credit') || msg.toLowerCase().includes('balance');
+      setAiError(isCredits
+        ? 'AI credits are out — top up at console.anthropic.com to use this feature. Fill in manually below.'
+        : 'Could not read the file — fill in manually below.');
     } finally {
       setAiParsing(false);
     }
@@ -262,6 +268,12 @@ export function CreateJobModal({ open, onClose }: Props) {
             <div className="flex flex-col items-center gap-2 text-blue-600">
               <Sparkles className="h-7 w-7 animate-pulse" />
               <p className="text-sm font-medium">AI is reading your file...</p>
+            </div>
+          ) : aiError ? (
+            <div className="flex flex-col items-center gap-2 text-amber-700">
+              <AlertCircle className="h-7 w-7" />
+              <p className="text-sm font-medium text-center">{aiError}</p>
+              <p className="text-xs text-gray-400">Click to try another file</p>
             </div>
           ) : (
             <div className="flex flex-col items-center gap-2 text-gray-500">
