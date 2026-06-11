@@ -534,10 +534,23 @@ IMPORTANT: All scheduled times the user mentions are in their local timezone (${
 When you complete an action, tell the user clearly what was done.`;
 
   let text: string;
-  if (effectiveProvider === 'anthropic') {
-    text = await chatWithClaude(effectiveKey, systemPrompt, messages, tools, tenantId, userId);
-  } else {
-    text = await chatWithOpenAI(effectiveKey, effectiveProvider as 'openai' | 'gemini', systemPrompt, messages, tools, tenantId, userId);
+  try {
+    if (effectiveProvider === 'anthropic') {
+      text = await chatWithClaude(effectiveKey, systemPrompt, messages, tools, tenantId, userId);
+    } else {
+      text = await chatWithOpenAI(effectiveKey, effectiveProvider as 'openai' | 'gemini', systemPrompt, messages, tools, tenantId, userId);
+    }
+  } catch (err: any) {
+    const errMsg = err?.error?.error?.message ?? err?.message ?? '';
+    if (errMsg.toLowerCase().includes('credit') || errMsg.toLowerCase().includes('balance')) {
+      res.status(503).json({ success: false, message: 'NO_CREDITS' });
+      return;
+    }
+    if (errMsg.toLowerCase().includes('invalid') && errMsg.toLowerCase().includes('key')) {
+      res.status(503).json({ success: false, message: 'INVALID_KEY' });
+      return;
+    }
+    throw err;
   }
 
   res.json({ success: true, data: { message: text } });

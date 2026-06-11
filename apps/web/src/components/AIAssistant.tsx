@@ -77,6 +77,10 @@ export function AIAssistant() {
       const serverMsg = err?.response?.data?.message ?? '';
       const errorContent = serverMsg === 'NO_AI_KEY'
         ? 'The AI assistant needs an API key to work. Go to **Settings → AI Assistant** to connect your key (Claude, ChatGPT, or Gemini).'
+        : serverMsg === 'NO_CREDITS'
+        ? 'Your Anthropic account is out of credits. Go to console.anthropic.com → Plans & Billing to add credits, then try again.'
+        : serverMsg === 'INVALID_KEY'
+        ? 'Your AI API key is invalid or expired. Go to **Settings → AI Assistant** to update it.'
         : 'Sorry, something went wrong. Please try again.';
       setMessages([...next, { role: 'assistant', content: errorContent }]);
     } finally {

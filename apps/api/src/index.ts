@@ -190,6 +190,23 @@ async function main() {
     logger.warn('AI provider column setup skipped: ' + String(e));
   }
 
+  // Invoice pay link + down payment columns
+  try {
+    await prisma.$executeRawUnsafe(`ALTER TABLE "invoices" ADD COLUMN IF NOT EXISTS "payToken" TEXT`);
+    await prisma.$executeRawUnsafe(`CREATE UNIQUE INDEX IF NOT EXISTS "invoices_payToken_key" ON "invoices"("payToken") WHERE "payToken" IS NOT NULL`);
+    await prisma.$executeRawUnsafe(`ALTER TABLE "invoices" ADD COLUMN IF NOT EXISTS "downPaymentAmount" INTEGER`);
+    await prisma.$executeRawUnsafe(`ALTER TABLE "invoices" ADD COLUMN IF NOT EXISTS "downPaymentDueDate" TIMESTAMP(3)`);
+    // Back-fill payToken for any existing invoices that don't have one
+    // Uses gen_random_uuid() (no extension needed) — 32 hex chars, 128 bits of randomness
+    await prisma.$executeRawUnsafe(`
+      UPDATE "invoices" SET "payToken" = replace(gen_random_uuid()::text, '-', '')
+      WHERE "payToken" IS NULL AND status NOT IN ('void','draft')
+    `);
+    logger.info('invoice pay columns ensured');
+  } catch (e) {
+    logger.warn('invoice pay columns skipped: ' + String(e));
+  }
+
   // Service items catalog table
   try {
     await prisma.$executeRawUnsafe(`
