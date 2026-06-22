@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import multer from 'multer';
 import Anthropic from '@anthropic-ai/sdk';
+import OpenAI from 'openai';
 import { authenticate, requireRole } from '../middleware/authenticate';
 import { prisma } from '@fsp/db';
 import { AppError } from '../middleware/errorHandler';
@@ -9,8 +10,35 @@ import type { ApiResponse } from '@fsp/types';
 import { DEFAULT_ROLE_PERMISSIONS } from './tenants';
 import { sendSms } from '../lib/sms';
 import { sendJobReviewRequest } from '../lib/email';
+import crypto from 'crypto';
 
-const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
+const ENC_KEY_HEX = process.env.AI_KEY_ENCRYPTION_KEY ?? '';
+const ENC_ENABLED = ENC_KEY_HEX.length === 64;
+
+function decryptApiKey(stored: string): string {
+  if (!ENC_ENABLED || !stored.startsWith('enc:')) return stored;
+  try {
+    const parts = stored.split(':');
+    const key = Buffer.from(ENC_KEY_HEX, 'hex');
+    const iv = Buffer.from(parts[1], 'hex');
+    const tag = Buffer.from(parts[2], 'hex');
+    const data = Buffer.from(parts[3], 'hex');
+    const decipher = crypto.createDecipheriv('aes-256-gcm', key, iv);
+    decipher.setAuthTag(tag);
+    return decipher.update(data) + decipher.final('utf8');
+  } catch { return stored; }
+}
+
+async function getTenantAiConfig(tenantId: string) {
+  const rows = await prisma.$queryRawUnsafe<Array<{ aiProvider: string | null; aiApiKey: string | null }>>(
+    `SELECT "aiProvider", "aiApiKey" FROM "tenants" WHERE id = $1`, tenantId,
+  );
+  const provider = rows[0]?.aiProvider ?? null;
+  const rawKey = rows[0]?.aiApiKey ?? null;
+  const key = rawKey ? decryptApiKey(rawKey) : (process.env.ANTHROPIC_API_KEY ?? '');
+  const effectiveProvider = (provider ?? 'anthropic') as 'anthropic' | 'openai' | 'gemini';
+  return { provider: effectiveProvider, key };
+}
 
 const aiUpload = multer({
   storage: multer.memoryStorage(),
@@ -129,27 +157,7 @@ jobsRouter.get('/:id', async (req, res) => {
   res.json({ success: true, data: job } satisfies ApiResponse);
 });
 
-// POST /api/v1/jobs/ai-parse — any authenticated user; accepts image or PDF, returns extracted job info
-jobsRouter.post('/ai-parse', aiUpload.single('file'), async (req, res) => {
-  if (!req.file) throw new AppError('No file uploaded', 400, 'BAD_REQUEST');
-
-  const base64 = req.file.buffer.toString('base64');
-  const isImage = req.file.mimetype.startsWith('image/');
-  const isPdf = req.file.mimetype === 'application/pdf';
-
-  const fileContent: Anthropic.MessageParam['content'] = isImage
-    ? [
-        { type: 'text', text: 'Extract job information from this image.' },
-        { type: 'image', source: { type: 'base64', media_type: req.file.mimetype as 'image/jpeg' | 'image/png' | 'image/gif' | 'image/webp', data: base64 } },
-      ]
-    : isPdf
-    ? [
-        { type: 'text', text: 'Extract job information from this document.' },
-        { type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: base64 } } as any,
-      ]
-    : [{ type: 'text', text: 'No readable file provided.' }];
-
-  const systemPrompt = `You are a field service dispatcher assistant. Extract job information from the provided file and return ONLY a valid JSON object with these fields (omit any you cannot determine):
+const PARSE_SYSTEM_PROMPT = `You are a field service dispatcher assistant. Extract job information from the provided file and return ONLY a valid JSON object with these fields (omit any you cannot determine):
 {
   "title": "brief job title (max 80 chars)",
   "description": "detailed description of the work needed",
@@ -165,14 +173,67 @@ jobsRouter.post('/ai-parse', aiUpload.single('file'), async (req, res) => {
 }
 Return ONLY the raw JSON object, no markdown, no explanation.`;
 
-  const message = await anthropic.messages.create({
-    model: 'claude-sonnet-4-6',
-    max_tokens: 1024,
-    system: systemPrompt,
-    messages: [{ role: 'user', content: fileContent }],
-  });
+// POST /api/v1/jobs/ai-parse — any authenticated user; accepts image or PDF, returns extracted job info
+jobsRouter.post('/ai-parse', aiUpload.single('file'), async (req, res) => {
+  if (!req.file) throw new AppError('No file uploaded', 400, 'BAD_REQUEST');
 
-  const text = message.content[0].type === 'text' ? message.content[0].text.trim() : '{}';
+  const { provider, key } = await getTenantAiConfig(req.user!.tenantId);
+  if (!key) throw new AppError('NO_AI_KEY', 503, 'NO_AI_KEY');
+
+  const base64 = req.file.buffer.toString('base64');
+  const isImage = req.file.mimetype.startsWith('image/');
+  const isPdf = req.file.mimetype === 'application/pdf';
+
+  let text = '{}';
+
+  if (provider === 'anthropic') {
+    const client = new Anthropic({ apiKey: key });
+    const fileContent: Anthropic.MessageParam['content'] = isImage
+      ? [
+          { type: 'image', source: { type: 'base64', media_type: req.file.mimetype as 'image/jpeg' | 'image/png' | 'image/gif' | 'image/webp', data: base64 } },
+          { type: 'text', text: 'Extract job information from this file.' },
+        ]
+      : isPdf
+      ? [
+          { type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: base64 } } as any,
+          { type: 'text', text: 'Extract job information from this document.' },
+        ]
+      : [{ type: 'text', text: 'No readable file provided.' }];
+
+    const msg = await client.messages.create({
+      model: 'claude-sonnet-4-6',
+      max_tokens: 1024,
+      system: PARSE_SYSTEM_PROMPT,
+      messages: [{ role: 'user', content: fileContent }],
+    });
+    text = msg.content[0].type === 'text' ? msg.content[0].text.trim() : '{}';
+  } else {
+    // OpenAI or Gemini (both support OpenAI-compatible vision API)
+    const isGemini = provider === 'gemini';
+    const client = new OpenAI({
+      apiKey: key,
+      ...(isGemini ? { baseURL: 'https://generativelanguage.googleapis.com/v1beta/openai/' } : {}),
+    });
+    const model = isGemini ? 'gemini-2.0-flash' : 'gpt-4o';
+
+    const userContent: OpenAI.Chat.ChatCompletionContentPart[] = isImage
+      ? [
+          { type: 'image_url', image_url: { url: `data:${req.file.mimetype};base64,${base64}` } },
+          { type: 'text', text: 'Extract job information from this image.' },
+        ]
+      : [{ type: 'text', text: isPdf ? `[PDF document — extract job info]\n${PARSE_SYSTEM_PROMPT}` : 'No readable file.' }];
+
+    const resp = await client.chat.completions.create({
+      model,
+      max_tokens: 1024,
+      messages: [
+        { role: 'system', content: PARSE_SYSTEM_PROMPT },
+        { role: 'user', content: userContent },
+      ],
+    });
+    text = resp.choices[0]?.message?.content?.trim() ?? '{}';
+  }
+
   let extracted: Record<string, string> = {};
   try {
     const jsonStr = text.match(/\{[\s\S]*\}/)?.[0] ?? text;
