@@ -10,6 +10,7 @@ import { TrainingPage } from './TrainingPage';
 import { api } from '../lib/api';
 import { useAuthStore } from '../store/authStore';
 import { useTenantPermissions } from '../lib/permissions';
+import { useToast } from '../components/Toast';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -315,11 +316,16 @@ function NewLeadModal({ onClose, onCreated, canCreateJobs }: { onClose: () => vo
 function LeadCard({ customer }: { customer: Customer }) {
   const [expanded, setExpanded] = useState(false);
   const qc = useQueryClient();
+  const toast = useToast();
   const address = customer.serviceAddresses[0];
 
   const convertMutation = useMutation({
     mutationFn: () => api.patch(`/customers/${customer.id}`, { status: 'active' }),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['sales-leads'] }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['sales-leads'] });
+      toast.success(`${customer.firstName} ${customer.lastName} converted to customer`);
+    },
+    onError: () => toast.error('Failed to convert lead'),
   });
 
   return (
@@ -499,6 +505,8 @@ function ActivityTab() {
     }
   }, [activityData]);
 
+  const toast = useToast();
+
   const { mutate: save, isPending: saving } = useMutation({
     mutationFn: () => api.post('/sales/activity', counts),
     onSuccess: () => {
@@ -506,6 +514,7 @@ function ActivityTab() {
       setSaved(true);
       setTimeout(() => setSaved(false), 2000);
     },
+    onError: () => toast.error('Failed to save activity'),
   });
 
   const adjust = (key: keyof Activity, delta: number) => {

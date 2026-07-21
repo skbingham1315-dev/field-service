@@ -328,6 +328,7 @@ export function SchedulePage() {
     },
     onError: (_e, _v, ctx) => {
       if (ctx?.prev) qc.setQueryData(['schedule', 'board', dateStr], ctx.prev);
+      toast.error('Failed to assign job');
     },
     onSettled: () => {
       qc.invalidateQueries({ queryKey: ['schedule', 'board', dateStr] });

@@ -8,6 +8,7 @@ import { api } from '../lib/api';
 import { useAuthStore } from '../store/authStore';
 import { getSocket, connectSocket } from '../lib/socket';
 import { useTenantPermissions } from '../lib/permissions';
+import { useToast } from '../components/Toast';
 import { JobDetailModal } from '../components/jobs/JobDetailModal';
 import { CreateJobModal } from '../components/jobs/CreateJobModal';
 
@@ -84,6 +85,7 @@ function JobCard({
 }) {
   const [expanded, setExpanded] = useState(false);
   const qc = useQueryClient();
+  const toast = useToast();
 
   const { mutate: updateStatus, isPending } = useMutation({
     mutationFn: (status: string) => api.patch(`/jobs/${job.id}`, { status }),
@@ -92,6 +94,7 @@ function JobCard({
       onStatusChange();
       if (status === 'completed') onCompleted(job.title);
     },
+    onError: () => toast.error('Failed to update job status'),
   });
 
   const addressStr = job.serviceAddress
@@ -276,16 +279,22 @@ export function TechnicianPage() {
 
   const { data: permissions } = useTenantPermissions();
 
+  const toast = useToast();
+
   const { mutate: toggleAvailability } = useMutation({
     mutationFn: (isAvailable: boolean) => api.patch('/users/me', { isAvailable }),
-    onSuccess: () => {
+    onSuccess: (_data, isAvailable) => {
       qc.invalidateQueries({ queryKey: ['users', 'me'] });
+      toast.success(isAvailable ? 'You are now available' : 'You are now unavailable');
     },
+    onError: () => toast.error('Failed to update availability'),
   });
 
   const startTracking = () => {
-    if (!navigator.geolocation) return;
-    // Ensure socket is connected before emitting
+    if (!navigator.geolocation) {
+      toast.error('GPS not available on this device');
+      return;
+    }
     connectSocket();
     watchRef.current = navigator.geolocation.watchPosition(
       (pos) => {
@@ -295,15 +304,14 @@ export function TechnicianPage() {
           heading: pos.coords.heading ?? undefined,
           speed: pos.coords.speed ?? undefined,
         };
-        // Emit via socket for real-time dispatch map updates
         getSocket().emit('technician:location', payload);
-        // Also persist via REST as a reliable fallback
         api.post('/users/me/location', payload).catch(() => {});
       },
-      () => { setTracking(false); }, // on error (e.g. permission denied) stop tracking
+      () => { setTracking(false); toast.error('GPS permission denied or unavailable'); },
       { enableHighAccuracy: true, maximumAge: 10_000 },
     );
     setTracking(true);
+    toast.success('GPS tracking started');
   };
 
   const stopTracking = () => {

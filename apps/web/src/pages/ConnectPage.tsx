@@ -7,6 +7,7 @@
 
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useToast } from '../components/Toast';
 import {
   Settings,
   Users,
@@ -152,9 +153,11 @@ function SettingsTab() {
     setLoaded(true);
   }
 
+  const toast = useToast();
   const save = useMutation({
     mutationFn: () => api.put('/portal/config', form).then((r) => r.data),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['portal-config'] }),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['portal-config'] }); toast.success('Portal settings saved'); },
+    onError: () => toast.error('Failed to save portal settings'),
   });
 
   const portalUrl = `${window.location.origin}/portal/${tenantSlug}`;
@@ -370,19 +373,23 @@ function UsersTab() {
     queryFn: () => api.get('/portal/users').then((r) => r.data),
   });
 
+  const toast = useToast();
   const createUser = useMutation({
     mutationFn: () => api.post('/portal/users', invite).then((r) => r.data),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['portal-users'] });
       setShowInvite(false);
       setInvite({ email: '', displayName: '', phone: '' });
+      toast.success('Portal user invited');
     },
+    onError: () => toast.error('Failed to invite user'),
   });
 
   const toggleActive = useMutation({
     mutationFn: ({ id, isActive }: { id: string; isActive: boolean }) =>
       api.patch(`/portal/users/${id}`, { isActive }).then((r) => r.data),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['portal-users'] }),
+    onSuccess: (_data, { isActive }) => { qc.invalidateQueries({ queryKey: ['portal-users'] }); toast.success(isActive ? 'User activated' : 'User deactivated'); },
+    onError: () => toast.error('Failed to update user'),
   });
 
   if (isLoading) {
@@ -537,6 +544,7 @@ function MessagesTab() {
     refetchInterval: 10000,
   });
 
+  const toast = useToast();
   const sendReply = useMutation({
     mutationFn: () =>
       api.post(`/portal/admin/messages/${selectedThread}`, { body: reply }).then((r) => r.data),
@@ -545,6 +553,7 @@ function MessagesTab() {
       qc.invalidateQueries({ queryKey: ['portal-thread', selectedThread] });
       qc.invalidateQueries({ queryKey: ['portal-message-threads'] });
     },
+    onError: () => toast.error('Failed to send reply'),
   });
 
   if (isLoading) {
@@ -682,10 +691,12 @@ function WorkRequestsTab() {
         .then((r) => r.data),
   });
 
+  const toast = useToast();
   const updateStatus = useMutation({
     mutationFn: ({ id, status }: { id: string; status: string }) =>
       api.patch(`/portal/admin/work-requests/${id}`, { status }).then((r) => r.data),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['portal-work-requests'] }),
+    onSuccess: (_data, { status }) => { qc.invalidateQueries({ queryKey: ['portal-work-requests'] }); toast.success(`Request ${status}`); },
+    onError: () => toast.error('Failed to update request'),
   });
 
   if (isLoading) {

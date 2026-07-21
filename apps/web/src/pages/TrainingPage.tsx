@@ -581,6 +581,7 @@ function ResourceModal({ resource, onClose, onSaved }: {
     } finally { setUploading(false); }
   };
 
+  const toast = useToast();
   const handleSave = async () => {
     if (!form.title.trim()) return;
     setSaving(true);
@@ -591,8 +592,11 @@ function ResourceModal({ resource, onClose, onSaved }: {
       } else {
         await api.post('/training', payload);
       }
+      toast.success(resource ? 'Resource updated' : 'Resource created');
       onSaved();
-    } catch { /* ignore */ } finally { setSaving(false); }
+    } catch {
+      toast.error('Failed to save resource');
+    } finally { setSaving(false); }
   };
 
   const handleAI = async () => {
@@ -609,7 +613,7 @@ function ResourceModal({ resource, onClose, onSaved }: {
       const data = await res.json();
       const text = data?.data?.message ?? data?.choices?.[0]?.message?.content ?? '';
       if (text) setForm(f => ({ ...f, content: text }));
-    } catch { /* ignore */ } finally { setAiLoading(false); setAiPrompt(''); }
+    } catch { toast.error('AI generation failed'); } finally { setAiLoading(false); setAiPrompt(''); }
   };
 
   const inp = 'w-full px-3 py-2 border border-gray-300 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-violet-500/50 focus:border-violet-400 bg-white';

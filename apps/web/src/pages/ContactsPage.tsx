@@ -104,6 +104,7 @@ function ContactFormModal({ contact, onClose }: { contact?: Contact; onClose: ()
   });
   const [error, setError] = useState('');
 
+  const toast = useToast();
   const mutation = useMutation({
     mutationFn: async (data: typeof form) => {
       if (isEdit) {
@@ -113,6 +114,7 @@ function ContactFormModal({ contact, onClose }: { contact?: Contact; onClose: ()
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['contacts'] });
+      toast.success(isEdit ? 'Contact updated' : 'Contact created');
       onClose();
     },
     onError: (e: unknown) => {
@@ -260,9 +262,11 @@ function LogActivityModal({ contactId, onClose }: { contactId: string; onClose: 
   const qc = useQueryClient();
   const [type, setType] = useState('call');
   const [note, setNote] = useState('');
+  const toast = useToast();
   const mutation = useMutation({
     mutationFn: () => api.post(`/contacts/${contactId}/activities`, { type, note: note.trim() || undefined }),
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ['contact', contactId] }); onClose(); },
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['contact', contactId] }); toast.success('Activity logged'); onClose(); },
+    onError: () => toast.error('Failed to log activity'),
   });
 
   return (
@@ -326,16 +330,19 @@ function ContactDetailDrawer({ contactId, onClose }: { contactId: string; onClos
 
   const archiveMutation = useMutation({
     mutationFn: () => api.delete(`/contacts/${contactId}`),
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ['contacts'] }); onClose(); },
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['contacts'] }); toast.success('Contact archived'); onClose(); },
+    onError: () => toast.error('Failed to archive contact'),
   });
 
   const statusMutation = useMutation({
     mutationFn: (status: string) => api.patch(`/contacts/${contactId}`, { status }),
-    onSuccess: () => {
+    onSuccess: (_data, status) => {
       qc.invalidateQueries({ queryKey: ['contact', contactId] });
       qc.invalidateQueries({ queryKey: ['contacts'] });
       setShowStatusChange(false);
+      toast.success(`Status changed to ${status}`);
     },
+    onError: () => toast.error('Failed to update status'),
   });
 
   if (isLoading) {

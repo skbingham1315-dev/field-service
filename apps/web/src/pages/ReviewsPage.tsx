@@ -5,6 +5,7 @@
  */
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useToast } from '../components/Toast';
 import {
   Star,
   Shield,
@@ -135,6 +136,7 @@ function ContractorProfilePanel({ userId, onBack }: { userId: string; onBack: ()
     queryFn: () => api.get(`/reviews/profile/${userId}`).then((r) => r.data),
   });
 
+  const toast = useToast();
   const addResponse = useMutation({
     mutationFn: ({ id, body }: { id: string; body: string }) =>
       api.post(`/reviews/${id}/response`, { body }).then((r) => r.data),
@@ -142,12 +144,15 @@ function ContractorProfilePanel({ userId, onBack }: { userId: string; onBack: ()
       qc.invalidateQueries({ queryKey: ['contractor-profile', userId] });
       setReplyingTo(null);
       setReplyText('');
+      toast.success('Response posted');
     },
+    onError: () => toast.error('Failed to post response'),
   });
 
   const flagReview = useMutation({
     mutationFn: (id: string) => api.post(`/reviews/${id}/flag`).then((r) => r.data),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['contractor-profile', userId] }),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['contractor-profile', userId] }); toast.success('Review flagged for moderation'); },
+    onError: () => toast.error('Failed to flag review'),
   });
 
   if (isLoading) {
@@ -399,10 +404,12 @@ function AllReviewsTab() {
     queryFn: () => api.get(`/reviews?page=${page}&limit=20`).then((r) => r.data),
   });
 
+  const toast = useToast();
   const togglePublic = useMutation({
     mutationFn: ({ id, isPublic }: { id: string; isPublic: boolean }) =>
       api.patch(`/reviews/${id}`, { isPublic }).then((r) => r.data),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['all-reviews', page] }),
+    onSuccess: (_data, { isPublic }) => { qc.invalidateQueries({ queryKey: ['all-reviews', page] }); toast.success(isPublic ? 'Review published' : 'Review hidden'); },
+    onError: () => toast.error('Failed to update review'),
   });
 
   if (isLoading) return <div className="flex justify-center py-20"><Loader2 className="h-6 w-6 animate-spin text-slate-400" /></div>;
@@ -477,14 +484,17 @@ function ModerationTab() {
     queryFn: () => api.get('/reviews/flagged').then((r) => r.data),
   });
 
+  const toast = useToast();
   const unflag = useMutation({
     mutationFn: (id: string) => api.patch(`/reviews/${id}`, { isFlagged: false }).then((r) => r.data),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['reviews-flagged'] }),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['reviews-flagged'] }); toast.success('Review unflagged'); },
+    onError: () => toast.error('Failed to unflag review'),
   });
 
   const hide = useMutation({
     mutationFn: (id: string) => api.patch(`/reviews/${id}`, { isPublic: false, isFlagged: false }).then((r) => r.data),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['reviews-flagged'] }),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['reviews-flagged'] }); toast.success('Review hidden'); },
+    onError: () => toast.error('Failed to hide review'),
   });
 
   if (isLoading) return <div className="flex justify-center py-20"><Loader2 className="h-6 w-6 animate-spin text-slate-400" /></div>;
