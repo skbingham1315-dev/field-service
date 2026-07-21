@@ -28,11 +28,17 @@ function BillingSuccessBanner({ onDismiss }: { onDismiss: () => void }) {
 
 export function App() {
   const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
+  const validateSession = useAuthStore((s) => s.validateSession);
   const [showSignup, setShowSignup] = useState(false);
   const [showForgot, setShowForgot] = useState(false);
   const [billingSuccess, setBillingSuccess] = useState(false);
   // Force re-render on popstate so path-based routes respond to browser back/forward
   const [, setNavTick] = useState(0);
+
+  // Validate persisted session on app load — catches stale/wrong tokens
+  useEffect(() => {
+    validateSession();
+  }, [validateSession]);
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);

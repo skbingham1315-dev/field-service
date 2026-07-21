@@ -375,3 +375,15 @@ authRouter.post('/change-password', authenticate, async (req, res) => {
   res.json({ success: true, data: { message: 'Password changed successfully.' } } satisfies ApiResponse);
 });
 
+// GET /api/v1/auth/me — validate current session and return fresh user data
+authRouter.get('/me', authenticate, async (req, res) => {
+  const user = await prisma.user.findUnique({
+    where: { id: req.user!.sub },
+    select: { id: true, email: true, firstName: true, lastName: true, role: true, tenantId: true, secondaryRoles: true, status: true },
+  });
+  if (!user || user.status !== 'active') {
+    throw new AppError('Session invalid', 401, 'TOKEN_INVALID');
+  }
+  res.json({ success: true, data: { user } } satisfies ApiResponse);
+});
+

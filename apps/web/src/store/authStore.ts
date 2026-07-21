@@ -14,6 +14,7 @@ interface AuthState {
     tenantSlug: string,
   ) => Promise<void>;
   logout: () => Promise<void>;
+  validateSession: () => Promise<void>;
   setTokens: (accessToken: string, refreshToken: string) => void;
   setAuth: (data: { accessToken: string; refreshToken: string; user: AuthState['user'] }) => void;
 }
@@ -40,6 +41,20 @@ export const useAuthStore = create<AuthState>()(
           // ignore
         }
         set({ isAuthenticated: false, accessToken: null, refreshToken: null, user: null });
+        localStorage.removeItem('fsp_workspace');
+      },
+
+      validateSession: async () => {
+        const { accessToken } = get();
+        if (!accessToken) return;
+        try {
+          const { data } = await api.get('/auth/me');
+          const user = data.data.user;
+          set({ user, isAuthenticated: true });
+        } catch {
+          // Token invalid/expired — force logout
+          set({ isAuthenticated: false, accessToken: null, refreshToken: null, user: null });
+        }
       },
 
       setTokens: (accessToken, refreshToken) => {
