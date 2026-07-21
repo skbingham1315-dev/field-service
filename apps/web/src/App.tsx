@@ -1,15 +1,18 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, lazy, Suspense } from 'react';
 import { useAuthStore } from './store/authStore';
 import { LoginPage } from './pages/LoginPage';
 import { SignupPage } from './pages/SignupPage';
 import { ForgotPasswordPage } from './pages/ForgotPasswordPage';
 import { ResetPasswordPage } from './pages/ResetPasswordPage';
-import { DashboardLayout } from './layouts/DashboardLayout';
-import { ReviewPage } from './pages/ReviewPage';
-import { PayPage } from './pages/PayPage';
-import { PortalApp } from './pages/PortalApp';
-import { CustomerJobPortal } from './pages/CustomerJobPortal';
+import { ErrorBoundary } from './components/ErrorBoundary';
 import { CheckCircle, X } from 'lucide-react';
+
+// Lazy-loaded chunks — split heavy components to reduce initial bundle
+const DashboardLayout = lazy(() => import('./layouts/DashboardLayout').then(m => ({ default: m.DashboardLayout })));
+const ReviewPage = lazy(() => import('./pages/ReviewPage').then(m => ({ default: m.ReviewPage })));
+const PayPage = lazy(() => import('./pages/PayPage').then(m => ({ default: m.PayPage })));
+const PortalApp = lazy(() => import('./pages/PortalApp').then(m => ({ default: m.PortalApp })));
+const CustomerJobPortal = lazy(() => import('./pages/CustomerJobPortal').then(m => ({ default: m.CustomerJobPortal })));
 
 function BillingSuccessBanner({ onDismiss }: { onDismiss: () => void }) {
   return (
@@ -45,24 +48,26 @@ export function App() {
   // Public routes — no auth required
   const path = window.location.pathname;
 
+  const LazyFallback = <div className="flex items-center justify-center min-h-screen text-gray-400">Loading...</div>;
+
   // Customer job portal (simple job code + email access)
   if (path === '/job-portal') {
-    return <CustomerJobPortal />;
+    return <ErrorBoundary><Suspense fallback={LazyFallback}><CustomerJobPortal /></Suspense></ErrorBoundary>;
   }
 
   // Customer portal: /portal/:tenantSlug/*
   if (path.startsWith('/portal/')) {
-    return <PortalApp />;
+    return <ErrorBoundary><Suspense fallback={LazyFallback}><PortalApp /></Suspense></ErrorBoundary>;
   }
 
   const payMatch = path.match(/^\/pay\/([^/]+)$/);
   if (payMatch) {
-    return <PayPage token={payMatch[1]} />;
+    return <ErrorBoundary><Suspense fallback={LazyFallback}><PayPage token={payMatch[1]} /></Suspense></ErrorBoundary>;
   }
 
   const reviewMatch = path.match(/^\/review\/([^/]+)$/);
   if (reviewMatch) {
-    return <ReviewPage token={reviewMatch[1]} />;
+    return <ErrorBoundary><Suspense fallback={LazyFallback}><ReviewPage token={reviewMatch[1]} /></Suspense></ErrorBoundary>;
   }
 
   if (path === '/reset-password') {
@@ -80,9 +85,11 @@ export function App() {
   }
 
   return (
-    <>
+    <ErrorBoundary>
       {billingSuccess && <BillingSuccessBanner onDismiss={() => setBillingSuccess(false)} />}
-      <DashboardLayout />
-    </>
+      <Suspense fallback={LazyFallback}>
+        <DashboardLayout />
+      </Suspense>
+    </ErrorBoundary>
   );
 }

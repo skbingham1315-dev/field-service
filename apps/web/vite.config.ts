@@ -27,5 +27,18 @@ export default defineConfig({
   build: {
     outDir: 'dist',
     sourcemap: false,
+    rollupOptions: {
+      output: {
+        manualChunks: {
+          vendor: ['react', 'react-dom'],
+          ui: ['@radix-ui/react-dialog', '@radix-ui/react-select'],
+          icons: ['lucide-react'],
+          charts: ['recharts'],
+          maps: ['leaflet', 'react-leaflet'],
+          dnd: ['@dnd-kit/core', '@dnd-kit/sortable', '@dnd-kit/utilities'],
+          stripe: ['@stripe/react-stripe-js', '@stripe/stripe-js'],
+        },
+      },
+    },
   },
 });
