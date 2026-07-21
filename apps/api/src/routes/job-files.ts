@@ -62,6 +62,20 @@ jobFilesRouter.post('/:jobId', upload.single('file'), async (req, res) => {
     longitude,
   } = req.body as Record<string, string>;
 
+  // Validate numeric fields
+  const parsedCost = costAmount ? parseFloat(costAmount) : null;
+  if (parsedCost !== null && (isNaN(parsedCost) || parsedCost < 0 || parsedCost > 999999)) {
+    throw new AppError('Invalid cost amount', 400, 'VALIDATION_ERROR');
+  }
+  const parsedLat = latitude ? parseFloat(latitude) : null;
+  const parsedLng = longitude ? parseFloat(longitude) : null;
+  if (parsedLat !== null && (isNaN(parsedLat) || parsedLat < -90 || parsedLat > 90)) {
+    throw new AppError('Invalid latitude', 400, 'VALIDATION_ERROR');
+  }
+  if (parsedLng !== null && (isNaN(parsedLng) || parsedLng < -180 || parsedLng > 180)) {
+    throw new AppError('Invalid longitude', 400, 'VALIDATION_ERROR');
+  }
+
   const file = await prisma.jobFile.create({
     data: {
       tenantId,
@@ -78,13 +92,13 @@ jobFilesRouter.post('/:jobId', upload.single('file'), async (req, res) => {
       visibility,
       notes: notes || null,
       noteVisibility,
-      costAmount: costAmount ? parseFloat(costAmount) : null,
+      costAmount: parsedCost,
       costBillable: costBillable === 'true',
       receiptCategory: receiptCategory || null,
       vendorName: vendorName || null,
       purchaseDate: purchaseDate ? new Date(purchaseDate) : null,
-      latitude: latitude ? parseFloat(latitude) : null,
-      longitude: longitude ? parseFloat(longitude) : null,
+      latitude: parsedLat,
+      longitude: parsedLng,
     },
     select: {
       id: true, jobId: true, fileType: true, photoCategory: true, stageType: true,

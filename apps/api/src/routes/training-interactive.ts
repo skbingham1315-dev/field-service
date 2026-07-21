@@ -30,47 +30,49 @@ function calcMilestonesEarned(sectionsRead: number, reviewedCount: number, roleP
 }
 
 export async function checkAndAwardMilestones(userId: string): Promise<number> {
-  const [progress, user, reviewedCount] = await Promise.all([
-    prisma.trainingUserProgress.findUnique({ where: { userId } }),
-    prisma.user.findUnique({ where: { id: userId }, select: { email: true, trainingBonusRate: true } }),
-    prisma.trainingExerciseAnswer.count({ where: { userId, status: 'reviewed' } }),
-  ]);
-  if (!progress || !user) return 0;
+  return prisma.$transaction(async (tx) => {
+    const [progress, user, reviewedCount] = await Promise.all([
+      tx.trainingUserProgress.findUnique({ where: { userId } }),
+      tx.user.findUnique({ where: { id: userId }, select: { email: true, trainingBonusRate: true } }),
+      tx.trainingExerciseAnswer.count({ where: { userId, status: 'reviewed' } }),
+    ]);
+    if (!progress || !user) return 0;
 
-  // Count meaningful contact activities logged by this user (exclude auto-logged system entries)
-  const contactCount = await prisma.contactActivity.count({
-    where: {
-      createdBy: user.email,
-      type: { notIn: ['status_change', 'follow_up_set'] },
-    },
+    // Count meaningful contact activities logged by this user
+    const contactCount = await tx.contactActivity.count({
+      where: {
+        createdBy: user.email,
+        type: { notIn: ['status_change', 'follow_up_set'] },
+      },
+    });
+
+    const shouldHave = calcMilestonesEarned(
+      progress.sectionsRead.length,
+      reviewedCount,
+      progress.rolePlayCount,
+      contactCount,
+    );
+    const current = progress.milestonesEarned;
+    if (shouldHave <= current) return current;
+
+    const gained = shouldHave - current;
+    const bonusIncrease = gained * 0.10;
+
+    await tx.trainingUserProgress.update({
+      where: { userId },
+      data: { milestonesEarned: shouldHave },
+    });
+    await tx.user.update({
+      where: { id: userId },
+      data: { trainingBonusRate: { increment: bonusIncrease } },
+    });
+    // Clamp to $1.00 max
+    await tx.$executeRawUnsafe(
+      `UPDATE "users" SET "trainingBonusRate" = LEAST("trainingBonusRate", 1.0) WHERE id = $1`,
+      userId,
+    );
+    return shouldHave;
   });
-
-  const shouldHave = calcMilestonesEarned(
-    progress.sectionsRead.length,
-    reviewedCount,
-    progress.rolePlayCount,
-    contactCount,
-  );
-  const current = progress.milestonesEarned;
-  if (shouldHave <= current) return current;
-
-  const gained = shouldHave - current;
-  const bonusIncrease = gained * 0.10;
-
-  await prisma.trainingUserProgress.update({
-    where: { userId },
-    data: { milestonesEarned: shouldHave },
-  });
-  await prisma.user.update({
-    where: { id: userId },
-    data: { trainingBonusRate: { increment: bonusIncrease } },
-  });
-  // Clamp to $1.00 max
-  await prisma.$executeRawUnsafe(
-    `UPDATE "users" SET "trainingBonusRate" = LEAST("trainingBonusRate", 1.0) WHERE id = $1`,
-    userId,
-  );
-  return shouldHave;
 }
 
 // ── Progress ──────────────────────────────────────────────────────────────────

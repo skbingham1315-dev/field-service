@@ -6,6 +6,11 @@ import Stripe from 'stripe';
 import type { ApiResponse } from '@fsp/types';
 import { sendInvoiceSent, sendPaymentReceived } from '../lib/email';
 import { sendSms } from '../lib/sms';
+import crypto from 'crypto';
+
+function generatePayToken(): string {
+  return crypto.randomBytes(24).toString('hex');
+}
 
 export const invoicesRouter = Router();
 
@@ -84,10 +89,20 @@ invoicesRouter.get('/:id', async (req, res) => {
 
 // POST /api/v1/invoices
 invoicesRouter.post('/', async (req, res) => {
-  const { customerId, jobId, lineItems, dueDate, notes, discountAmount = 0 } = req.body;
+  const { customerId, jobId, lineItems, dueDate, notes, discountAmount = 0, downPaymentAmount, downPaymentDueDate } = req.body;
 
   if (!customerId || !lineItems?.length) {
     throw new AppError('customerId and lineItems are required', 400, 'VALIDATION_ERROR');
+  }
+
+  // Validate line items
+  for (const item of lineItems) {
+    if (typeof item.quantity !== 'number' || item.quantity <= 0) {
+      throw new AppError('Line item quantity must be positive', 400, 'VALIDATION_ERROR');
+    }
+    if (typeof item.unitPrice !== 'number' || item.unitPrice < 0 || item.unitPrice > 99999999) {
+      throw new AppError('Line item unit price must be non-negative and reasonable', 400, 'VALIDATION_ERROR');
+    }
   }
 
   const tenant = await prisma.tenant.findUniqueOrThrow({ where: { id: req.user!.tenantId } });
@@ -139,6 +154,11 @@ invoicesRouter.post('/', async (req, res) => {
       amountDue: total,
       dueDate: dueDate ? new Date(dueDate) : undefined,
       notes,
+      // pay link token — generated now, persists for life of invoice
+      ...({ payToken: generatePayToken() } as Record<string, unknown>),
+      // down payment
+      ...(downPaymentAmount != null ? { downPaymentAmount: Math.round(Number(downPaymentAmount)) } as Record<string, unknown> : {}),
+      ...(downPaymentDueDate ? { downPaymentDueDate: new Date(downPaymentDueDate) } as Record<string, unknown> : {}),
     },
     include: invoiceInclude,
   });
@@ -233,41 +253,21 @@ invoicesRouter.post('/:id/send', async (req, res) => {
     throw new AppError(`Cannot send a ${invoice.status} invoice`, 400, 'INVALID_STATUS');
   }
 
-  // Create Stripe Checkout Session for online payment if Stripe is configured and amount is due
-  let checkoutUrl: string | undefined;
-  if (process.env.STRIPE_SECRET_KEY && invoice.amountDue > 0) {
-    try {
-      const webUrl = process.env.WEB_URL ?? 'http://localhost:5173';
-      const session = await stripe.checkout.sessions.create({
-        mode: 'payment',
-        payment_method_types: ['card'],
-        line_items: [{
-          price_data: {
-            currency: 'usd',
-            unit_amount: invoice.amountDue,
-            product_data: { name: `Invoice ${invoice.invoiceNumber}` },
-          },
-          quantity: 1,
-        }],
-        metadata: { invoiceId: invoice.id, tenantId: invoice.tenantId },
-        success_url: `${webUrl}?payment=success&invoice=${invoice.invoiceNumber}`,
-        cancel_url: `${webUrl}?payment=cancelled`,
-      });
-      checkoutUrl = session.url ?? undefined;
-    } catch { /* non-critical — send invoice without payment link if Stripe fails */ }
+  // Ensure a payToken exists (back-fill if missing)
+  const raw = invoice as Record<string, unknown>;
+  let payToken = raw.payToken as string | null | undefined;
+  if (!payToken) {
+    payToken = generatePayToken();
+    await prisma.$executeRawUnsafe(`UPDATE "invoices" SET "payToken" = $1 WHERE id = $2`, payToken, invoice.id);
   }
 
   const updated = await prisma.invoice.update({
     where: { id: req.params.id },
-    data: {
-      status: 'sent',
-      issuedAt: invoice.issuedAt ?? new Date(),
-      ...(checkoutUrl ? { stripePaymentIntentId: null } : {}),
-    },
+    data: { status: 'sent', issuedAt: invoice.issuedAt ?? new Date() },
     include: invoiceInclude,
   });
 
-  res.json({ success: true, data: updated } satisfies ApiResponse);
+  res.json({ success: true, data: { ...updated, payToken } } satisfies ApiResponse);
 
   // fire-and-forget notifications
   setImmediate(async () => {
@@ -275,6 +275,8 @@ invoicesRouter.post('/:id/send', async (req, res) => {
       const customer = await prisma.customer.findUnique({ where: { id: updated.customerId } });
       const tenant = await prisma.tenant.findUnique({ where: { id: updated.tenantId } });
       if (!customer || !tenant) return;
+      const webUrl = process.env.WEB_URL ?? 'http://localhost:5173';
+      const payUrl = `${webUrl}/pay/${payToken}`;
       if (customer.email) {
         await sendInvoiceSent({
           to: customer.email,
@@ -284,12 +286,11 @@ invoicesRouter.post('/:id/send', async (req, res) => {
           amountDue: updated.amountDue,
           companyName: tenant.name,
           dueDate: updated.dueDate?.toISOString(),
-          paymentUrl: checkoutUrl,
+          paymentUrl: payUrl,
         });
       }
       if (customer.phone) {
-        const payLink = checkoutUrl ? ` Pay online: ${checkoutUrl}` : '';
-        const body = `Hi ${customer.firstName}! Invoice ${updated.invoiceNumber} for $${(updated.total / 100).toFixed(2)} from ${tenant.name} is ready. Amount due: $${(updated.amountDue / 100).toFixed(2)}.${payLink}`;
+        const body = `Hi ${customer.firstName}! Invoice ${updated.invoiceNumber} for $${(updated.total / 100).toFixed(2)} from ${tenant.name} is ready. Amount due: $${(updated.amountDue / 100).toFixed(2)}. Pay here: ${payUrl}`;
         await sendSms({ tenantId: tenant.id, customerId: customer.id, to: customer.phone, body });
       }
     } catch (e) { /* non-critical */ }

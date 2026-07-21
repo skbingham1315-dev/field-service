@@ -102,6 +102,16 @@ estimatesRouter.post('/', async (req, res) => {
     throw new AppError('customerId and lineItems are required', 400, 'VALIDATION_ERROR');
   }
 
+  // Validate line items
+  for (const item of lineItems) {
+    if (typeof item.quantity !== 'number' || item.quantity <= 0) {
+      throw new AppError('Line item quantity must be positive', 400, 'VALIDATION_ERROR');
+    }
+    if (typeof item.unitPrice !== 'number' || item.unitPrice < 0 || item.unitPrice > 99999999) {
+      throw new AppError('Line item unit price must be non-negative and reasonable', 400, 'VALIDATION_ERROR');
+    }
+  }
+
   const tenant = await prisma.tenant.findUniqueOrThrow({ where: { id: req.user!.tenantId } });
   const taxRate = Number(tenant.taxRate);
 

@@ -39,9 +39,27 @@ webhooksRouter.post('/stripe', async (req: Request, res: Response) => {
     case 'payment_intent.succeeded': {
       const pi = event.data.object as Stripe.PaymentIntent;
       const invoiceId = pi.metadata?.invoiceId;
-      if (invoiceId) {
-        const invoice = await prisma.invoice.findUnique({ where: { id: invoiceId } });
-        if (invoice) {
+      if (!invoiceId) {
+        logger.warn('Stripe payment_intent.succeeded missing invoiceId', { paymentIntentId: pi.id });
+        break;
+      }
+
+      // Idempotency: check if this payment intent was already processed
+      const existingPayment = await prisma.payment.findFirst({
+        where: { stripePaymentIntentId: pi.id },
+      });
+      if (existingPayment) {
+        logger.info('Stripe webhook already processed (idempotent skip)', { paymentIntentId: pi.id });
+        break;
+      }
+
+      const invoice = await prisma.invoice.findUnique({ where: { id: invoiceId } });
+      if (!invoice) {
+        logger.error('Invoice not found for Stripe payment', { invoiceId, paymentIntentId: pi.id });
+        break;
+      }
+
+      {
           const paid = pi.amount_received;
           const newAmountPaid = invoice.amountPaid + paid;
           const newAmountDue = Math.max(0, invoice.total - newAmountPaid);
@@ -122,7 +140,6 @@ webhooksRouter.post('/stripe', async (req: Request, res: Response) => {
               }
             } catch (e) { logger.warn('Payment webhook notification failed', { e }); }
           });
-        }
       }
       break;
     }

@@ -171,12 +171,7 @@ async function main() {
         CONSTRAINT "invite_codes_code_key" UNIQUE ("code")
       )
     `);
-    // Activate the tsturfcare testing account if it exists
-    await prisma.$executeRawUnsafe(`
-      UPDATE "tenants" SET status = 'active'
-      WHERE slug = 'tsturfcare' AND status != 'active'
-    `);
-    logger.info('invite_codes table ensured + tsturfcare activated');
+    logger.info('invite_codes table ensured');
   } catch (e) {
     logger.warn('invite_codes setup skipped: ' + String(e));
   }

@@ -11,21 +11,22 @@ serviceItemsRouter.use(authenticate);
 serviceItemsRouter.get('/', async (req, res) => {
   const { search, category } = req.query as Record<string, string>;
 
-  const items = await prisma.$queryRawUnsafe<Array<{
-    id: string; tenantId: string; name: string; description: string | null;
-    unitPrice: number; taxable: boolean; category: string | null; isActive: boolean;
-    createdAt: string; updatedAt: string;
-  }>>(
-    `SELECT * FROM "service_items"
-     WHERE "tenantId" = $1
-       AND "isActive" = true
-       ${search ? `AND (LOWER("name") LIKE LOWER($2) OR LOWER(COALESCE("description",'')) LIKE LOWER($2))` : ''}
-       ${category ? `AND "category" = $${search ? 3 : 2}` : ''}
-     ORDER BY "name" ASC
-     LIMIT 200`,
-    req.user!.tenantId,
-    ...(search ? [`%${search}%`] : []),
-    ...(category ? [category] : []),
+  // Build parameterized query with sequential parameter indices
+  const conditions: string[] = ['"tenantId" = $1', '"isActive" = true'];
+  const params: unknown[] = [req.user!.tenantId];
+
+  if (search) {
+    params.push(`%${search}%`);
+    conditions.push(`(LOWER("name") LIKE LOWER($${params.length}) OR LOWER(COALESCE("description",'')) LIKE LOWER($${params.length}))`);
+  }
+  if (category) {
+    params.push(category);
+    conditions.push(`"category" = $${params.length}`);
+  }
+
+  const items = await prisma.$queryRawUnsafe<Array<Record<string, unknown>>>(
+    `SELECT * FROM "service_items" WHERE ${conditions.join(' AND ')} ORDER BY "name" ASC LIMIT 200`,
+    ...params,
   );
 
   res.json({ success: true, data: items } satisfies ApiResponse);

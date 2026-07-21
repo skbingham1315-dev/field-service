@@ -12,6 +12,10 @@ import crypto from 'crypto';
 const ENC_KEY_HEX = process.env.AI_KEY_ENCRYPTION_KEY ?? '';
 const ENC_ENABLED = ENC_KEY_HEX.length === 64; // 32-byte key as 64-char hex
 
+if (!ENC_ENABLED) {
+  console.warn('[AI] WARNING: AI_KEY_ENCRYPTION_KEY not set — tenant API keys will be stored in plaintext. Set a 64-char hex key in production.');
+}
+
 function encryptApiKey(plaintext: string): string {
   if (!ENC_ENABLED) return plaintext;
   const key = Buffer.from(ENC_KEY_HEX, 'hex');

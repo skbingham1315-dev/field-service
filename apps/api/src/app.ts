@@ -95,6 +95,7 @@ const authLimiter = rateLimit({
 app.use('/api/v1/auth/login', authLimiter);
 app.use('/api/v1/auth/register', authLimiter);
 app.use('/api/v1/portal/auth', authLimiter);
+app.use('/api/v1/portal/job-auth', authLimiter);
 
 // ─── Body parsing ────────────────────────────────────────────────────────────
 // Raw body needed for Stripe webhooks — register before json()
@@ -108,11 +109,15 @@ if (process.env.NODE_ENV !== 'test') {
   app.use(morgan('dev'));
 }
 
-// ─── Clamp ?limit param to prevent DoS via huge page sizes ───────────────────
+// ─── Clamp pagination params to prevent NaN / DoS ────────────────────────────
 app.use((req, _res, next) => {
   if (req.query.limit) {
     const n = parseInt(req.query.limit as string, 10);
-    req.query.limit = String(Math.min(isNaN(n) ? 50 : n, 200));
+    req.query.limit = String(Math.min(isNaN(n) || n < 1 ? 50 : n, 200));
+  }
+  if (req.query.page) {
+    const n = parseInt(req.query.page as string, 10);
+    req.query.page = String(isNaN(n) || n < 1 ? 1 : n);
   }
   next();
 });
