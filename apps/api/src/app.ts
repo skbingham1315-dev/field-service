@@ -127,6 +127,23 @@ app.get('/health', (_req, res) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() });
 });
 
+// TEMPORARY DEBUG — remove after tenant audit
+app.get('/debug/tenants-audit', async (req, res) => {
+  const key = req.query.key;
+  if (key !== 'fsp-audit-2026') return res.status(403).json({ error: 'forbidden' });
+  const { prisma } = await import('@fsp/db');
+  const tenants = await prisma.tenant.findMany({ select: { id: true, name: true, slug: true, createdAt: true } });
+  const result = [];
+  for (const t of tenants) {
+    const users = await prisma.user.findMany({ where: { tenantId: t.id }, select: { id: true, firstName: true, lastName: true, email: true, role: true } });
+    const custCount = await prisma.customer.count({ where: { tenantId: t.id } });
+    const invCount = await prisma.invoice.count({ where: { tenantId: t.id } });
+    const jobCount = await prisma.job.count({ where: { tenantId: t.id } });
+    result.push({ ...t, users, custCount, invCount, jobCount } as any);
+  }
+  res.json(result);
+});
+
 
 // ─── Routes ───────────────────────────────────────────────────────────────────
 const apiV1 = express.Router();
