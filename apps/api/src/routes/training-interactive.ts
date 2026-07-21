@@ -1,6 +1,8 @@
 import { Router } from 'express';
+import { rateLimit } from 'express-rate-limit';
 import Anthropic from '@anthropic-ai/sdk';
 import { authenticate } from '../middleware/authenticate';
+import { AppError } from '../middleware/errorHandler';
 import { prisma } from '@fsp/db';
 import type { ApiResponse } from '@fsp/types';
 
@@ -9,6 +11,14 @@ trainingInteractiveRouter.use(authenticate);
 
 const ai = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 const MODEL = 'claude-sonnet-4-6';
+
+// Rate limit AI-powered endpoints to prevent runaway Anthropic costs
+const aiRateLimit = rateLimit({
+  windowMs: 60 * 60 * 1000, // 1 hour
+  max: 30, // 30 AI calls per user per hour
+  keyGenerator: (req) => req.user?.sub ?? req.ip ?? 'unknown',
+  message: { success: false, error: { message: 'Too many AI requests — try again later', code: 'RATE_LIMITED' } },
+});
 
 // ── Milestone definitions ──────────────────────────────────────────────────────
 // 10 milestones × $0.10 = $1.00 max raise.
@@ -33,15 +43,16 @@ export async function checkAndAwardMilestones(userId: string): Promise<number> {
   return prisma.$transaction(async (tx) => {
     const [progress, user, reviewedCount] = await Promise.all([
       tx.trainingUserProgress.findUnique({ where: { userId } }),
-      tx.user.findUnique({ where: { id: userId }, select: { email: true, trainingBonusRate: true } }),
+      tx.user.findUnique({ where: { id: userId }, select: { email: true, tenantId: true, trainingBonusRate: true } }),
       tx.trainingExerciseAnswer.count({ where: { userId, status: 'reviewed' } }),
     ]);
     if (!progress || !user) return 0;
 
-    // Count meaningful contact activities logged by this user
+    // Count meaningful contact activities logged by this user — scoped to their tenant
     const contactCount = await tx.contactActivity.count({
       where: {
         createdBy: user.email,
+        contact: { tenantId: user.tenantId },
         type: { notIn: ['status_change', 'follow_up_set'] },
       },
     });
@@ -90,7 +101,7 @@ trainingInteractiveRouter.get('/progress', async (req, res) => {
 
   const contactCount = user?.email
     ? await prisma.contactActivity.count({
-        where: { createdBy: user.email, type: { notIn: ['status_change', 'follow_up_set'] } },
+        where: { createdBy: user.email, contact: { tenantId }, type: { notIn: ['status_change', 'follow_up_set'] } },
       })
     : 0;
 
@@ -134,8 +145,8 @@ trainingInteractiveRouter.post('/progress/section/:sectionId', async (req, res) 
 // ── Exercise Answers ──────────────────────────────────────────────────────────
 
 trainingInteractiveRouter.get('/exercise-answers', async (req, res) => {
-  const { sub: userId } = req.user!;
-  const answers = await prisma.trainingExerciseAnswer.findMany({ where: { userId } });
+  const { sub: userId, tenantId } = req.user!;
+  const answers = await prisma.trainingExerciseAnswer.findMany({ where: { userId, tenantId } });
   res.json({ success: true, data: answers } satisfies ApiResponse);
 });
 
@@ -166,8 +177,8 @@ trainingInteractiveRouter.post('/exercise-answers/:exerciseId', async (req, res)
   res.json({ success: true, data: saved } satisfies ApiResponse);
 });
 
-trainingInteractiveRouter.post('/exercise-answers/:exerciseId/feedback', async (req, res) => {
-  const { sub: userId } = req.user!;
+trainingInteractiveRouter.post('/exercise-answers/:exerciseId/feedback', aiRateLimit, async (req, res) => {
+  const { sub: userId, tenantId } = req.user!;
   const { exerciseId } = req.params;
   const { question, answer } = req.body as { question: string; answer: string };
 
@@ -194,16 +205,16 @@ trainingInteractiveRouter.post('/exercise-answers/:exerciseId/feedback', async (
 // ── Role Play ─────────────────────────────────────────────────────────────────
 
 trainingInteractiveRouter.get('/role-play-sessions', async (req, res) => {
-  const { sub: userId } = req.user!;
+  const { sub: userId, tenantId } = req.user!;
   const sessions = await prisma.rolePlaySession.findMany({
-    where: { userId },
+    where: { userId, tenantId },
     orderBy: { createdAt: 'desc' },
     take: 20,
   });
   res.json({ success: true, data: sessions } satisfies ApiResponse);
 });
 
-trainingInteractiveRouter.post('/role-play-message', async (req, res) => {
+trainingInteractiveRouter.post('/role-play-message', aiRateLimit, async (req, res) => {
   const { scenario, difficulty, objection, messages } = req.body as {
     scenario: string;
     difficulty: string;
@@ -231,7 +242,7 @@ Difficulty: ${difficulty}${objection ? `\nSpecific objection to introduce: ${obj
   res.json({ success: true, data: { message: reply } } satisfies ApiResponse);
 });
 
-trainingInteractiveRouter.post('/role-play-sessions', async (req, res) => {
+trainingInteractiveRouter.post('/role-play-sessions', aiRateLimit, async (req, res) => {
   const { sub: userId, tenantId } = req.user!;
   const { scenario, difficulty, objection, transcript } = req.body as {
     scenario: string;
@@ -239,6 +250,10 @@ trainingInteractiveRouter.post('/role-play-sessions', async (req, res) => {
     objection?: string;
     transcript: Array<{ role: string; content: string }>;
   };
+
+  if (!scenario || !difficulty) throw new AppError('scenario and difficulty are required', 400, 'VALIDATION_ERROR');
+  if (!Array.isArray(transcript) || transcript.length === 0) throw new AppError('transcript is required', 400, 'VALIDATION_ERROR');
+  if (transcript.some(m => !m.role || !m.content)) throw new AppError('Each transcript message must have role and content', 400, 'VALIDATION_ERROR');
 
   // Generate debrief
   const debriefMsg = await ai.messages.create({
@@ -289,7 +304,7 @@ Be warm, encouraging, and specific. Reference the actual conversation content.`,
 
 // ── Coach Chat ────────────────────────────────────────────────────────────────
 
-trainingInteractiveRouter.post('/coach-chat', async (req, res) => {
+trainingInteractiveRouter.post('/coach-chat', aiRateLimit, async (req, res) => {
   const { role } = req.user!;
   const { messages, userRole } = req.body as {
     messages: Array<{ role: 'user' | 'assistant'; content: string }>;
@@ -351,7 +366,7 @@ trainingInteractiveRouter.get('/admin/team-progress', async (req, res) => {
   const userEmails = progress.map(p => p.user.email);
   const contactCounts = await prisma.contactActivity.groupBy({
     by: ['createdBy'],
-    where: { createdBy: { in: userEmails }, type: { notIn: ['status_change', 'follow_up_set'] } },
+    where: { createdBy: { in: userEmails }, contact: { tenantId }, type: { notIn: ['status_change', 'follow_up_set'] } },
     _count: { id: true },
   });
   const contactCountByEmail = new Map(contactCounts.map(c => [c.createdBy, c._count.id]));

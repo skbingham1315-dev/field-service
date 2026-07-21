@@ -16,6 +16,10 @@ import { TrainingRolePlay } from './training/TrainingRolePlay';
 import { useConfirm } from '../components/ConfirmDialog';
 import { useToast } from '../components/Toast';
 import { TrainingQuickRef } from './training/TrainingQuickRef';
+import { SECTIONS, EXERCISES } from './training/trainingContent';
+
+const TOTAL_SECTIONS = SECTIONS.length;
+const TOTAL_EXERCISES = EXERCISES.length;
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -478,11 +482,11 @@ function OwnerTrainingView({
                         </td>
                         <td className="px-3 py-3 text-center">
                           <span className={`font-semibold ${p.sectionsRead > 0 ? 'text-green-600' : 'text-gray-400'}`}>{p.sectionsRead}</span>
-                          <span className="text-gray-300">/6</span>
+                          <span className="text-gray-300">/{TOTAL_SECTIONS}</span>
                         </td>
                         <td className="px-3 py-3 text-center">
                           <span className={`font-semibold ${p.exercisesReviewed > 0 ? 'text-green-600' : 'text-gray-400'}`}>{p.exercisesReviewed}</span>
-                          <span className="text-gray-300">/14</span>
+                          <span className="text-gray-300">/{TOTAL_EXERCISES}</span>
                         </td>
                         <td className="px-3 py-3 text-center">
                           <span className={`font-semibold ${p.rolePlayCount > 0 ? 'text-violet-600' : 'text-gray-400'}`}>{p.rolePlayCount}</span>
@@ -528,7 +532,6 @@ function OwnerTrainingView({
 
 // ── Resource create/edit modal ────────────────────────────────────────────────
 
-const API_URL = import.meta.env.VITE_API_URL ?? '';
 
 function ResourceModal({ resource, onClose, onSaved }: {
   resource?: TrainingResource;
@@ -603,16 +606,16 @@ function ResourceModal({ resource, onClose, onSaved }: {
     if (!aiPrompt.trim()) return;
     setAiLoading(true);
     try {
-      const res = await fetch(`${API_URL}/api/v1/ai/chat`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${localStorage.getItem('fsp-auth') ? JSON.parse(localStorage.getItem('fsp-auth')!).state?.accessToken : ''}` },
-        body: JSON.stringify({
-          messages: [{ role: 'user', content: `You are helping create training content for a field service business. ${aiPrompt}\n\nExisting content to tailor:\n${form.content || '(none yet)'}` }],
-        }),
+      const { data } = await api.post('/ai/chat', {
+        messages: [{ role: 'user', content: `You are helping create training content for a field service business. ${aiPrompt}\n\nExisting content to tailor:\n${form.content || '(none yet)'}` }],
       });
-      const data = await res.json();
-      const text = data?.data?.message ?? data?.choices?.[0]?.message?.content ?? '';
-      if (text) setForm(f => ({ ...f, content: text }));
+      const text = data?.data?.message ?? '';
+      if (text) {
+        setForm(f => ({ ...f, content: text }));
+        toast.success('Content generated');
+      } else {
+        toast.error('AI returned empty response — try rephrasing');
+      }
     } catch { toast.error('AI generation failed'); } finally { setAiLoading(false); setAiPrompt(''); }
   };
 

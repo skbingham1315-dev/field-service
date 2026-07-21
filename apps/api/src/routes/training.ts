@@ -52,12 +52,16 @@ trainingRouter.post('/', requireRole('owner', 'admin'), async (req, res) => {
     targetUserIds?: string[];
   };
 
-  if (!title) throw new AppError('title is required', 400, 'VALIDATION_ERROR');
+  if (!title?.trim()) throw new AppError('title is required', 400, 'VALIDATION_ERROR');
+  const validAudiences = ['all', 'technician', 'sales'];
+  if (audience && !validAudiences.includes(audience)) {
+    throw new AppError(`audience must be one of: ${validAudiences.join(', ')}`, 400, 'VALIDATION_ERROR');
+  }
 
   const resource = await prisma.trainingResource.create({
     data: {
       tenantId,
-      title,
+      title: title.trim(),
       description: description || null,
       audience: audience ?? 'all',
       targetUserIds: targetUserIds ?? [],
@@ -79,6 +83,13 @@ trainingRouter.patch('/:id', requireRole('owner', 'admin'), async (req, res) => 
   if (!resource || resource.tenantId !== tenantId) throw new AppError('Not found', 404, 'NOT_FOUND');
 
   const { title, description, audience, fileUrl, fileType, content, targetUserIds } = req.body;
+  const validAudiences = ['all', 'technician', 'sales'];
+  if (audience !== undefined && !validAudiences.includes(audience)) {
+    throw new AppError(`audience must be one of: ${validAudiences.join(', ')}`, 400, 'VALIDATION_ERROR');
+  }
+  if (title !== undefined && !title.trim()) {
+    throw new AppError('title cannot be empty', 400, 'VALIDATION_ERROR');
+  }
   const updated = await prisma.trainingResource.update({
     where: { id: req.params.id },
     data: {
