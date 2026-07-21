@@ -6,6 +6,7 @@ import cors from 'cors';
 import compression from 'compression';
 import morgan from 'morgan';
 import { rateLimit } from 'express-rate-limit';
+import { prisma } from '@fsp/db';
 import { errorHandler } from './middleware/errorHandler';
 import { notFound } from './middleware/notFound';
 import { authRouter } from './routes/auth';
@@ -131,15 +132,15 @@ app.get('/health', (_req, res) => {
 app.get('/debug/tenants-audit', async (req, res) => {
   const key = req.query.key;
   if (key !== 'fsp-audit-2026') return res.status(403).json({ error: 'forbidden' });
-  const { prisma } = await import('@fsp/db');
   const tenants = await prisma.tenant.findMany({ select: { id: true, name: true, slug: true, createdAt: true } });
-  const result = [];
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const result: any[] = [];
   for (const t of tenants) {
     const users = await prisma.user.findMany({ where: { tenantId: t.id }, select: { id: true, firstName: true, lastName: true, email: true, role: true } });
     const custCount = await prisma.customer.count({ where: { tenantId: t.id } });
     const invCount = await prisma.invoice.count({ where: { tenantId: t.id } });
     const jobCount = await prisma.job.count({ where: { tenantId: t.id } });
-    result.push({ ...t, users, custCount, invCount, jobCount } as any);
+    result.push({ ...t, users, custCount, invCount, jobCount });
   }
   res.json(result);
 });
