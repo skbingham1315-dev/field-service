@@ -6,6 +6,8 @@ import {
 } from 'lucide-react';
 import { Button, Card, CardContent } from '@fsp/ui';
 import { api } from '../lib/api';
+import { useConfirm } from '../components/ConfirmDialog';
+import { useToast } from '../components/Toast';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -213,6 +215,8 @@ function SubFormModal({ sub, onClose }: { sub?: Subcontractor; onClose: () => vo
 
 function SubDetailDrawer({ subId, onClose }: { subId: string; onClose: () => void }) {
   const qc = useQueryClient();
+  const { confirm } = useConfirm();
+  const toast = useToast();
   const [showEdit, setShowEdit] = useState(false);
 
   const { data, isLoading } = useQuery({
@@ -373,7 +377,7 @@ function SubDetailDrawer({ subId, onClose }: { subId: string; onClose: () => voi
         </div>
 
         <div className="px-5 py-3 border-t border-gray-100 shrink-0">
-          <button onClick={() => { if (confirm('Archive this subcontractor?')) archiveMutation.mutate(); }}
+          <button onClick={async () => { const ok = await confirm({ title: 'Archive Subcontractor', message: 'Archive this subcontractor?', variant: 'warning', confirmLabel: 'Archive' }); if (ok) { try { await archiveMutation.mutateAsync(); toast.success('Subcontractor archived'); } catch { toast.error('Failed to archive subcontractor'); } } }}
             className="text-xs text-red-500 hover:text-red-700 transition-colors">
             Archive subcontractor
           </button>

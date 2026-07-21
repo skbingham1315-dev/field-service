@@ -8,6 +8,8 @@ import {
 } from 'lucide-react';
 import { Button, Card, CardContent, Badge, Dialog } from '@fsp/ui';
 import { api } from '../lib/api';
+import { useConfirm } from '../components/ConfirmDialog';
+import { useToast } from '../components/Toast';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -308,6 +310,8 @@ function LogActivityModal({ contactId, onClose }: { contactId: string; onClose: 
 
 function ContactDetailDrawer({ contactId, onClose }: { contactId: string; onClose: () => void }) {
   const qc = useQueryClient();
+  const { confirm } = useConfirm();
+  const toast = useToast();
   const [showLogActivity, setShowLogActivity] = useState(false);
   const [showEdit, setShowEdit] = useState(false);
   const [showStatusChange, setShowStatusChange] = useState(false);
@@ -498,7 +502,7 @@ function ContactDetailDrawer({ contactId, onClose }: { contactId: string; onClos
 
         {/* Archive footer */}
         <div className="px-5 py-3 border-t border-gray-100 shrink-0">
-          <button onClick={() => { if (confirm('Archive this contact?')) archiveMutation.mutate(); }}
+          <button onClick={async () => { const ok = await confirm({ title: 'Archive Contact', message: 'Archive this contact?', variant: 'warning', confirmLabel: 'Archive' }); if (ok) { try { await archiveMutation.mutateAsync(); toast.success('Contact archived'); } catch { toast.error('Failed to archive contact'); } } }}
             className="text-xs text-red-500 hover:text-red-700 transition-colors">
             Archive contact
           </button>

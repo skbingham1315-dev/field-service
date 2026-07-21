@@ -1,6 +1,8 @@
 import { useState, useRef } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Plus, Search, MapPin, User, Calendar, Trash2, Receipt, Upload, Loader2 } from 'lucide-react';
+import { useConfirm } from '../components/ConfirmDialog';
+import { useToast } from '../components/Toast';
 import { Button, Badge, Card, CardContent, Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@fsp/ui';
 import { api } from '../lib/api';
 import type { JobStatus } from '@fsp/types';
@@ -182,12 +184,18 @@ export function JobsPage() {
   const [showReceipt, setShowReceipt] = useState(false);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const qc = useQueryClient();
+  const { confirm } = useConfirm();
+  const toast = useToast();
 
   const handleDelete = async (e: React.MouseEvent, jobId: string) => {
     e.stopPropagation();
-    if (!confirm('Delete this job? This cannot be undone.')) return;
-    await api.delete(`/jobs/${jobId}`).catch(() => {});
-    qc.invalidateQueries({ queryKey: ['jobs'] });
+    const ok = await confirm({ title: 'Delete Job', message: 'This cannot be undone. All associated data will be removed.', variant: 'danger', confirmLabel: 'Delete' });
+    if (!ok) return;
+    try {
+      await api.delete(`/jobs/${jobId}`);
+      qc.invalidateQueries({ queryKey: ['jobs'] });
+      toast.success('Job deleted');
+    } catch { toast.error('Failed to delete job'); }
   };
 
   const { data, isLoading } = useQuery({

@@ -7,6 +7,8 @@ import {
 import { Button, Badge, Input } from '@fsp/ui';
 import { api } from '../../lib/api';
 import { getSocket } from '../../lib/socket';
+import { useConfirm } from '../../components/ConfirmDialog';
+import { useToast } from '../../components/Toast';
 
 type Tab = 'profile' | 'addresses' | 'jobs' | 'invoices' | 'sms';
 
@@ -100,6 +102,8 @@ function fmt(cents: number) {
 
 export function CustomerDetailModal({ customerId, onClose }: Props) {
   const qc = useQueryClient();
+  const { confirm } = useConfirm();
+  const toast = useToast();
   const [tab, setTab] = useState<Tab>('profile');
   const [editing, setEditing] = useState(false);
   const [editForm, setEditForm] = useState<Partial<Customer>>({});
@@ -381,9 +385,10 @@ export function CustomerDetailModal({ customerId, onClose }: Props) {
                         </Button>
                         <Button
                           variant="outline"
-                          onClick={() => {
-                            if (confirm(`Deactivate ${customer.firstName} ${customer.lastName}?`)) {
+                          onClick={async () => {
+                            if (await confirm({ title: 'Deactivate Customer', message: `Deactivate ${customer.firstName} ${customer.lastName}?`, variant: 'warning' })) {
                               deactivateMutation.mutate();
+                              toast.success('Customer deactivated');
                             }
                           }}
                           className="text-red-600 hover:bg-red-50 border-red-200"
@@ -420,8 +425,11 @@ export function CustomerDetailModal({ customerId, onClose }: Props) {
                             </button>
                           )}
                           <button
-                            onClick={() => {
-                              if (confirm('Delete this address?')) deleteAddressMutation.mutate(addr.id);
+                            onClick={async () => {
+                              if (await confirm({ title: 'Delete Address', message: 'Delete this address?', variant: 'danger' })) {
+                                deleteAddressMutation.mutate(addr.id);
+                                toast.success('Address deleted');
+                              }
                             }}
                             className="text-red-400 hover:text-red-600"
                           >

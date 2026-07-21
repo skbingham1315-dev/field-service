@@ -13,6 +13,8 @@ import { TrainingLibrary } from './training/TrainingLibrary';
 import { TrainingCoach } from './training/TrainingCoach';
 import { TrainingExercises } from './training/TrainingExercises';
 import { TrainingRolePlay } from './training/TrainingRolePlay';
+import { useConfirm } from '../components/ConfirmDialog';
+import { useToast } from '../components/Toast';
 import { TrainingQuickRef } from './training/TrainingQuickRef';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -308,15 +310,23 @@ function OwnerTrainingView({
   onResourceChanged: () => void;
 }) {
   const qc = useQueryClient();
+  const { confirm } = useConfirm();
+  const toast = useToast();
   const [audienceFilter, setAudienceFilter] = useState('');
   const [showCreate, setShowCreate] = useState(false);
   const [editing, setEditing] = useState<TrainingResource | null>(null);
   const [expanded, setExpanded] = useState<string | null>(null);
 
   const handleDelete = async (id: string) => {
-    if (!confirm('Delete this resource?')) return;
-    await api.delete(`/training/${id}`).catch(() => {});
-    onResourceChanged();
+    const ok = await confirm({ title: 'Delete Resource', message: 'Delete this resource?', variant: 'danger', confirmLabel: 'Delete' });
+    if (!ok) return;
+    try {
+      await api.delete(`/training/${id}`);
+      onResourceChanged();
+      toast.success('Resource deleted');
+    } catch {
+      toast.error('Failed to delete resource');
+    }
   };
 
   // 'all' filter shows everyone-targeted resources; 'sales'/'technician' shows what that role sees

@@ -12,6 +12,8 @@ import { RecordPaymentModal } from './RecordPaymentModal';
 import { api } from '../../lib/api';
 import type { InvoiceStatus } from '@fsp/types';
 import { useAuthStore } from '../../store/authStore';
+import { useConfirm } from '../../components/ConfirmDialog';
+import { useToast } from '../../components/Toast';
 
 interface EditLineItem {
   id?: string;
@@ -41,6 +43,8 @@ interface Props {
 export function InvoiceDetailModal({ invoiceId, onClose }: Props) {
   const qc = useQueryClient();
   const { user } = useAuthStore();
+  const { confirm } = useConfirm();
+  const toast = useToast();
   const [showPayment, setShowPayment] = useState(false);
   const [editing, setEditing] = useState(false);
   const [editDueDate, setEditDueDate] = useState('');
@@ -225,8 +229,11 @@ export function InvoiceDetailModal({ invoiceId, onClose }: Props) {
                     size="sm"
                     variant="ghost"
                     className="text-destructive hover:text-destructive"
-                    onClick={() => {
-                      if (confirm('Permanently delete this invoice? This cannot be undone.')) deleteInvoice();
+                    onClick={async () => {
+                      if (await confirm({ title: 'Delete Invoice', message: 'Permanently delete this invoice? This cannot be undone.', variant: 'danger' })) {
+                        deleteInvoice();
+                        toast.success('Invoice deleted');
+                      }
                     }}
                     loading={isDeleting}
                   >
@@ -239,8 +246,11 @@ export function InvoiceDetailModal({ invoiceId, onClose }: Props) {
                     size="sm"
                     variant="ghost"
                     className="text-destructive hover:text-destructive"
-                    onClick={() => {
-                      if (confirm('Void this invoice? This cannot be undone.')) voidInvoice();
+                    onClick={async () => {
+                      if (await confirm({ title: 'Void Invoice', message: 'Void this invoice? This cannot be undone.', variant: 'warning' })) {
+                        voidInvoice();
+                        toast.success('Invoice voided');
+                      }
                     }}
                     loading={isVoiding}
                   >

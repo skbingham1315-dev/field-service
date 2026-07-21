@@ -3,6 +3,8 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from '../lib/api';
 import { useAuthStore } from '../store/authStore';
 import { Clock, Play, Square, Plus, Trash2, Loader2, X, DollarSign, CheckCircle, AlertCircle, MapPin, Navigation } from 'lucide-react';
+import { useConfirm } from '../components/ConfirmDialog';
+import { useToast } from '../components/Toast';
 
 interface TimeEntry {
   id: string;
@@ -136,6 +138,8 @@ function LogHoursModal({ onClose, onSaved }: { onClose: () => void; onSaved: () 
 export function TimeTrackingPage() {
   useAuthStore(s => s.user);
   const qc = useQueryClient();
+  const { confirm } = useConfirm();
+  const toast = useToast();
   const [showLog, setShowLog] = useState(false);
   const [clockLoading, setClockLoading] = useState(false);
   const [clockError, setClockError] = useState('');
@@ -243,9 +247,14 @@ export function TimeTrackingPage() {
   };
 
   const handleDelete = async (id: string) => {
-    if (!confirm('Delete this entry?')) return;
-    await api.delete(`/time-entries/${id}`).catch(() => {});
-    refresh();
+    if (!await confirm({ title: 'Delete Entry', message: 'Delete this entry?', variant: 'danger', confirmLabel: 'Delete' })) return;
+    try {
+      await api.delete(`/time-entries/${id}`);
+      refresh();
+      toast.success('Entry deleted');
+    } catch {
+      toast.error('Failed to delete entry');
+    }
   };
 
   // ─── Summaries ───────────────────────────────────────────────────────────────

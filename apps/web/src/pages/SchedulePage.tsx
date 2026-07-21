@@ -23,6 +23,8 @@ import { api } from '../lib/api';
 import { connectSocket, getSocket } from '../lib/socket';
 import type { JobStatus } from '@fsp/types';
 import { JobDetailModal } from '../components/jobs/JobDetailModal';
+import { useConfirm } from '../components/ConfirmDialog';
+import { useToast } from '../components/Toast';
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -242,6 +244,8 @@ function TechColumn({
 
 export function SchedulePage() {
   const qc = useQueryClient();
+  const { confirm } = useConfirm();
+  const toast = useToast();
   const [currentDate, setCurrentDate] = useState(new Date());
   const [activeJob, setActiveJob] = useState<JobCard | null>(null);
   const [overId, setOverId] = useState<string | null>(null);
@@ -251,9 +255,14 @@ export function SchedulePage() {
 
   const handleJobDelete = async (e: React.MouseEvent, jobId: string) => {
     e.stopPropagation();
-    if (!confirm('Delete this job? This cannot be undone.')) return;
-    await api.delete(`/jobs/${jobId}`).catch(() => {});
-    qc.invalidateQueries({ queryKey: ['schedule'] });
+    if (!await confirm({ title: 'Delete Job', message: 'Delete this job? This cannot be undone.', variant: 'danger', confirmLabel: 'Delete' })) return;
+    try {
+      await api.delete(`/jobs/${jobId}`);
+      qc.invalidateQueries({ queryKey: ['schedule'] });
+      toast.success('Job deleted');
+    } catch {
+      toast.error('Failed to delete job');
+    }
   };
 
   // ── Data fetching ──────────────────────────────────────────────────────────

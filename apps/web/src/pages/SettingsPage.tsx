@@ -6,6 +6,8 @@ import { api } from '../lib/api';
 import { useAuthStore } from '../store/authStore';
 import { PasswordInput } from '../components/PasswordInput';
 import { DEFAULT_PERMISSIONS, type RolePermissions } from '../lib/permissions';
+import { useConfirm } from '../components/ConfirmDialog';
+import { useToast } from '../components/Toast';
 
 type UserRole = 'owner' | 'admin' | 'dispatcher' | 'technician' | 'sales';
 
@@ -1238,6 +1240,8 @@ interface InviteCode {
 
 function InviteCodesTab() {
   const qc = useQueryClient();
+  const { confirm } = useConfirm();
+  const toast = useToast();
   const [showForm, setShowForm] = useState(false);
   const [form, setForm] = useState({ note: '', trialDays: '30', maxUses: '1' });
   const [creating, setCreating] = useState(false);
@@ -1352,7 +1356,7 @@ function InviteCodesTab() {
                 className="p-1.5 text-gray-400 hover:text-indigo-600 rounded-lg transition-colors" title="Copy code">
                 {copiedId === c.id ? <Check className="h-4 w-4 text-green-600" /> : <Copy className="h-4 w-4" />}
               </button>
-              <button onClick={() => { if (confirm('Revoke this invite code?')) deleteMutation.mutate(c.id); }}
+              <button onClick={async () => { const ok = await confirm({ title: 'Revoke Invite Code', message: 'Revoke this invite code?', variant: 'warning', confirmLabel: 'Revoke' }); if (ok) { try { await deleteMutation.mutateAsync(c.id); toast.success('Invite code revoked'); } catch { toast.error('Failed to revoke invite code'); } } }}
                 className="p-1.5 text-gray-400 hover:text-red-500 rounded-lg transition-colors" title="Revoke">
                 <Trash2 className="h-4 w-4" />
               </button>
@@ -1498,6 +1502,8 @@ interface ServiceItem {
 
 function ServiceCatalogTab() {
   const qc = useQueryClient();
+  const { confirm } = useConfirm();
+  const toast = useToast();
   const [showForm, setShowForm] = useState(false);
   const [editItem, setEditItem] = useState<ServiceItem | null>(null);
   const [form, setForm] = useState({ name: '', description: '', unitPrice: '', taxable: true, category: '' });
@@ -1549,9 +1555,15 @@ function ServiceCatalogTab() {
   };
 
   const handleDelete = async (id: string) => {
-    if (!confirm('Remove this item from the catalog?')) return;
-    await api.delete(`/service-items/${id}`);
-    qc.invalidateQueries({ queryKey: ['service-items'] });
+    const ok = await confirm({ title: 'Remove Catalog Item', message: 'Remove this item from the catalog?', variant: 'danger', confirmLabel: 'Remove' });
+    if (!ok) return;
+    try {
+      await api.delete(`/service-items/${id}`);
+      qc.invalidateQueries({ queryKey: ['service-items'] });
+      toast.success('Item removed from catalog');
+    } catch {
+      toast.error('Failed to remove catalog item');
+    }
   };
 
   return (

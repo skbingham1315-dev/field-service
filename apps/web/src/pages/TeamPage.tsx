@@ -6,6 +6,8 @@ import {
   ChevronDown, ChevronUp, Trash2, TrendingUp, AlertCircle, Lock, Activity,
 } from 'lucide-react';
 import { MemberActivityDrawer } from '../components/MemberActivityDrawer';
+import { useConfirm } from '../components/ConfirmDialog';
+import { useToast } from '../components/Toast';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -383,6 +385,8 @@ function PayComponentForm({
 
 function PayStructureDrawer({ member, onClose }: { member: TeamMember; onClose: () => void }) {
   const qc = useQueryClient();
+  const { confirm } = useConfirm();
+  const toast = useToast();
   const [adding, setAdding] = useState(false);
   const [editingComp, setEditingComp] = useState<PayComponent | null>(null);
 
@@ -490,7 +494,7 @@ function PayStructureDrawer({ member, onClose }: { member: TeamMember; onClose: 
                           <button onClick={() => setEditingComp(comp)} className="p-1 hover:bg-black/10 rounded transition-colors">
                             <Edit2 className="h-3.5 w-3.5" />
                           </button>
-                          <button onClick={() => { if (confirm('Remove this pay component?')) deleteMutation.mutate(comp.id); }}
+                          <button onClick={async () => { const ok = await confirm({ title: 'Remove Pay Component', message: 'Remove this pay component?', variant: 'danger', confirmLabel: 'Remove' }); if (ok) { try { await deleteMutation.mutateAsync(comp.id); toast.success('Pay component removed'); } catch { toast.error('Failed to remove pay component'); } } }}
                             className="p-1 hover:bg-black/10 rounded transition-colors">
                             <Trash2 className="h-3.5 w-3.5" />
                           </button>
@@ -903,6 +907,8 @@ function EditMemberModal({ member, onClose, onSaved }: { member: TeamMember; onC
 
 export function TeamPage() {
   const qc = useQueryClient();
+  const { confirm } = useConfirm();
+  const toast = useToast();
   const [showAdd, setShowAdd] = useState(false);
   const [editing, setEditing] = useState<TeamMember | null>(null);
   const [payDrawer, setPayDrawer] = useState<TeamMember | null>(null);
@@ -1008,9 +1014,10 @@ export function TeamPage() {
                             <Edit2 className="h-4 w-4" />
                           </button>
                           <button
-                            onClick={() => {
-                              if (confirm(`Remove ${member.firstName} ${member.lastName} from the team? This will deactivate their account.`)) {
-                                deleteMember.mutate(member.id);
+                            onClick={async () => {
+                              const ok = await confirm({ title: 'Remove Team Member', message: `Remove ${member.firstName} ${member.lastName} from the team? This will deactivate their account.`, variant: 'danger', confirmLabel: 'Remove' });
+                              if (ok) {
+                                try { await deleteMember.mutateAsync(member.id); toast.success(`${member.firstName} ${member.lastName} removed from team`); } catch { toast.error('Failed to remove team member'); }
                               }
                             }}
                             className="p-1.5 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors">

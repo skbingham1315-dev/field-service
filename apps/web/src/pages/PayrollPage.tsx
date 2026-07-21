@@ -6,6 +6,8 @@ import {
   Download, Lock, Trophy, ChevronDown, ChevronUp, Plus, Edit2, Trash2,
   Upload, AlertTriangle, FileSpreadsheet,
 } from 'lucide-react';
+import { useConfirm } from '../components/ConfirmDialog';
+import { useToast } from '../components/Toast';
 import Papa from 'papaparse';
 import * as XLSX from 'xlsx';
 
@@ -110,6 +112,8 @@ const STATUS_STYLES: Record<string, string> = {
 
 function PayRunTab() {
   const qc = useQueryClient();
+  const { confirm } = useConfirm();
+  const toast = useToast();
   const [showNew, setShowNew] = useState(false);
   const [showImportRuns, setShowImportRuns] = useState(false);
   const [expanded, setExpanded] = useState<string | null>(null);
@@ -140,10 +144,15 @@ function PayRunTab() {
   };
 
   const deleteRun = async (id: string) => {
-    if (!confirm('Delete this pay run and all its entries? This cannot be undone.')) return;
+    if (!await confirm({ title: 'Delete Pay Run', message: 'Delete this pay run and all its entries? This cannot be undone.', variant: 'danger', confirmLabel: 'Delete' })) return;
     setPendingAction(id + ':delete');
-    try { await api.delete(`/payroll/${id}`); qc.invalidateQueries({ queryKey: ['payroll-runs'] }); }
-    finally { setPendingAction(null); }
+    try {
+      await api.delete(`/payroll/${id}`);
+      qc.invalidateQueries({ queryKey: ['payroll-runs'] });
+      toast.success('Pay run deleted');
+    } catch {
+      toast.error('Failed to delete pay run');
+    } finally { setPendingAction(null); }
   };
 
   const today = new Date().toISOString().split('T')[0];
@@ -591,6 +600,8 @@ function LeaderboardTab() {
 
 function TargetsTab() {
   const qc = useQueryClient();
+  const { confirm } = useConfirm();
+  const toast = useToast();
   const [showForm, setShowForm] = useState(false);
 
   const { data: targets = [], isLoading } = useQuery({
@@ -605,8 +616,15 @@ function TargetsTab() {
 
   const deleteMutation = useMutation({
     mutationFn: (id: string) => api.delete(`/compensation/targets/${id}`),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['sales-targets'] }),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['sales-targets'] }); toast.success('Target deleted'); },
+    onError: () => { toast.error('Failed to delete target'); },
   });
+
+  const handleDeleteTarget = async (id: string) => {
+    if (await confirm({ title: 'Delete Target', message: 'Delete this target?', variant: 'danger', confirmLabel: 'Delete' })) {
+      deleteMutation.mutate(id);
+    }
+  };
 
   return (
     <div className="space-y-4">
@@ -640,7 +658,7 @@ function TargetsTab() {
                   <p className="text-xs text-gray-500 capitalize">{t.period} target · {fmtDate(t.startDate)} – {fmtDate(t.endDate)}</p>
                 </div>
                 <div className="flex items-center gap-1">
-                  <button onClick={() => { if (confirm('Delete this target?')) deleteMutation.mutate(t.id); }}
+                  <button onClick={() => handleDeleteTarget(t.id)}
                     className="p-1 text-gray-400 hover:text-red-500 rounded"><Trash2 className="h-3.5 w-3.5" /></button>
                 </div>
               </div>
@@ -1537,6 +1555,8 @@ function SpreadsheetImportModal({ team, onClose, onImported }: {
 
 function HoursTab() {
   const qc = useQueryClient();
+  const { confirm } = useConfirm();
+  const toast = useToast();
   const [showAdd, setShowAdd] = useState(false);
   const [showImport, setShowImport] = useState(false);
   const [editEntry, setEditEntry] = useState<TimeEntry | null>(null);
@@ -1555,9 +1575,14 @@ function HoursTab() {
   const refresh = () => qc.invalidateQueries({ queryKey: ['time-entries-all'] });
 
   const handleDelete = async (id: string) => {
-    if (!confirm('Delete this entry?')) return;
-    await api.delete(`/time-entries/${id}`).catch(() => {});
-    refresh();
+    if (!await confirm({ title: 'Delete Entry', message: 'Delete this entry?', variant: 'danger', confirmLabel: 'Delete' })) return;
+    try {
+      await api.delete(`/time-entries/${id}`);
+      refresh();
+      toast.success('Entry deleted');
+    } catch {
+      toast.error('Failed to delete entry');
+    }
   };
 
   const handleApprove = async (id: string) => {

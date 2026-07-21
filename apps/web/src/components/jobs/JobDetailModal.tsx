@@ -13,6 +13,8 @@ import {
 import { api } from '../../lib/api';
 import { useAuthStore } from '../../store/authStore';
 import type { JobStatus } from '@fsp/types';
+import { useConfirm } from '../../components/ConfirmDialog';
+import { useToast } from '../../components/Toast';
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -485,6 +487,8 @@ function PhotosTab({ jobId, defaultCategory = 'before', showUploadPrompt = false
   showUploadPrompt?: boolean;
 }) {
   const qc = useQueryClient();
+  const { confirm } = useConfirm();
+  const toast = useToast();
   const fileRef = useRef<HTMLInputElement>(null);
   const [uploading, setUploading] = useState(false);
   const [uploadError, setUploadError] = useState('');
@@ -643,7 +647,7 @@ function PhotosTab({ jobId, defaultCategory = 'before', showUploadPrompt = false
                   className="p-1 rounded bg-white/90 hover:bg-white text-gray-700" title={f.visibility}>
                   {f.visibility === 'customer_visible' ? <Eye className="h-3 w-3 text-green-600" /> : <EyeOff className="h-3 w-3 text-amber-600" />}
                 </button>
-                <button onClick={() => { if (confirm('Delete this photo?')) deleteMutation.mutate(f.id); }}
+                <button onClick={async () => { if (await confirm({ title: 'Delete Photo', message: 'Delete this photo?', variant: 'danger' })) { deleteMutation.mutate(f.id); toast.success('Photo deleted'); } }}
                   className="p-1 rounded bg-white/90 hover:bg-white text-red-500">
                   <Trash2 className="h-3 w-3" />
                 </button>
@@ -684,6 +688,8 @@ function PhotosTab({ jobId, defaultCategory = 'before', showUploadPrompt = false
 
 function WorkOrdersTab({ jobId }: { jobId: string }) {
   const qc = useQueryClient();
+  const { confirm } = useConfirm();
+  const toast = useToast();
   const fileRef = useRef<HTMLInputElement>(null);
   const [uploading, setUploading] = useState(false);
   const [notes, setNotes] = useState('');
@@ -757,7 +763,7 @@ function WorkOrdersTab({ jobId }: { jobId: string }) {
                   className="px-3 py-1.5 text-xs bg-blue-50 text-blue-700 rounded-lg hover:bg-blue-100 font-medium">
                   Open
                 </button>
-                <button onClick={() => { if (confirm('Delete this work order?')) deleteMutation.mutate(f.id); }}
+                <button onClick={async () => { if (await confirm({ title: 'Delete Work Order', message: 'Delete this work order?', variant: 'danger' })) { deleteMutation.mutate(f.id); toast.success('Work order deleted'); } }}
                   className="p-1.5 text-gray-400 hover:text-red-500 rounded-lg">
                   <Trash2 className="h-4 w-4" />
                 </button>
@@ -774,6 +780,8 @@ function WorkOrdersTab({ jobId }: { jobId: string }) {
 
 function ReceiptsTab({ jobId }: { jobId: string }) {
   const qc = useQueryClient();
+  const { confirm } = useConfirm();
+  const toast = useToast();
   const fileRef = useRef<HTMLInputElement>(null);
   const [uploading, setUploading] = useState(false);
   const [uploadError, setUploadError] = useState('');
@@ -936,7 +944,7 @@ function ReceiptsTab({ jobId }: { jobId: string }) {
                   className="px-2.5 py-1 text-xs bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 font-medium">
                   View
                 </button>
-                <button onClick={() => { if (confirm('Delete this receipt?')) deleteMutation.mutate(f.id); }}
+                <button onClick={async () => { if (await confirm({ title: 'Delete Receipt', message: 'Delete this receipt?', variant: 'danger' })) { deleteMutation.mutate(f.id); toast.success('Receipt deleted'); } }}
                   className="p-1.5 text-gray-400 hover:text-red-500">
                   <Trash2 className="h-3.5 w-3.5" />
                 </button>
