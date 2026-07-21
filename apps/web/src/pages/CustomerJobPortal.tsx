@@ -356,6 +356,14 @@ export function CustomerJobPortal() {
           </button>
         </div>
 
+        {/* Sign out */}
+        <button
+          onClick={() => { setJob(null); setToken(''); }}
+          className="w-full text-center text-xs text-slate-500 hover:text-slate-300 transition-colors py-2"
+        >
+          Sign Out
+        </button>
+
         {/* Contact */}
         <p className="text-center text-xs text-slate-600 pt-2 pb-4">
           Questions? Contact our office directly.

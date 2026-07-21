@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useAuthStore } from '../store/authStore';
+import { PasswordInput } from '../components/PasswordInput';
 import { Loader2, CheckCircle2 } from 'lucide-react';
 
 function LogoMark({ size = 32 }: { size?: number }) {
@@ -132,13 +133,10 @@ export function LoginPage({ onSignup, onForgotPassword }: { onSignup?: () => voi
               <label className="block text-[11px] font-semibold text-gray-500 mb-1.5 uppercase tracking-widest">
                 Password
               </label>
-              <input
-                type="password"
-                required
-                placeholder="••••••••"
+              <PasswordInput
                 value={form.password}
-                onChange={(e) => setForm((f) => ({ ...f, password: e.target.value }))}
-                className="w-full px-4 py-3 bg-white border border-gray-200 rounded-xl text-sm text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-violet-500/50 focus:border-violet-400 transition-all shadow-sm"
+                onChange={(v) => setForm((f) => ({ ...f, password: v }))}
+                required
               />
               {onForgotPassword && (
                 <div className="text-right mt-1.5">

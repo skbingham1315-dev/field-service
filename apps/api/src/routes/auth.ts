@@ -4,6 +4,7 @@ import bcrypt from 'bcryptjs';
 import crypto from 'crypto';
 import Stripe from 'stripe';
 import { AppError } from '../middleware/errorHandler';
+import { authenticate } from '../middleware/authenticate';
 import { signAccessToken, signRefreshToken, verifyRefreshToken, buildTokenPayload } from '../lib/jwt';
 import { sendPasswordReset } from '../lib/email';
 import type { ApiResponse } from '@fsp/types';
@@ -342,5 +343,35 @@ authRouter.post('/reset-password', async (req, res) => {
   });
 
   res.json({ success: true, data: { message: 'Password reset successfully. You can now log in.' } });
+});
+
+// POST /api/v1/auth/change-password — authenticated users change their own password
+authRouter.post('/change-password', authenticate, async (req, res) => {
+  const { currentPassword, newPassword } = req.body as { currentPassword: string; newPassword: string };
+
+  if (!currentPassword || !newPassword) {
+    throw new AppError('Current password and new password are required', 400, 'VALIDATION_ERROR');
+  }
+  if (newPassword.length < 8) {
+    throw new AppError('New password must be at least 8 characters', 400, 'VALIDATION_ERROR');
+  }
+
+  const user = await prisma.user.findUnique({ where: { id: req.user!.sub } });
+  if (!user) {
+    throw new AppError('User not found', 404, 'NOT_FOUND');
+  }
+
+  const valid = await bcrypt.compare(currentPassword, user.passwordHash);
+  if (!valid) {
+    throw new AppError('Current password is incorrect', 401, 'INVALID_CREDENTIALS');
+  }
+
+  const passwordHash = await bcrypt.hash(newPassword, 12);
+  await prisma.user.update({
+    where: { id: user.id },
+    data: { passwordHash },
+  });
+
+  res.json({ success: true, data: { message: 'Password changed successfully.' } } satisfies ApiResponse);
 });
 

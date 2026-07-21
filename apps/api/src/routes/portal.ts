@@ -503,12 +503,19 @@ portalRouter.get('/invoices', portalAuth, async (req: Request, res: Response): P
     res.json([]);
     return;
   }
-  const invoices = await prisma.invoice.findMany({
+  const invoicesRaw = await prisma.invoice.findMany({
     where: { customerId: portalUser.customerId },
     include: { lineItems: true, payments: true },
     orderBy: { createdAt: 'desc' },
     take: 50,
   });
+  // Include payToken for each invoice so portal can link to /pay/:token
+  const invoices = await Promise.all(invoicesRaw.map(async (inv) => {
+    const rows = await prisma.$queryRawUnsafe<Array<{ payToken: string | null }>>(
+      `SELECT "payToken" FROM "invoices" WHERE id = $1`, inv.id
+    );
+    return { ...inv, payToken: rows[0]?.payToken ?? null };
+  }));
   res.json(invoices);
 });
 

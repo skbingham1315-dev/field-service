@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { Loader2, CheckCircle2 } from 'lucide-react';
+import { PasswordInput } from '../components/PasswordInput';
 
 const API = import.meta.env.VITE_API_URL ?? '';
 
@@ -117,27 +118,28 @@ export function ResetPasswordPage({ onLogin }: { onLogin?: () => void }) {
                 <label className="block text-[11px] font-semibold text-gray-500 mb-1.5 uppercase tracking-widest">
                   New Password
                 </label>
-                <input
-                  type="password"
-                  required
-                  placeholder="••••••••"
+                <PasswordInput
                   value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  className="w-full px-4 py-3 bg-white border border-gray-200 rounded-xl text-sm text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-violet-500/50 focus:border-violet-400 transition-all shadow-sm"
+                  onChange={setPassword}
+                  required
+                  showStrength
                 />
               </div>
               <div>
                 <label className="block text-[11px] font-semibold text-gray-500 mb-1.5 uppercase tracking-widest">
                   Confirm Password
                 </label>
-                <input
-                  type="password"
-                  required
-                  placeholder="••••••••"
+                <PasswordInput
                   value={confirm}
-                  onChange={(e) => setConfirm(e.target.value)}
-                  className="w-full px-4 py-3 bg-white border border-gray-200 rounded-xl text-sm text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-violet-500/50 focus:border-violet-400 transition-all shadow-sm"
+                  onChange={setConfirm}
+                  required
                 />
+                {confirm && password !== confirm && (
+                  <p className="text-xs text-red-500 mt-1">Passwords do not match</p>
+                )}
+                {confirm && password === confirm && confirm.length >= 8 && (
+                  <p className="text-xs text-green-600 mt-1">Passwords match</p>
+                )}
               </div>
 
               {error && (

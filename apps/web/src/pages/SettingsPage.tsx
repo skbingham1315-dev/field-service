@@ -4,6 +4,7 @@ import { Copy, Check, Wrench, TrendingUp, Shield, MessageSquare, Mail, CheckCirc
 import { Button, Badge } from '@fsp/ui';
 import { api } from '../lib/api';
 import { useAuthStore } from '../store/authStore';
+import { PasswordInput } from '../components/PasswordInput';
 import { DEFAULT_PERMISSIONS, type RolePermissions } from '../lib/permissions';
 
 type UserRole = 'owner' | 'admin' | 'dispatcher' | 'technician' | 'sales';
@@ -132,28 +133,96 @@ function ProfileTab() {
         </div>
       </div>
 
-      <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-6 space-y-4">
-        <h3 className="text-base font-semibold text-gray-900">Change Password</h3>
-        <p className="text-sm text-gray-500 bg-gray-50 rounded-lg px-4 py-3">
-          Password changes are coming soon. Please contact your administrator if you need to reset your password.
-        </p>
-        <div className="space-y-4 opacity-50 pointer-events-none">
-          {(['currentPassword', 'newPassword', 'confirmPassword'] as const).map((key) => (
-            <div key={key}>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
-                {key === 'currentPassword' ? 'Current Password' : key === 'newPassword' ? 'New Password' : 'Confirm New Password'}
-              </label>
-              <input
-                type="password"
-                value={pwForm[key]}
-                onChange={(e) => setPwForm((f) => ({ ...f, [key]: e.target.value }))}
-                className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-              />
-            </div>
-          ))}
-          <Button disabled>Update Password</Button>
+      <ChangePasswordSection />
+    </div>
+  );
+}
+
+function ChangePasswordSection() {
+  const [form, setForm] = useState({ currentPassword: '', newPassword: '', confirmPassword: '' });
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
+  const [success, setSuccess] = useState(false);
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setError('');
+    setSuccess(false);
+
+    if (form.newPassword.length < 8) {
+      setError('New password must be at least 8 characters.');
+      return;
+    }
+    if (form.newPassword !== form.confirmPassword) {
+      setError('New passwords do not match.');
+      return;
+    }
+
+    setSaving(true);
+    try {
+      await api.post('/auth/change-password', {
+        currentPassword: form.currentPassword,
+        newPassword: form.newPassword,
+      });
+      setForm({ currentPassword: '', newPassword: '', confirmPassword: '' });
+      setSuccess(true);
+      setTimeout(() => setSuccess(false), 5000);
+    } catch (err: unknown) {
+      const msg = (err as { response?: { data?: { error?: { message?: string } } } })?.response?.data?.error?.message;
+      setError(msg ?? 'Failed to change password. Check your current password and try again.');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-6 space-y-4">
+      <h3 className="text-base font-semibold text-gray-900">Change Password</h3>
+      <form onSubmit={handleSubmit} className="space-y-4">
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-1">Current Password</label>
+          <PasswordInput
+            value={form.currentPassword}
+            onChange={(v) => setForm((f) => ({ ...f, currentPassword: v }))}
+            required
+            className="w-full border border-gray-300 rounded-lg px-3 py-2 pr-12 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+          />
         </div>
-      </div>
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-1">New Password</label>
+          <PasswordInput
+            value={form.newPassword}
+            onChange={(v) => setForm((f) => ({ ...f, newPassword: v }))}
+            required
+            showStrength
+            minLength={8}
+            className="w-full border border-gray-300 rounded-lg px-3 py-2 pr-12 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+          />
+        </div>
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-1">Confirm New Password</label>
+          <PasswordInput
+            value={form.confirmPassword}
+            onChange={(v) => setForm((f) => ({ ...f, confirmPassword: v }))}
+            required
+            className="w-full border border-gray-300 rounded-lg px-3 py-2 pr-12 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+          />
+          {form.confirmPassword && form.newPassword !== form.confirmPassword && (
+            <p className="text-xs text-red-500 mt-1">Passwords do not match</p>
+          )}
+        </div>
+
+        {error && (
+          <div className="bg-red-50 border border-red-200 rounded-lg p-3 text-sm text-red-700">{error}</div>
+        )}
+        {success && (
+          <div className="bg-green-50 border border-green-200 rounded-lg p-3 text-sm text-green-700">Password updated successfully!</div>
+        )}
+
+        <Button type="submit" disabled={saving}>
+          {saving ? 'Updating...' : 'Update Password'}
+        </Button>
+      </form>
     </div>
   );
 }

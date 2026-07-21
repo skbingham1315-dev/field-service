@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { Check, Zap, Building2, Rocket, ChevronRight, ArrowLeft, Loader2 } from 'lucide-react';
 import { useAuthStore } from '../store/authStore';
+import { PasswordInput } from '../components/PasswordInput';
 import { api } from '../lib/api';
 
 const PLANS = [
@@ -318,14 +319,14 @@ function RegisterForm({ plan, onBack }: { plan: PlanId; onBack: () => void }) {
 
             <div>
               <label className="block text-xs font-medium text-gray-700 mb-1">Password</label>
-              <input
-                required
-                type="password"
+              <PasswordInput
                 value={form.password}
-                onChange={set('password')}
-                placeholder="At least 8 characters"
+                onChange={(v) => setForm((f) => ({ ...f, password: v }))}
+                required
+                showStrength
                 minLength={8}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                placeholder="At least 8 characters"
+                className="w-full px-3 py-2 pr-12 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
               />
             </div>
 

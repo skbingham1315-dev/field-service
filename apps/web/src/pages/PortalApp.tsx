@@ -429,6 +429,11 @@ function InvoicesTab({ slug, primaryColor }: { slug: string; primaryColor: strin
                     <button
                       className="px-5 py-2.5 rounded-xl text-white text-sm font-medium"
                       style={{ background: primaryColor }}
+                      onClick={() => {
+                        if ((inv as any).payToken) {
+                          window.open(`/pay/${(inv as any).payToken}`, '_blank');
+                        }
+                      }}
                     >
                       Pay {fmt(inv.amountDue)}
                     </button>
