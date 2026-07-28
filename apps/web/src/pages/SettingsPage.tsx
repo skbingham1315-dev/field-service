@@ -1669,10 +1669,6 @@ function ServiceCatalogTab() {
               ${(item.unitPrice / 100).toFixed(2)}
             </span>
             <button onClick={() => openEdit(item)}
-              className="p-1.5 text-gray-400 hover:text-blue-600 rounded-lg transition-colors" title="Edit">
-              <Check className="h-4 w-4 opacity-0" />
-            </button>
-            <button onClick={() => openEdit(item)}
               className="px-3 py-1 text-xs text-blue-600 border border-blue-200 rounded-lg hover:bg-blue-50 transition-colors">
               Edit
             </button>

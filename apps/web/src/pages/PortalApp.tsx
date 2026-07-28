@@ -12,7 +12,7 @@
  *   /portal/:slug/messages  → messaging
  */
 
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import {
   FileText,
   Home,
@@ -721,12 +721,29 @@ export function PortalApp() {
   const slug = pathParts[2] ?? '';
   const subPath = pathParts[3] ?? '';
 
-  const [tab, setTab] = useState<string>(() => {
+  const [tab, setTabState] = useState<string>(() => {
     if (subPath === 'invoices') return 'invoices';
     if (subPath === 'requests') return 'requests';
     if (subPath === 'messages') return 'messages';
     return 'dashboard';
   });
+
+  // Sync tab with URL for browser back/forward support
+  const setTab = useCallback((newTab: string) => {
+    setTabState(newTab);
+    const newPath = newTab === 'dashboard' ? `/portal/${slug}` : `/portal/${slug}/${newTab}`;
+    window.history.pushState({}, '', newPath);
+  }, [slug]);
+
+  useEffect(() => {
+    const onPop = () => {
+      const parts = window.location.pathname.split('/');
+      const sub = parts[3] ?? '';
+      setTabState(['invoices', 'requests', 'messages'].includes(sub) ? sub : 'dashboard');
+    };
+    window.addEventListener('popstate', onPop);
+    return () => window.removeEventListener('popstate', onPop);
+  }, []);
 
   const [me, setMe] = useState<PortalMeResponse | null>(null);
   const [authLoading, setAuthLoading] = useState(true);

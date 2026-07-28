@@ -64,25 +64,27 @@ const VIEW_OPTIONS: Array<{ id: ViewAs; label: string; desc: string; color: stri
   { id: 'sales',      label: 'Sales',      desc: 'Leads & pipeline',   color: 'text-emerald-400' },
 ];
 
-const NAV_ITEMS: Array<{ id: Page; label: string; icon: React.ElementType }> = [
+type UserRole = 'owner' | 'admin' | 'dispatcher' | 'technician' | 'sales';
+
+const NAV_ITEMS: Array<{ id: Page; label: string; icon: React.ElementType; roles?: UserRole[] }> = [
   { id: 'dashboard', label: 'Dashboard',  icon: LayoutDashboard },
   { id: 'jobs',      label: 'Jobs',       icon: Briefcase },
-  { id: 'schedule',  label: 'Schedule',   icon: Calendar },
-  { id: 'map',       label: 'Live Map',   icon: Map },
+  { id: 'schedule',  label: 'Schedule',   icon: Calendar, roles: ['owner', 'admin', 'dispatcher'] },
+  { id: 'map',       label: 'Live Map',   icon: Map, roles: ['owner', 'admin', 'dispatcher'] },
   { id: 'customers', label: 'Customers',  icon: Users },
-  { id: 'invoices',  label: 'Invoices',   icon: FileText },
-  { id: 'estimates', label: 'Estimates',  icon: Receipt },
-  { id: 'team',      label: 'Team',       icon: Users },
-  { id: 'payroll',   label: 'Payroll',    icon: DollarSign },
-  { id: 'contacts',  label: 'Contacts',   icon: BookUser },
-  { id: 'crm-jobs',  label: 'CRM Jobs',   icon: ClipboardList },
-  { id: 'subs',      label: 'Subs',       icon: HardHat },
-  { id: 'connect',     label: 'Connect',    icon: Globe },
-  { id: 'properties',  label: 'Properties', icon: Building2 },
-  { id: 'reviews',     label: 'Reviews',    icon: Star },
+  { id: 'invoices',  label: 'Invoices',   icon: FileText, roles: ['owner', 'admin', 'dispatcher', 'sales'] },
+  { id: 'estimates', label: 'Estimates',  icon: Receipt, roles: ['owner', 'admin', 'dispatcher', 'sales'] },
+  { id: 'team',      label: 'Team',       icon: Users, roles: ['owner', 'admin'] },
+  { id: 'payroll',   label: 'Payroll',    icon: DollarSign, roles: ['owner', 'admin'] },
+  { id: 'contacts',  label: 'Contacts',   icon: BookUser, roles: ['owner', 'admin', 'dispatcher', 'sales'] },
+  { id: 'crm-jobs',  label: 'CRM Jobs',   icon: ClipboardList, roles: ['owner', 'admin', 'dispatcher', 'sales'] },
+  { id: 'subs',      label: 'Subs',       icon: HardHat, roles: ['owner', 'admin'] },
+  { id: 'connect',     label: 'Connect',    icon: Globe, roles: ['owner', 'admin'] },
+  { id: 'properties',  label: 'Properties', icon: Building2, roles: ['owner', 'admin'] },
+  { id: 'reviews',     label: 'Reviews',    icon: Star, roles: ['owner', 'admin', 'dispatcher'] },
   { id: 'training',    label: 'Training',   icon: GraduationCap },
-  { id: 'billing',     label: 'Billing',    icon: CreditCard },
-  { id: 'settings',    label: 'Settings',   icon: Settings },
+  { id: 'billing',     label: 'Billing',    icon: CreditCard, roles: ['owner', 'admin'] },
+  { id: 'settings',    label: 'Settings',   icon: Settings, roles: ['owner', 'admin'] },
 ];
 
 function LogoMark({ size = 28 }: { size?: number }) {
@@ -167,6 +169,15 @@ export function DashboardLayout() {
 
   const renderPage = () => {
     const p = effectivePage;
+    // Route guard: check if current user role is allowed to view this page
+    const navItem = NAV_ITEMS.find(n => n.id === p);
+    if (navItem?.roles && !navItem.roles.includes(user?.role as UserRole)) {
+      // Redirect unauthorized users to dashboard
+      if (p !== 'dashboard') {
+        setTimeout(() => setCurrentPage('dashboard'), 0);
+      }
+      return <DashboardPage />;
+    }
     switch (p) {
       case 'dashboard':  return <DashboardPage />;
       case 'customers':  return <CustomersPage />;
@@ -186,6 +197,7 @@ export function DashboardLayout() {
       case 'training':    return <TrainingPage />;
       case 'billing':     return <BillingPage />;
       case 'settings':   return <SettingsPage />;
+      default:           return <DashboardPage />;
     }
   };
 
@@ -268,7 +280,9 @@ export function DashboardLayout() {
 
         {/* Nav */}
         <nav className="flex-1 px-2.5 py-2 space-y-0.5 overflow-y-auto">
-          {NAV_ITEMS.map(({ id, label, icon: Icon }) => {
+          {NAV_ITEMS
+            .filter(({ roles }) => !roles || roles.includes(user?.role as UserRole))
+            .map(({ id, label, icon: Icon }) => {
             const active = effectivePage === id;
             return (
               <button

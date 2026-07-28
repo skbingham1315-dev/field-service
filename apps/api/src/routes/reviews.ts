@@ -294,16 +294,24 @@ reviewsRouter.get('/profile/:userId', async (req, res) => {
 
 // PATCH /api/v1/reviews/:id — flag or hide review (admin)
 reviewsRouter.patch('/:id', async (req, res) => {
+  const review = await prisma.jobReview.findUnique({ where: { id: req.params.id } });
+  if (!review || review.tenantId !== req.user!.tenantId) {
+    throw new AppError('Review not found', 404, 'NOT_FOUND');
+  }
   const { isFlagged, isPublic } = req.body;
-  const review = await prisma.jobReview.update({
+  const updated = await prisma.jobReview.update({
     where: { id: req.params.id },
     data: { isFlagged, isPublic },
   });
-  res.json({ success: true, data: review } satisfies ApiResponse);
+  res.json({ success: true, data: updated } satisfies ApiResponse);
 });
 
 // POST /api/v1/reviews/:id/response — add owner response to a review
 reviewsRouter.post('/:id/response', async (req, res) => {
+  const review = await prisma.jobReview.findUnique({ where: { id: req.params.id } });
+  if (!review || review.tenantId !== req.user!.tenantId) {
+    throw new AppError('Review not found', 404, 'NOT_FOUND');
+  }
   const { body } = req.body as { body?: string };
   if (!body?.trim()) { res.status(400).json({ error: 'body is required' }); return; }
   const user = req.user!;
@@ -317,6 +325,10 @@ reviewsRouter.post('/:id/response', async (req, res) => {
 
 // POST /api/v1/reviews/:id/flag — flag for moderation
 reviewsRouter.post('/:id/flag', async (req, res) => {
+  const review = await prisma.jobReview.findUnique({ where: { id: req.params.id } });
+  if (!review || review.tenantId !== req.user!.tenantId) {
+    throw new AppError('Review not found', 404, 'NOT_FOUND');
+  }
   await prisma.jobReview.update({ where: { id: req.params.id }, data: { isFlagged: true } });
   res.json({ success: true } satisfies ApiResponse);
 });

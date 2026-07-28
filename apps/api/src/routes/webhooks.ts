@@ -238,15 +238,18 @@ webhooksRouter.post('/stripe', async (req: Request, res: Response) => {
 webhooksRouter.post('/twilio/sms', express.urlencoded({ extended: false }), async (req: Request, res: Response) => {
   // Validate Twilio signature to reject forged webhook calls
   const twilioAuthToken = process.env.TWILIO_AUTH_TOKEN ?? '';
-  if (twilioAuthToken) {
-    const signature = req.headers['x-twilio-signature'] as string ?? '';
-    const webhookUrl = `https://${req.headers.host}/webhooks/twilio/sms`;
-    const valid = twilio.validateRequest(twilioAuthToken, signature, webhookUrl, req.body as Record<string, string>);
-    if (!valid) {
-      logger.warn('[twilio] invalid webhook signature');
-      res.status(403).send('Forbidden');
-      return;
-    }
+  if (!twilioAuthToken) {
+    logger.error('[twilio] TWILIO_AUTH_TOKEN not configured — rejecting webhook');
+    res.status(500).send('Webhook not configured');
+    return;
+  }
+  const signature = req.headers['x-twilio-signature'] as string ?? '';
+  const webhookUrl = `https://${req.headers.host}/webhooks/twilio/sms`;
+  const valid = twilio.validateRequest(twilioAuthToken, signature, webhookUrl, req.body as Record<string, string>);
+  if (!valid) {
+    logger.warn('[twilio] invalid webhook signature');
+    res.status(403).send('Forbidden');
+    return;
   }
 
   const { From, To, Body, MessageSid } = req.body as {

@@ -80,6 +80,11 @@ export function App() {
     return <ResetPasswordPage onLogin={() => { window.history.replaceState({}, '', '/'); window.location.reload(); }} />;
   }
 
+  // Redirect unknown paths to root for authenticated users
+  if (path !== '/' && !path.startsWith('/portal') && !path.startsWith('/pay/') && !path.startsWith('/review/') && path !== '/job-portal' && path !== '/reset-password') {
+    window.history.replaceState({}, '', '/');
+  }
+
   if (!isAuthenticated) {
     if (showSignup) {
       return <SignupPage onLogin={() => setShowSignup(false)} />;
