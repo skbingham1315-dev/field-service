@@ -12,8 +12,8 @@ import { RecordPaymentModal } from './RecordPaymentModal';
 import { api } from '../../lib/api';
 import type { InvoiceStatus } from '@fsp/types';
 import { useAuthStore } from '../../store/authStore';
+import { useToast } from '../Toast';
 import { useConfirm } from '../../components/ConfirmDialog';
-import { useToast } from '../../components/Toast';
 
 interface EditLineItem {
   id?: string;
@@ -120,16 +120,19 @@ export function InvoiceDetailModal({ invoiceId, onClose }: Props) {
       setSentConfirm(email ? `Invoice emailed to ${email}` : 'Invoice marked as sent');
       setTimeout(() => setSentConfirm(''), 6000);
     },
+    onError: () => toast.error('Failed to send invoice'),
   });
 
   const { mutate: voidInvoice, isPending: isVoiding } = useMutation({
     mutationFn: () => api.post(`/invoices/${invoiceId}/void`),
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ['invoices'] }); onClose(); },
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['invoices'] }); toast.success('Invoice voided'); onClose(); },
+    onError: () => toast.error('Failed to void invoice'),
   });
 
   const { mutate: deleteInvoice, isPending: isDeleting } = useMutation({
     mutationFn: () => api.delete(`/invoices/${invoiceId}`),
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ['invoices'] }); onClose(); },
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['invoices'] }); toast.success('Invoice deleted'); onClose(); },
+    onError: () => toast.error('Failed to delete invoice'),
   });
 
   const { mutate: saveEdit, isPending: isSaving } = useMutation({
@@ -146,8 +149,10 @@ export function InvoiceDetailModal({ invoiceId, onClose }: Props) {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['invoices'] });
       qc.invalidateQueries({ queryKey: ['invoices', invoiceId] });
+      toast.success('Invoice updated');
       setEditing(false);
     },
+    onError: () => toast.error('Failed to save changes'),
   });
 
   const canEdit = invoice && !['paid', 'void'].includes(invoice.status);

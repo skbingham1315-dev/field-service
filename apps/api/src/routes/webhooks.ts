@@ -59,6 +59,14 @@ webhooksRouter.post('/stripe', async (req: Request, res: Response) => {
         break;
       }
 
+      // Validate tenantId from metadata matches the invoice's actual tenant
+      if (pi.metadata.tenantId && pi.metadata.tenantId !== invoice.tenantId) {
+        logger.error('Webhook tenantId mismatch — possible tampering', {
+          invoiceId, expected: invoice.tenantId, got: pi.metadata.tenantId, paymentIntentId: pi.id,
+        });
+        break;
+      }
+
       {
           const paid = pi.amount_received;
           const newAmountPaid = invoice.amountPaid + paid;
@@ -68,7 +76,7 @@ webhooksRouter.post('/stripe', async (req: Request, res: Response) => {
           await prisma.$transaction(async (tx) => {
             await tx.payment.create({
               data: {
-                tenantId: pi.metadata.tenantId,
+                tenantId: invoice.tenantId,
                 invoiceId,
                 amount: paid,
                 method: 'stripe',
@@ -108,10 +116,8 @@ webhooksRouter.post('/stripe', async (req: Request, res: Response) => {
 
               // If balance remains, send balance-due reminder with persistent pay link
               if (newAmountDue > 0) {
-                const payTokenRows = await prisma.$queryRawUnsafe<Array<{ payToken: string | null }>>(
-                  `SELECT "payToken" FROM invoices WHERE id = $1`, invoiceId
-                );
-                const payToken = payTokenRows[0]?.payToken;
+                const inv2 = await prisma.invoice.findUnique({ where: { id: invoiceId }, select: { payToken: true } });
+                const payToken = inv2?.payToken;
                 if (payToken) {
                   const webUrl = process.env.WEB_URL ?? 'http://localhost:5173';
                   const payUrl = `${webUrl}/pay/${payToken}`;

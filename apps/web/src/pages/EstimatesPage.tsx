@@ -3,6 +3,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Plus, Search, X, Trash2 } from 'lucide-react';
 import { Button, Badge, Card, CardContent, CardHeader, CardTitle, Dialog } from '@fsp/ui';
 import { api } from '../lib/api';
+import { useToast } from '../components/Toast';
 
 const fmt = (c: number) =>
   '$' + (c / 100).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -67,6 +68,7 @@ function CreateEstimateModal({ open, onClose }: { open: boolean; onClose: () => 
   });
   const customers: Customer[] = customersData?.data ?? [];
 
+  const toast = useToast();
   const { mutate: createEstimate, isPending } = useMutation({
     mutationFn: () =>
       api.post('/estimates', {
@@ -77,12 +79,14 @@ function CreateEstimateModal({ open, onClose }: { open: boolean; onClose: () => 
       }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['estimates'] });
+      toast.success('Estimate created');
       onClose();
       setCustomerId('');
       setNotes('');
       setDueDate('');
       setLineItems([{ description: '', quantity: 1, unitPrice: 0, taxable: false }]);
     },
+    onError: () => toast.error('Failed to create estimate'),
   });
 
   const updateItem = (index: number, field: keyof LineItem, value: string | number | boolean) => {
@@ -245,12 +249,15 @@ function EstimateDetailModal({
     enabled: !!estimateId,
   });
 
+  const toast = useToast();
   const { mutate: patchStatus, isPending: patching } = useMutation({
     mutationFn: (status: string) => api.patch(`/estimates/${estimateId}`, { status }),
-    onSuccess: () => {
+    onSuccess: (_data, status) => {
       qc.invalidateQueries({ queryKey: ['estimates'] });
       qc.invalidateQueries({ queryKey: ['estimates', estimateId] });
+      toast.success(`Estimate ${status}`);
     },
+    onError: () => toast.error('Failed to update estimate status'),
   });
 
   const { mutate: convertToInvoice, isPending: converting } = useMutation({
@@ -258,9 +265,11 @@ function EstimateDetailModal({
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['estimates'] });
       qc.invalidateQueries({ queryKey: ['invoices'] });
+      toast.success('Estimate converted to invoice');
       onConverted?.();
       onClose();
     },
+    onError: () => toast.error('Failed to convert estimate'),
   });
 
   if (!estimateId) return null;
@@ -395,7 +404,7 @@ function EstimateDetailModal({
   );
 }
 
-const EST_PAGE_LIMIT = 50;
+const EST_PAGE_LIMIT = 20;
 
 export function EstimatesPage() {
   const [statusFilter, setStatusFilter] = useState('');

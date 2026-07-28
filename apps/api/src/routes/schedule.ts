@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { authenticate } from '../middleware/authenticate';
+import { authenticate, requireRole } from '../middleware/authenticate';
 import { prisma } from '@fsp/db';
 import { AppError } from '../middleware/errorHandler';
 import { io } from '../socket';
@@ -9,11 +9,21 @@ export const scheduleRouter = Router();
 
 scheduleRouter.use(authenticate);
 
-function dayRange(dateStr?: string) {
-  const start = dateStr ? new Date(`${dateStr}T00:00:00`) : new Date();
-  start.setHours(0, 0, 0, 0);
-  const end = new Date(start);
-  end.setDate(end.getDate() + 1);
+function dayRange(dateStr?: string, timezone = 'America/New_York') {
+  // Use tenant timezone to compute day boundaries
+  const now = dateStr ? new Date(`${dateStr}T12:00:00Z`) : new Date();
+  const formatter = new Intl.DateTimeFormat('en-CA', { timeZone: timezone, year: 'numeric', month: '2-digit', day: '2-digit' });
+  const localDate = dateStr ?? formatter.format(now); // YYYY-MM-DD
+  // Compute start of day in the given timezone
+  const parts = localDate.split('-').map(Number);
+  const dtStr = `${localDate}T00:00:00`;
+  // Create a Date representing midnight in the target timezone
+  const tempDate = new Date(dtStr);
+  const utcMidnight = new Date(tempDate.toLocaleString('en-US', { timeZone: 'UTC' }));
+  const tzMidnight = new Date(tempDate.toLocaleString('en-US', { timeZone: timezone }));
+  const offset = utcMidnight.getTime() - tzMidnight.getTime();
+  const start = new Date(tempDate.getTime() + offset);
+  const end = new Date(start.getTime() + 24 * 60 * 60 * 1000);
   return { start, end };
 }
 
@@ -27,7 +37,8 @@ const jobInclude = {
 // GET /api/v1/schedule?date=YYYY-MM-DD&technicianId=...
 scheduleRouter.get('/', async (req, res) => {
   const { date, technicianId } = req.query as { date?: string; technicianId?: string };
-  const { start, end } = dayRange(date);
+  const tenant = await prisma.tenant.findUnique({ where: { id: req.user!.tenantId }, select: { timezone: true } });
+  const { start, end } = dayRange(date, tenant?.timezone);
 
   const where: Record<string, unknown> = {
     tenantId: req.user!.tenantId,
@@ -52,9 +63,10 @@ scheduleRouter.get('/', async (req, res) => {
 
 // GET /api/v1/schedule/board?date=YYYY-MM-DD
 // Returns all jobs for the day grouped by technician (plus unassigned)
-scheduleRouter.get('/board', async (req, res) => {
+scheduleRouter.get('/board', requireRole('owner', 'admin', 'dispatcher'), async (req, res) => {
   const { date } = req.query as { date?: string };
-  const { start, end } = dayRange(date);
+  const tenant = await prisma.tenant.findUnique({ where: { id: req.user!.tenantId }, select: { timezone: true } });
+  const { start, end } = dayRange(date, tenant?.timezone);
 
   const [jobs, technicians] = await Promise.all([
     prisma.job.findMany({
@@ -96,7 +108,7 @@ scheduleRouter.get('/board', async (req, res) => {
 });
 
 // POST /api/v1/schedule/assign  — drag-drop assign
-scheduleRouter.post('/assign', async (req, res) => {
+scheduleRouter.post('/assign', requireRole('owner', 'admin', 'dispatcher'), async (req, res) => {
   const {
     jobId,
     technicianId,        // null = unassign
@@ -114,6 +126,14 @@ scheduleRouter.post('/assign', async (req, res) => {
     throw new AppError('Job not found', 404, 'NOT_FOUND');
   }
 
+  // Validate technician belongs to this tenant
+  if (technicianId) {
+    const tech = await prisma.user.findUnique({ where: { id: technicianId } });
+    if (!tech || tech.tenantId !== req.user!.tenantId) {
+      throw new AppError('Technician not found', 404, 'NOT_FOUND');
+    }
+  }
+
   const updated = await prisma.job.update({
     where: { id: jobId },
     data: {
@@ -126,11 +146,16 @@ scheduleRouter.post('/assign', async (req, res) => {
     include: jobInclude,
   });
 
-  // Keep jobTechnician junction table in sync so assignedTechnicians reflects drag-drop assignments.
-  // Preserves any additional techs already on the job; just upserts the new lead.
-  await prisma.jobTechnician.deleteMany({ where: { jobId } });
+  // Keep jobTechnician junction table in sync — upsert lead tech, preserve secondary techs
   if (technicianId) {
-    await prisma.jobTechnician.create({ data: { jobId, userId: technicianId } });
+    const existing = await prisma.jobTechnician.findFirst({ where: { jobId, userId: technicianId } });
+    if (!existing) {
+      await prisma.jobTechnician.create({ data: { jobId, userId: technicianId } });
+    }
+  }
+  // If unassigning lead, only remove the old lead tech from junction (not secondaries)
+  if (!technicianId && job.technicianId) {
+    await prisma.jobTechnician.deleteMany({ where: { jobId, userId: job.technicianId } });
   }
 
   // Broadcast to all dispatchers/techs in this tenant
@@ -143,7 +168,7 @@ scheduleRouter.post('/assign', async (req, res) => {
 });
 
 // GET /api/v1/schedule/technicians
-scheduleRouter.get('/technicians', async (req, res) => {
+scheduleRouter.get('/technicians', requireRole('owner', 'admin', 'dispatcher'), async (req, res) => {
   const technicians = await prisma.user.findMany({
     where: { tenantId: req.user!.tenantId, role: 'technician', status: 'active' },
     select: {
@@ -157,7 +182,7 @@ scheduleRouter.get('/technicians', async (req, res) => {
 });
 
 // GET /api/v1/schedule/map-jobs — jobs with address coords for map display
-scheduleRouter.get('/map-jobs', async (req, res) => {
+scheduleRouter.get('/map-jobs', requireRole('owner', 'admin', 'dispatcher'), async (req, res) => {
   const { date } = req.query as { date?: string };
   const where: Record<string, unknown> = {
     tenantId: req.user!.tenantId,

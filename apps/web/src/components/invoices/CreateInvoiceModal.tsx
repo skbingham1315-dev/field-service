@@ -6,6 +6,7 @@ import {
   Button, Input, Textarea, Select,
 } from '@fsp/ui';
 import { api } from '../../lib/api';
+import { useToast } from '../Toast';
 
 interface ServiceItem {
   id: string;
@@ -160,6 +161,7 @@ export function CreateInvoiceModal({ open, onClose }: Props) {
     return Math.round(v * 100);
   })();
 
+  const toast = useToast();
   const { mutate: createInvoice, isPending } = useMutation({
     mutationFn: async () => {
       const payload: Record<string, unknown> = {
@@ -182,8 +184,10 @@ export function CreateInvoiceModal({ open, onClose }: Props) {
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['invoices'] });
+      toast.success('Invoice created');
       handleClose();
     },
+    onError: () => toast.error('Failed to create invoice'),
   });
 
   const validate = () => {

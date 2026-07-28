@@ -3,7 +3,8 @@ import { MapContainer, TileLayer, Marker, Popup, useMap } from 'react-leaflet';
 import { MemberActivityDrawer } from '../components/MemberActivityDrawer';
 import L from 'leaflet';
 import { api } from '../lib/api';
-import { MapPin, User, RefreshCw } from 'lucide-react';
+import { getSocket, connectSocket } from '../lib/socket';
+import { MapPin, User, RefreshCw, ChevronLeft, ChevronRight, Filter } from 'lucide-react';
 
 // Fix Leaflet default icon paths broken by bundlers
 delete (L.Icon.Default.prototype as unknown as Record<string, unknown>)._getIconUrl;
@@ -76,17 +77,24 @@ function FitBounds({ points }: { points: [number, number][] }) {
   return null;
 }
 
+function todayStr() {
+  return new Date().toISOString().slice(0, 10);
+}
+
 export function MapPage() {
   const [jobs, setJobs] = useState<JobPin[]>([]);
   const [techs, setTechs] = useState<TechLocation[]>([]);
   const [loading, setLoading] = useState(true);
   const [lastRefresh, setLastRefresh] = useState(new Date());
   const [selectedMember, setSelectedMember] = useState<{ id: string; name: string } | null>(null);
+  const [dateFilter, setDateFilter] = useState(todayStr());
+  const [statusFilter, setStatusFilter] = useState<string>('');
 
   const load = useCallback(async () => {
     try {
+      const params = dateFilter ? `?date=${dateFilter}` : '';
       const [jobsRes, techsRes] = await Promise.all([
-        api.get('/schedule/map-jobs'),
+        api.get(`/schedule/map-jobs${params}`),
         api.get('/users/locations'),
       ]);
       setJobs(jobsRes.data.data ?? []);
@@ -97,15 +105,38 @@ export function MapPage() {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [dateFilter]);
 
   useEffect(() => {
     load();
-    const id = setInterval(load, 15_000);
+    // Poll jobs every 30s as backup, but real-time tech locations come via socket
+    const id = setInterval(load, 30_000);
     return () => clearInterval(id);
   }, [load]);
 
-  const jobsWithCoords = jobs.filter((j) => j.serviceAddress?.lat && j.serviceAddress?.lng);
+  // Real-time tech location updates via socket
+  useEffect(() => {
+    connectSocket();
+    const socket = getSocket();
+    const handler = (data: { userId: string; lat: number; lng: number }) => {
+      setTechs(prev => prev.map(t =>
+        t.id === data.userId
+          ? { ...t, lastLat: data.lat, lastLng: data.lng, lastLocationAt: new Date().toISOString() }
+          : t
+      ));
+    };
+    socket.on('technician:location_updated', handler);
+    return () => { socket.off('technician:location_updated', handler); };
+  }, []);
+
+  const shiftDate = (days: number) => {
+    const d = new Date(dateFilter + 'T12:00:00');
+    d.setDate(d.getDate() + days);
+    setDateFilter(d.toISOString().slice(0, 10));
+  };
+
+  const filteredJobs = statusFilter ? jobs.filter(j => j.status === statusFilter) : jobs;
+  const jobsWithCoords = filteredJobs.filter((j) => j.serviceAddress?.lat && j.serviceAddress?.lng);
 
   // All points for initial fit: techs first (most current), then jobs
   const allPoints: [number, number][] = [
@@ -118,9 +149,26 @@ export function MapPage() {
   return (
     <div className="flex flex-col h-full">
       {/* Toolbar */}
-      <div className="flex items-center justify-between px-4 py-2 bg-white border-b border-gray-200 flex-shrink-0">
+      <div className="flex items-center justify-between px-4 py-2 bg-white border-b border-gray-200 flex-shrink-0 gap-2 flex-wrap">
         <div className="flex items-center gap-4">
           <h1 className="font-semibold text-gray-900">Live Map</h1>
+          {/* Date navigation */}
+          <div className="flex items-center gap-1">
+            <button onClick={() => shiftDate(-1)} className="p-1 rounded hover:bg-gray-100"><ChevronLeft className="h-4 w-4" /></button>
+            <input type="date" value={dateFilter} onChange={e => setDateFilter(e.target.value)} className="text-xs border rounded px-1.5 py-0.5" />
+            <button onClick={() => shiftDate(1)} className="p-1 rounded hover:bg-gray-100"><ChevronRight className="h-4 w-4" /></button>
+            {dateFilter !== todayStr() && (
+              <button onClick={() => setDateFilter(todayStr())} className="text-xs text-indigo-600 font-medium ml-1">Today</button>
+            )}
+          </div>
+          {/* Status filter */}
+          <select value={statusFilter} onChange={e => setStatusFilter(e.target.value)} className="text-xs border rounded px-1.5 py-1">
+            <option value="">All statuses</option>
+            <option value="scheduled">Scheduled</option>
+            <option value="in_progress">In Progress</option>
+            <option value="completed">Completed</option>
+            <option value="draft">Draft</option>
+          </select>
           <div className="flex items-center gap-3 text-xs text-gray-500">
             <span className="flex items-center gap-1"><span className="h-3 w-3 rounded-full bg-blue-500 inline-block" /> Scheduled</span>
             <span className="flex items-center gap-1"><span className="h-3 w-3 rounded-full bg-amber-400 inline-block" /> In Progress</span>

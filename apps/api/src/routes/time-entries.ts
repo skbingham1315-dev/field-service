@@ -64,8 +64,15 @@ timeEntriesRouter.post('/', async (req, res) => {
     userId?: string;
   };
 
-  // Admins/owners/dispatchers can create entries for any team member
-  const userId = (['owner', 'admin', 'dispatcher'].includes(role) && targetUserId) ? targetUserId : sub;
+  // Admins/owners/dispatchers can create entries for any team member in their tenant
+  let userId = sub;
+  if (['owner', 'admin', 'dispatcher'].includes(role) && targetUserId) {
+    const targetUser = await prisma.user.findUnique({ where: { id: targetUserId }, select: { tenantId: true } });
+    if (!targetUser || targetUser.tenantId !== tenantId) {
+      res.status(404).json({ success: false, message: 'User not found' }); return;
+    }
+    userId = targetUserId;
+  }
 
   if (!date) { res.status(400).json({ success: false, message: 'date is required' }); return; }
 

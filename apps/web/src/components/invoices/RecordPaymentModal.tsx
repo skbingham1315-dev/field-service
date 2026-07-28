@@ -5,6 +5,7 @@ import {
   Button, Input, Textarea, Select,
 } from '@fsp/ui';
 import { api } from '../../lib/api';
+import { useToast } from '../Toast';
 
 function formatMoney(cents: number) {
   return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(cents / 100);
@@ -28,6 +29,7 @@ export function RecordPaymentModal({ invoice, onClose }: Props) {
   const [notes, setNotes] = useState('');
   const [paidAt, setPaidAt] = useState(new Date().toISOString().split('T')[0]);
 
+  const toast = useToast();
   const { mutate, isPending } = useMutation({
     mutationFn: async () => {
       const { data } = await api.post(`/invoices/${invoice!.id}/mark-paid`, {
@@ -40,8 +42,10 @@ export function RecordPaymentModal({ invoice, onClose }: Props) {
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['invoices'] });
+      toast.success('Payment recorded');
       handleClose();
     },
+    onError: () => toast.error('Failed to record payment'),
   });
 
   const handleClose = () => {

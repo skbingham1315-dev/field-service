@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { authenticate } from '../middleware/authenticate';
+import { authenticate, requireRole } from '../middleware/authenticate';
 import { prisma } from '@fsp/db';
 import { AppError } from '../middleware/errorHandler';
 import type { ApiResponse } from '@fsp/types';
@@ -10,23 +10,37 @@ export const estimatesRouter = Router();
 
 estimatesRouter.use(authenticate);
 
+// Technicians have no access to estimates
+estimatesRouter.use((req, _res, next) => {
+  if (req.user!.role === 'technician') {
+    throw new AppError('Access denied', 403, 'FORBIDDEN');
+  }
+  next();
+});
+
 const estimateInclude = {
   customer: { select: { id: true, firstName: true, lastName: true, email: true, phone: true } },
   lineItems: true,
 };
 
 async function getNextEstimateNumber(tenantId: string): Promise<string> {
-  const count = await prisma.invoice.count({
+  const last = await prisma.invoice.findFirst({
     where: { tenantId, invoiceNumber: { startsWith: 'EST-' } },
+    orderBy: { invoiceNumber: 'desc' },
+    select: { invoiceNumber: true },
   });
-  return `EST-${String(count + 1).padStart(5, '0')}`;
+  const lastNum = last ? parseInt(last.invoiceNumber.replace('EST-', ''), 10) : 0;
+  return `EST-${String(lastNum + 1).padStart(5, '0')}`;
 }
 
 async function getNextInvoiceNumber(tenantId: string): Promise<string> {
-  const count = await prisma.invoice.count({
+  const last = await prisma.invoice.findFirst({
     where: { tenantId, invoiceNumber: { startsWith: 'INV-' } },
+    orderBy: { invoiceNumber: 'desc' },
+    select: { invoiceNumber: true },
   });
-  return `INV-${String(count + 1).padStart(5, '0')}`;
+  const lastNum = last ? parseInt(last.invoiceNumber.replace('INV-', ''), 10) : 0;
+  return `INV-${String(lastNum + 1).padStart(5, '0')}`;
 }
 
 // GET /api/v1/estimates
@@ -102,6 +116,12 @@ estimatesRouter.post('/', async (req, res) => {
     throw new AppError('customerId and lineItems are required', 400, 'VALIDATION_ERROR');
   }
 
+  // Validate customer belongs to this tenant
+  const customer = await prisma.customer.findUnique({ where: { id: customerId } });
+  if (!customer || customer.tenantId !== req.user!.tenantId) {
+    throw new AppError('Customer not found', 404, 'NOT_FOUND');
+  }
+
   // Validate line items
   for (const item of lineItems) {
     if (typeof item.quantity !== 'number' || item.quantity <= 0) {
@@ -154,29 +174,6 @@ estimatesRouter.post('/', async (req, res) => {
   });
 
   res.status(201).json({ success: true, data: estimate } satisfies ApiResponse);
-
-  // fire-and-forget notifications
-  setImmediate(async () => {
-    try {
-      const customer = await prisma.customer.findUnique({ where: { id: estimate.customerId } });
-      const tenant = await prisma.tenant.findUnique({ where: { id: req.user!.tenantId } });
-      if (!customer || !tenant) return;
-      const opts = {
-        customerName: `${customer.firstName} ${customer.lastName}`,
-        estimateNumber: estimate.invoiceNumber,
-        total: estimate.total,
-        companyName: tenant.name,
-        dueDate: estimate.dueDate?.toISOString(),
-      };
-      if (customer.email) {
-        await sendEstimateCreated({ to: customer.email, ...opts });
-      }
-      if (customer.phone) {
-        const body = `Hi ${customer.firstName}! ${tenant.name} has sent you estimate ${estimate.invoiceNumber} for $${(estimate.total / 100).toFixed(2)}. We'll be in touch!`;
-        await sendSms({ tenantId: tenant.id, customerId: customer.id, to: customer.phone, body });
-      }
-    } catch (e) { /* non-critical */ }
-  });
 });
 
 // PATCH /api/v1/estimates/:id
@@ -202,7 +199,34 @@ estimatesRouter.patch('/:id', async (req, res) => {
       data: { status: statusOnly as never },
       include: estimateInclude,
     });
-    return res.json({ success: true, data: updated } satisfies ApiResponse);
+    res.json({ success: true, data: updated } satisfies ApiResponse);
+
+    // Send notification when estimate is marked as "sent"
+    if (statusOnly === 'sent') {
+      setImmediate(async () => {
+        try {
+          const cust = await prisma.customer.findUnique({ where: { id: updated.customerId } });
+          const t = await prisma.tenant.findUnique({ where: { id: req.user!.tenantId } });
+          if (!cust || !t) return;
+          const opts = {
+            customerName: `${cust.firstName} ${cust.lastName}`,
+            estimateNumber: updated.invoiceNumber,
+            total: updated.total,
+            companyName: t.name,
+            dueDate: updated.dueDate?.toISOString(),
+          };
+          if (cust.email) {
+            await sendEstimateCreated({ to: cust.email, ...opts });
+          }
+          if (cust.phone) {
+            const body = `Hi ${cust.firstName}! ${t.name} has sent you estimate ${updated.invoiceNumber} for $${(updated.total / 100).toFixed(2)}. We'll be in touch!`;
+            await sendSms({ tenantId: t.id, customerId: cust.id, to: cust.phone, body });
+          }
+        } catch { /* non-critical */ }
+      });
+    }
+
+    return;
   }
 
   if (existing.status !== 'draft') {

@@ -27,10 +27,13 @@ invoicesRouter.use((req, res, next) => {
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY ?? '', { apiVersion: '2024-04-10' });
 
 async function getNextInvoiceNumber(tenantId: string): Promise<string> {
-  const count = await prisma.invoice.count({
+  const last = await prisma.invoice.findFirst({
     where: { tenantId, invoiceNumber: { startsWith: 'INV-' } },
+    orderBy: { invoiceNumber: 'desc' },
+    select: { invoiceNumber: true },
   });
-  return `INV-${String(count + 1).padStart(5, '0')}`;
+  const lastNum = last ? parseInt(last.invoiceNumber.replace('INV-', ''), 10) : 0;
+  return `INV-${String(lastNum + 1).padStart(5, '0')}`;
 }
 
 const invoiceInclude = {
@@ -95,6 +98,12 @@ invoicesRouter.post('/', async (req, res) => {
     throw new AppError('customerId and lineItems are required', 400, 'VALIDATION_ERROR');
   }
 
+  // Validate customer belongs to this tenant
+  const customerRecord = await prisma.customer.findUnique({ where: { id: customerId } });
+  if (!customerRecord || customerRecord.tenantId !== req.user!.tenantId) {
+    throw new AppError('Customer not found', 404, 'NOT_FOUND');
+  }
+
   // Validate line items
   for (const item of lineItems) {
     if (typeof item.quantity !== 'number' || item.quantity <= 0) {
@@ -154,11 +163,9 @@ invoicesRouter.post('/', async (req, res) => {
       amountDue: total,
       dueDate: dueDate ? new Date(dueDate) : undefined,
       notes,
-      // pay link token — generated now, persists for life of invoice
-      ...({ payToken: generatePayToken() } as Record<string, unknown>),
-      // down payment
-      ...(downPaymentAmount != null ? { downPaymentAmount: Math.round(Number(downPaymentAmount)) } as Record<string, unknown> : {}),
-      ...(downPaymentDueDate ? { downPaymentDueDate: new Date(downPaymentDueDate) } as Record<string, unknown> : {}),
+      payToken: generatePayToken(),
+      ...(downPaymentAmount != null ? { downPaymentAmount: Math.round(Number(downPaymentAmount)) } : {}),
+      ...(downPaymentDueDate ? { downPaymentDueDate: new Date(downPaymentDueDate) } : {}),
     },
     include: invoiceInclude,
   });
@@ -205,9 +212,6 @@ invoicesRouter.patch('/:id', async (req, res) => {
     const discount = parseInt(discountAmount ?? existing.discountAmount) || 0;
     const total = subtotal + taxAmount - discount;
 
-    // Replace line items
-    await prisma.invoiceLineItem.deleteMany({ where: { invoiceId: req.params.id } });
-
     updateData = {
       ...updateData,
       subtotal,
@@ -217,21 +221,32 @@ invoicesRouter.patch('/:id', async (req, res) => {
       amountDue: total - existing.amountPaid,
     };
 
-    await prisma.invoiceLineItem.createMany({
-      data: lineItems.map((item: {
-        description: string;
-        quantity: number;
-        unitPrice: number;
-        taxable?: boolean;
-      }) => ({
-        invoiceId: req.params.id,
-        description: item.description,
-        quantity: item.quantity,
-        unitPrice: Math.round(item.unitPrice),
-        total: Math.round(item.quantity * item.unitPrice),
-        taxable: item.taxable !== false,
-      })),
+    // Replace line items + update invoice atomically
+    const invoice = await prisma.$transaction(async (tx) => {
+      await tx.invoiceLineItem.deleteMany({ where: { invoiceId: req.params.id } });
+      await tx.invoiceLineItem.createMany({
+        data: lineItems.map((item: {
+          description: string;
+          quantity: number;
+          unitPrice: number;
+          taxable?: boolean;
+        }) => ({
+          invoiceId: req.params.id,
+          description: item.description,
+          quantity: item.quantity,
+          unitPrice: Math.round(item.unitPrice),
+          total: Math.round(item.quantity * item.unitPrice),
+          taxable: item.taxable !== false,
+        })),
+      });
+      return tx.invoice.update({
+        where: { id: req.params.id },
+        data: updateData,
+        include: invoiceInclude,
+      });
     });
+
+    return res.json({ success: true, data: invoice } satisfies ApiResponse);
   }
 
   const invoice = await prisma.invoice.update({
@@ -243,9 +258,12 @@ invoicesRouter.patch('/:id', async (req, res) => {
   res.json({ success: true, data: invoice } satisfies ApiResponse);
 });
 
-// POST /api/v1/invoices/:id/send  — mark as sent
-invoicesRouter.post('/:id/send', async (req, res) => {
-  const invoice = await prisma.invoice.findUnique({ where: { id: req.params.id } });
+// POST /api/v1/invoices/:id/send  — mark as sent (owner/admin/dispatcher/sales only)
+invoicesRouter.post('/:id/send', requireRole('owner', 'admin', 'dispatcher', 'sales'), async (req, res) => {
+  const invoice = await prisma.invoice.findUnique({
+    where: { id: req.params.id },
+    select: { id: true, tenantId: true, customerId: true, status: true, invoiceNumber: true, total: true, amountDue: true, dueDate: true, issuedAt: true, payToken: true },
+  });
   if (!invoice || invoice.tenantId !== req.user!.tenantId) {
     throw new AppError('Invoice not found', 404, 'NOT_FOUND');
   }
@@ -254,11 +272,10 @@ invoicesRouter.post('/:id/send', async (req, res) => {
   }
 
   // Ensure a payToken exists (back-fill if missing)
-  const raw = invoice as Record<string, unknown>;
-  let payToken = raw.payToken as string | null | undefined;
+  let payToken = invoice.payToken;
   if (!payToken) {
     payToken = generatePayToken();
-    await prisma.$executeRawUnsafe(`UPDATE "invoices" SET "payToken" = $1 WHERE id = $2`, payToken, invoice.id);
+    await prisma.invoice.update({ where: { id: invoice.id }, data: { payToken } });
   }
 
   const updated = await prisma.invoice.update({
