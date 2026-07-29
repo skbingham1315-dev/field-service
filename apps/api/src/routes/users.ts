@@ -180,6 +180,42 @@ usersRouter.post('/invite', requireRole('owner', 'admin'), async (req, res) => {
   });
 });
 
+// POST /api/v1/users/:userId/resend-invite — resend invite email
+usersRouter.post('/:userId/resend-invite', requireRole('owner', 'admin'), async (req, res) => {
+  const target = await prisma.user.findUnique({ where: { id: req.params.userId } });
+  if (!target || target.tenantId !== req.user!.tenantId) {
+    throw new AppError('User not found', 404, 'NOT_FOUND');
+  }
+  if (target.status !== 'invited') {
+    throw new AppError('User has already accepted their invite', 400, 'ALREADY_ACCEPTED');
+  }
+
+  // Refresh token + expiry
+  const inviteToken = crypto.randomUUID();
+  const inviteExpiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
+  await prisma.user.update({
+    where: { id: target.id },
+    data: { inviteToken, inviteExpiresAt },
+  });
+
+  const tenant = await prisma.tenant.findUnique({ where: { id: req.user!.tenantId } });
+  const appUrl = process.env.WEB_URL ?? 'http://localhost:5173';
+  const inviteUrl = `${appUrl}/accept-invite?token=${inviteToken}`;
+
+  // Send email
+  try {
+    await sendTeamInvite({
+      to: target.email,
+      firstName: target.firstName,
+      inviteUrl,
+      companyName: tenant?.name ?? 'Your Company',
+      role: target.role.charAt(0).toUpperCase() + target.role.slice(1),
+    });
+  } catch { /* non-critical */ }
+
+  res.json({ success: true, data: { message: 'Invite resent', inviteToken } } satisfies ApiResponse);
+});
+
 // PATCH /api/v1/users/:userId — owner/admin only
 usersRouter.patch('/:userId', requireRole('owner', 'admin'), async (req, res) => {
   const { userId } = req.params;

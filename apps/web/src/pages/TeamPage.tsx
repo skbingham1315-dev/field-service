@@ -3,7 +3,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from '../lib/api';
 import {
   Plus, Users, Edit2, DollarSign, Shield, X, Loader2, CheckCircle,
-  ChevronDown, ChevronUp, Trash2, TrendingUp, AlertCircle, Lock, Activity,
+  ChevronDown, ChevronUp, Trash2, TrendingUp, AlertCircle, Lock, Activity, Send, Copy, Link,
 } from 'lucide-react';
 import { MemberActivityDrawer } from '../components/MemberActivityDrawer';
 import { useConfirm } from '../components/ConfirmDialog';
@@ -927,6 +927,20 @@ export function TeamPage() {
     onSuccess: () => refresh(),
   });
 
+  const resendInvite = useMutation({
+    mutationFn: async (id: string) => {
+      const { data } = await api.post(`/users/${id}/resend-invite`);
+      return data.data;
+    },
+    onSuccess: (data) => {
+      toast.success('Invite resent — email sent');
+      // Copy link to clipboard as backup
+      const url = `${window.location.origin}/accept-invite?token=${data.inviteToken}`;
+      navigator.clipboard.writeText(url).catch(() => {});
+    },
+    onError: (e: any) => toast.error(e.response?.data?.message || 'Failed to resend invite'),
+  });
+
   const activeMembers = (data ?? []).filter(u => u.status !== 'inactive');
   const inactiveMembers = (data ?? []).filter(u => u.status === 'inactive');
 
@@ -995,9 +1009,20 @@ export function TeamPage() {
                           +{r}
                         </span>
                       ))}
-                      <span className={`text-xs px-2 py-1 rounded-full font-medium ${member.status === 'active' ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-500'}`}>
+                      <span className={`text-xs px-2 py-1 rounded-full font-medium ${member.status === 'active' ? 'bg-green-100 text-green-700' : member.status === 'invited' ? 'bg-amber-100 text-amber-700' : 'bg-gray-100 text-gray-500'}`}>
                         {member.status}
                       </span>
+                      {member.status === 'invited' && (
+                        <button
+                          onClick={() => resendInvite.mutate(member.id)}
+                          disabled={resendInvite.isPending}
+                          title="Resend invite email + copy link"
+                          className="flex items-center gap-1 px-2 py-1 text-xs text-blue-600 border border-blue-200 rounded-lg hover:bg-blue-50 transition-colors disabled:opacity-50"
+                        >
+                          <Send className="h-3 w-3" />
+                          Resend
+                        </button>
+                      )}
                       <button
                         onClick={() => setActivityMember(member)}
                         title="Today's Activity"
