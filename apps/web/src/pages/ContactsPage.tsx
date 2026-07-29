@@ -534,6 +534,17 @@ function CSVImportModal({ onClose }: { onClose: () => void }) {
   const [result, setResult] = useState<{ imported: number; updated: number; skipped: number; skippedCsv?: string } | null>(null);
   const [uploading, setUploading] = useState(false);
   const [file, setFile] = useState<File | null>(null);
+  const [importCategory, setImportCategory] = useState('');
+  const [newCategory, setNewCategory] = useState('');
+
+  // Fetch existing categories for the dropdown
+  const { data: catOptions } = useQuery({
+    queryKey: ['contact-categories'],
+    queryFn: async () => {
+      const { data } = await api.get('/contacts/meta/categories');
+      return data.data as { categories: { name: string; count: number }[] };
+    },
+  });
 
   const handleFile = async (f: File) => {
     setFile(f);
@@ -577,6 +588,8 @@ function CSVImportModal({ onClose }: { onClose: () => void }) {
       form.append('file', file);
       form.append('mapping', JSON.stringify(mapping));
       form.append('duplicateAction', duplicateAction);
+      const cat = importCategory === '__new__' ? newCategory.trim() : importCategory;
+      if (cat) form.append('category', cat);
       const { data } = await api.post('/contacts/import/csv', form, { headers: { 'Content-Type': 'multipart/form-data' } });
       setResult(data.data);
       setStep('result');
@@ -695,6 +708,31 @@ function CSVImportModal({ onClose }: { onClose: () => void }) {
                 </div>
               </div>
 
+              {/* Category / Tab assignment */}
+              <div className="bg-indigo-50 border border-indigo-200 rounded-xl p-4">
+                <p className="text-xs font-semibold text-indigo-800 mb-2">Assign to category (tab):</p>
+                <select
+                  value={importCategory}
+                  onChange={e => setImportCategory(e.target.value)}
+                  className="w-full text-sm border border-indigo-200 rounded-lg px-3 py-1.5 bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                >
+                  <option value="">No category</option>
+                  {catOptions?.categories.map(c => (
+                    <option key={c.name} value={c.name}>{c.name}</option>
+                  ))}
+                  <option value="__new__">+ Create new category</option>
+                </select>
+                {importCategory === '__new__' && (
+                  <input
+                    type="text"
+                    value={newCategory}
+                    onChange={e => setNewCategory(e.target.value)}
+                    placeholder="New category name..."
+                    className="mt-2 w-full text-sm border border-indigo-200 rounded-lg px-3 py-1.5 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                  />
+                )}
+              </div>
+
               {/* Duplicate handling */}
               <div className="bg-amber-50 border border-amber-200 rounded-xl p-4">
                 <p className="text-xs font-semibold text-amber-800 mb-2">When duplicate phone number is found:</p>
@@ -766,19 +804,30 @@ export function ContactsPage() {
   const [filterStatus, setFilterStatus] = useState('');
   const [filterLead, setFilterLead] = useState('');
   const [filterFollowUp, setFilterFollowUp] = useState('');
+  const [activeCategory, setActiveCategory] = useState<string | null>(null);
   const [showFilters, setShowFilters] = useState(false);
   const [showCreate, setShowCreate] = useState(false);
   const [showImport, setShowImport] = useState(false);
   const [selectedId, setSelectedId] = useState<string | null>(null);
 
+  // Fetch categories for tabs
+  const { data: catData } = useQuery({
+    queryKey: ['contact-categories'],
+    queryFn: async () => {
+      const { data } = await api.get('/contacts/meta/categories');
+      return data.data as { categories: { name: string; count: number }[]; uncategorized: number };
+    },
+  });
+
   const { data, isLoading } = useQuery({
-    queryKey: ['contacts', search, filterStatus, filterLead, filterFollowUp],
+    queryKey: ['contacts', search, filterStatus, filterLead, filterFollowUp, activeCategory],
     queryFn: async () => {
       const params = new URLSearchParams({ limit: '100' });
       if (search) params.set('search', search);
       if (filterStatus) params.set('status', filterStatus);
       if (filterLead) params.set('leadSource', filterLead);
       if (filterFollowUp) params.set('followUpDue', filterFollowUp);
+      if (activeCategory) params.set('category', activeCategory);
       const { data } = await api.get(`/contacts?${params}`);
       return data;
     },
@@ -824,6 +873,41 @@ export function ContactsPage() {
           </Button>
         </div>
       </div>
+
+      {/* Category tabs */}
+      {catData && (catData.categories.length > 0 || catData.uncategorized > 0) && (
+        <div className="flex gap-1 overflow-x-auto pb-1">
+          <button
+            onClick={() => setActiveCategory(null)}
+            className={`px-3 py-1.5 rounded-lg text-sm font-medium whitespace-nowrap transition-colors ${
+              !activeCategory ? 'bg-indigo-600 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+            }`}
+          >
+            All ({(catData.categories.reduce((s, c) => s + c.count, 0) + catData.uncategorized)})
+          </button>
+          {catData.categories.map(c => (
+            <button
+              key={c.name}
+              onClick={() => setActiveCategory(c.name)}
+              className={`px-3 py-1.5 rounded-lg text-sm font-medium whitespace-nowrap transition-colors ${
+                activeCategory === c.name ? 'bg-indigo-600 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+              }`}
+            >
+              {c.name} ({c.count})
+            </button>
+          ))}
+          {catData.uncategorized > 0 && (
+            <button
+              onClick={() => setActiveCategory('__uncategorized__')}
+              className={`px-3 py-1.5 rounded-lg text-sm font-medium whitespace-nowrap transition-colors ${
+                activeCategory === '__uncategorized__' ? 'bg-indigo-600 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+              }`}
+            >
+              Uncategorized ({catData.uncategorized})
+            </button>
+          )}
+        </div>
+      )}
 
       {/* Search + filter */}
       <div className="flex gap-2">

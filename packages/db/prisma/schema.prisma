@@ -773,6 +773,7 @@ model Contact {
   state           String?
   zip             String?
 
+  category        String?       // owner-defined tab label (e.g. "Property Management")
   status          ContactStatus @default(prospect)
   leadSource      LeadSource
   leadSourceOther String?
@@ -792,6 +793,7 @@ model Contact {
   @@index([tenantId, status])
   @@index([tenantId, leadSource])
   @@index([tenantId, followUpDate])
+  @@index([tenantId, category])
   @@map("contacts")
 }
 

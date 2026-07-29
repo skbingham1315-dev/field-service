@@ -237,6 +237,27 @@ async function main() {
     logger.warn('Invoice wipe skipped: ' + String(e));
   }
 
+  // One-time: categorize existing contacts as "Property Management" for Blue Dingo
+  try {
+    const bdOwner3 = await prisma.user.findFirst({
+      where: { email: 'kadestephbingham@gmail.com', role: 'owner' },
+      select: { tenantId: true },
+    });
+    if (bdOwner3) {
+      const tid = bdOwner3.tenantId;
+      const uncategorized = await prisma.contact.count({ where: { tenantId: tid, category: null, isArchived: false } });
+      if (uncategorized > 0) {
+        await prisma.contact.updateMany({
+          where: { tenantId: tid, category: null, isArchived: false },
+          data: { category: 'Property Management' },
+        });
+        logger.info(`Categorized ${uncategorized} contacts as "Property Management"`);
+      }
+    }
+  } catch (e) {
+    logger.warn('Contact categorization skipped: ' + String(e));
+  }
+
   // Service items catalog table
   try {
     await prisma.$executeRawUnsafe(`

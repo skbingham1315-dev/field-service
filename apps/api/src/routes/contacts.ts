@@ -37,7 +37,7 @@ const contactInclude = {
 
 contactsRouter.get('/', async (req, res) => {
   const {
-    search, status, leadSource, followUpDue,
+    search, status, leadSource, followUpDue, category,
     page = '1', limit = '50', archived = 'false',
     sortBy = 'updatedAt', sortDir = 'desc',
   } = req.query as Record<string, string>;
@@ -50,6 +50,8 @@ contactsRouter.get('/', async (req, res) => {
 
   if (status) where.status = status;
   if (leadSource) where.leadSource = leadSource;
+  if (category === '__uncategorized__') where.category = null;
+  else if (category) where.category = category;
 
   if (followUpDue) {
     const now = new Date();
@@ -97,6 +99,21 @@ contactsRouter.get('/', async (req, res) => {
   } satisfies ApiResponse);
 });
 
+// ── Categories (distinct values for tabs) ─────────────────────────────────────
+
+contactsRouter.get('/meta/categories', async (req, res) => {
+  const tenantId = req.user!.tenantId;
+  const rows = await prisma.contact.groupBy({
+    by: ['category'],
+    where: { tenantId, isArchived: false, category: { not: null } },
+    _count: { id: true },
+    orderBy: { category: 'asc' },
+  });
+  const categories = rows.map(r => ({ name: r.category!, count: r._count.id }));
+  const uncategorized = await prisma.contact.count({ where: { tenantId, isArchived: false, category: null } });
+  res.json({ success: true, data: { categories, uncategorized } } satisfies ApiResponse);
+});
+
 // ── Get one ───────────────────────────────────────────────────────────────────
 
 contactsRouter.get('/:id', async (req, res) => {
@@ -116,7 +133,7 @@ contactsRouter.post('/', async (req, res) => {
   const {
     type, businessName, contactPerson, website, industry,
     fullName, howWeMet, phone, email, address, city, state, zip,
-    status, leadSource, leadSourceOther, followUpDate, notes,
+    status, leadSource, leadSourceOther, followUpDate, notes, category,
   } = req.body;
 
   if (!phone) throw new AppError('phone is required', 400, 'VALIDATION_ERROR');
@@ -131,6 +148,7 @@ contactsRouter.post('/', async (req, res) => {
       businessName, contactPerson, website, industry,
       fullName, howWeMet,
       phone, email, address, city, state, zip,
+      category: category || undefined,
       status: status ?? 'prospect',
       leadSource,
       leadSourceOther,
@@ -289,9 +307,10 @@ contactsRouter.get('/export/csv', async (req, res) => {
 contactsRouter.post('/import/csv', upload.single('file'), async (req, res) => {
   if (!req.file) throw new AppError('No file uploaded', 400, 'VALIDATION_ERROR');
 
-  const { mapping, duplicateAction = 'skip' } = req.body as {
+  const { mapping, duplicateAction = 'skip', category: importCategory } = req.body as {
     mapping?: string;
     duplicateAction?: 'skip' | 'update' | 'create';
+    category?: string;
   };
 
   const fieldMap: Record<string, string> = mapping ? JSON.parse(mapping) : {};
@@ -385,6 +404,7 @@ contactsRouter.post('/import/csv', upload.single('file'), async (req, res) => {
         city: data.city?.trim() || undefined,
         state: data.state?.trim() || undefined,
         zip: data.zip?.trim() || undefined,
+        category: importCategory || (data.category?.trim()) || undefined,
         status: 'prospect',
         leadSource: leadSource as Parameters<typeof prisma.contact.create>[0]['data']['leadSource'],
         website: data.website?.trim() || undefined,
