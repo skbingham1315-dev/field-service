@@ -185,6 +185,15 @@ async function main() {
     logger.warn('AI provider column setup skipped: ' + String(e));
   }
 
+  // Ensure category column exists on contacts (in case migration didn't run)
+  try {
+    await prisma.$executeRawUnsafe(`ALTER TABLE "contacts" ADD COLUMN IF NOT EXISTS "category" TEXT`);
+    await prisma.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "contacts_tenantId_category_idx" ON "contacts"("tenantId", "category")`);
+    logger.info('contacts.category column ensured');
+  } catch (e) {
+    logger.warn('contacts.category setup skipped: ' + String(e));
+  }
+
   // Back-fill payToken for any existing invoices that don't have one
   try {
     await prisma.$executeRawUnsafe(`
