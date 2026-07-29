@@ -927,7 +927,10 @@ export function TeamPage() {
     onSuccess: () => refresh(),
   });
 
-  const byRole = (data ?? []).reduce((acc, u) => {
+  const activeMembers = (data ?? []).filter(u => u.status !== 'inactive');
+  const inactiveMembers = (data ?? []).filter(u => u.status === 'inactive');
+
+  const byRole = activeMembers.reduce((acc, u) => {
     if (!acc[u.role]) acc[u.role] = [];
     acc[u.role].push(u);
     return acc;
@@ -1033,6 +1036,39 @@ export function TeamPage() {
           </div>
         );
       })}
+
+      {/* Inactive / Deactivated members */}
+      {inactiveMembers.length > 0 && (
+        <div className="border border-gray-200 rounded-xl overflow-hidden bg-white opacity-70">
+          <button
+            onClick={() => setExpandedRoles(r => ({ ...r, inactive: !r.inactive }))}
+            className="w-full flex items-center justify-between px-5 py-3 hover:bg-gray-50 transition-colors"
+          >
+            <div className="flex items-center gap-2">
+              <span className="text-sm font-semibold text-gray-500">Deactivated</span>
+              <span className="text-xs text-gray-400 bg-gray-100 px-2 py-0.5 rounded-full">{inactiveMembers.length}</span>
+            </div>
+            {expandedRoles.inactive ? <ChevronUp className="h-4 w-4 text-gray-400" /> : <ChevronDown className="h-4 w-4 text-gray-400" />}
+          </button>
+          {expandedRoles.inactive && (
+            <div className="divide-y divide-gray-100 px-5 pb-3">
+              {inactiveMembers.map(member => (
+                <div key={member.id} className="flex items-center gap-4 py-3">
+                  <div className="h-10 w-10 rounded-full bg-gray-200 flex items-center justify-center text-xs font-bold text-gray-400">
+                    {member.firstName[0]}{member.lastName[0]}
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-medium text-gray-500">{member.firstName} {member.lastName}</p>
+                    <p className="text-xs text-gray-400">{member.email}</p>
+                  </div>
+                  <span className="text-xs text-gray-400 capitalize">{member.role}</span>
+                  <span className="text-xs text-red-400 font-medium">Inactive</span>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
 
       {data?.length === 0 && !isLoading && (
         <div className="text-center py-16">
