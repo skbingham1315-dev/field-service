@@ -214,6 +214,29 @@ async function main() {
     logger.warn('Square token attach skipped: ' + String(e));
   }
 
+  // One-time: wipe all invoices/estimates/payments for Blue Dingo tenant (clean slate)
+  try {
+    const bdOwner2 = await prisma.user.findFirst({
+      where: { email: 'kadestephbingham@gmail.com', role: 'owner' },
+      select: { tenantId: true },
+    });
+    if (bdOwner2) {
+      const tid = bdOwner2.tenantId;
+      const t = await prisma.tenant.findUnique({ where: { id: tid }, select: { settings: true } });
+      const s = (t?.settings ?? {}) as Record<string, unknown>;
+      if (!s._invoicesWiped) {
+        const d1 = await prisma.invoiceLineItem.deleteMany({ where: { invoice: { tenantId: tid } } });
+        const d2 = await prisma.payment.deleteMany({ where: { tenantId: tid } });
+        const d3 = await prisma.invoice.deleteMany({ where: { tenantId: tid } });
+        s._invoicesWiped = true;
+        await prisma.tenant.update({ where: { id: tid }, data: { settings: s as any } });
+        logger.info(`Invoice wipe complete: ${d3.count} invoices, ${d2.count} payments, ${d1.count} line items`);
+      }
+    }
+  } catch (e) {
+    logger.warn('Invoice wipe skipped: ' + String(e));
+  }
+
   // Service items catalog table
   try {
     await prisma.$executeRawUnsafe(`
