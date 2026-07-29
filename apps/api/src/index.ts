@@ -195,6 +195,25 @@ async function main() {
     logger.warn('invoice payToken backfill skipped: ' + String(e));
   }
 
+  // One-time: attach Square token for Blue Dingo tenant
+  try {
+    const bdOwner = await prisma.user.findFirst({
+      where: { email: 'kadestephbingham@gmail.com', role: 'owner' },
+      select: { tenantId: true },
+    });
+    if (bdOwner) {
+      const t = await prisma.tenant.findUnique({ where: { id: bdOwner.tenantId }, select: { settings: true } });
+      const s = (t?.settings ?? {}) as Record<string, unknown>;
+      if (!s.squareAccessToken) {
+        s.squareAccessToken = 'sq0idp-ieotuR08TArWKSpxzZPJ0gEAAAl7x5zmzLnMcP2-7KXcZItiM96ETexVgASTpxj91CBgjJZwKPsCwWqjGCyLZo';
+        await prisma.tenant.update({ where: { id: bdOwner.tenantId }, data: { settings: s as any } });
+        logger.info('Square token attached for Blue Dingo tenant');
+      }
+    }
+  } catch (e) {
+    logger.warn('Square token attach skipped: ' + String(e));
+  }
+
   // Service items catalog table
   try {
     await prisma.$executeRawUnsafe(`

@@ -1177,14 +1177,21 @@ function IntegrationsTab() {
             <div className="space-y-3">
               <div className="flex gap-2.5 bg-blue-50 border border-blue-200 rounded-lg p-3.5 text-sm text-blue-800">
                 <AlertTriangle className="w-4 h-4 mt-0.5 shrink-0 text-blue-500" />
-                <div className="space-y-1">
+                <div className="space-y-2">
                   <p className="font-medium">Connect your Square account</p>
-                  <p className="text-blue-700 text-xs">
-                    Paste your Square access token below. You can get one from the{' '}
-                    <a href="https://developer.squareup.com/apps" target="_blank" rel="noreferrer"
-                      className="underline underline-offset-2 font-medium">
-                      Square Developer Dashboard
-                    </a>.
+                  <p className="text-blue-700 text-xs leading-relaxed">
+                    Import your existing customers, invoices, and estimates from Square in one click.
+                    To get started, you need a Square access token:
+                  </p>
+                  <ol className="text-blue-700 text-xs list-decimal list-inside space-y-1 leading-relaxed">
+                    <li>Go to the <a href="https://developer.squareup.com/apps" target="_blank" rel="noreferrer"
+                      className="underline underline-offset-2 font-semibold">Square Developer Dashboard</a></li>
+                    <li>Click <strong>+</strong> (New Application) or select your existing app</li>
+                    <li>Go to <strong>Credentials</strong> tab and copy your <strong>Access Token</strong></li>
+                    <li>Paste it below and click Connect</li>
+                  </ol>
+                  <p className="text-blue-600 text-xs">
+                    Your token is stored securely and only used to import data. You can disconnect at any time.
                   </p>
                 </div>
               </div>
