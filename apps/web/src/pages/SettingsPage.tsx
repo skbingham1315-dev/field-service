@@ -1076,6 +1076,42 @@ function IntegrationsTab() {
   const [importing, setImporting] = useState(false);
   const [results, setResults] = useState<SquareImportResults | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [sqStatus, setSqStatus] = useState<{ connected: boolean; maskedToken?: string; businessName?: string; error?: string } | null>(null);
+  const [sqToken, setSqToken] = useState('');
+  const [savingToken, setSavingToken] = useState(false);
+  const toast = useToast();
+
+  // Check Square connection status on mount
+  useEffect(() => {
+    api.get('/square/status').then(r => setSqStatus(r.data.data)).catch(() => {});
+  }, []);
+
+  async function handleSaveToken() {
+    if (!sqToken.trim()) return;
+    setSavingToken(true);
+    try {
+      await api.put('/square/token', { accessToken: sqToken.trim() });
+      toast.success('Square token saved');
+      setSqToken('');
+      // Refresh status
+      const r = await api.get('/square/status');
+      setSqStatus(r.data.data);
+    } catch (e: any) {
+      toast.error(e.response?.data?.message || 'Failed to save token');
+    } finally {
+      setSavingToken(false);
+    }
+  }
+
+  async function handleDisconnect() {
+    try {
+      await api.delete('/square/token');
+      toast.success('Square disconnected');
+      setSqStatus({ connected: false });
+    } catch {
+      toast.error('Failed to disconnect');
+    }
+  }
 
   async function handlePreview() {
     setPreviewing(true);
@@ -1085,7 +1121,7 @@ function IntegrationsTab() {
       const res = await api.get('/square/preview');
       setPreview(res.data.data);
     } catch (e: any) {
-      setError(e.response?.data?.message || 'Failed to connect to Square. Make sure SQUARE_ACCESS_TOKEN is set in your server .env.');
+      setError(e.response?.data?.message || 'Failed to connect to Square.');
     } finally {
       setPreviewing(false);
     }
@@ -1113,33 +1149,63 @@ function IntegrationsTab() {
           <div className="w-8 h-8 bg-black rounded-lg flex items-center justify-center">
             <span className="text-white font-bold text-xs">SQ</span>
           </div>
-          <div>
+          <div className="flex-1">
             <p className="font-semibold text-gray-900 text-sm">Square</p>
             <p className="text-xs text-gray-500">Import customers, invoices, and estimates</p>
           </div>
+          {sqStatus?.connected && (
+            <span className="flex items-center gap-1.5 text-xs font-medium text-green-700 bg-green-50 border border-green-200 rounded-full px-2.5 py-1">
+              <span className="h-2 w-2 rounded-full bg-green-500" /> Connected
+            </span>
+          )}
         </div>
 
         <div className="p-5 space-y-5">
-          {/* Setup note */}
-          <div className="flex gap-2.5 bg-blue-50 border border-blue-200 rounded-lg p-3.5 text-sm text-blue-800">
-            <AlertTriangle className="w-4 h-4 mt-0.5 shrink-0 text-blue-500" />
-            <div className="space-y-1">
-              <p className="font-medium">Setup required</p>
-              <p className="text-blue-700">
-                Add your Square access token to <code className="bg-blue-100 px-1 rounded font-mono text-xs">apps/api/.env</code>:
-                <br />
-                <code className="font-mono text-xs">SQUARE_ACCESS_TOKEN=your_token_here</code>
-              </p>
-              <a
-                href="https://developer.squareup.com/apps"
-                target="_blank"
-                rel="noreferrer"
-                className="inline-flex items-center gap-1 text-blue-600 underline underline-offset-2 text-xs font-medium"
-              >
-                Get token from Square Developer Dashboard <ExternalLink className="w-3 h-3" />
-              </a>
+          {/* Connection status + token input */}
+          {sqStatus?.connected ? (
+            <div className="flex items-center justify-between bg-green-50 border border-green-200 rounded-lg p-3.5">
+              <div>
+                <p className="text-sm font-medium text-green-800">Connected to Square</p>
+                {sqStatus.businessName && <p className="text-xs text-green-700 mt-0.5">{sqStatus.businessName}</p>}
+                <p className="text-xs text-green-600 mt-0.5 font-mono">{sqStatus.maskedToken}</p>
+              </div>
+              <button onClick={handleDisconnect} className="text-xs text-red-600 hover:text-red-800 font-medium px-3 py-1.5 border border-red-200 rounded-lg hover:bg-red-50 transition-colors">
+                Disconnect
+              </button>
             </div>
-          </div>
+          ) : (
+            <div className="space-y-3">
+              <div className="flex gap-2.5 bg-blue-50 border border-blue-200 rounded-lg p-3.5 text-sm text-blue-800">
+                <AlertTriangle className="w-4 h-4 mt-0.5 shrink-0 text-blue-500" />
+                <div className="space-y-1">
+                  <p className="font-medium">Connect your Square account</p>
+                  <p className="text-blue-700 text-xs">
+                    Paste your Square access token below. You can get one from the{' '}
+                    <a href="https://developer.squareup.com/apps" target="_blank" rel="noreferrer"
+                      className="underline underline-offset-2 font-medium">
+                      Square Developer Dashboard
+                    </a>.
+                  </p>
+                </div>
+              </div>
+              <div className="flex gap-2">
+                <input
+                  type="password"
+                  value={sqToken}
+                  onChange={e => setSqToken(e.target.value)}
+                  placeholder="sq0idp-... or EAAAl..."
+                  className="flex-1 px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-violet-500/50 focus:border-violet-400"
+                />
+                <button
+                  onClick={handleSaveToken}
+                  disabled={!sqToken.trim() || savingToken}
+                  className="px-4 py-2 bg-black text-white text-sm font-medium rounded-lg hover:bg-gray-800 disabled:opacity-50 transition-colors"
+                >
+                  {savingToken ? 'Saving...' : 'Connect'}
+                </button>
+              </div>
+            </div>
+          )}
 
           {/* Options */}
           <div className="space-y-2">

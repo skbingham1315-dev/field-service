@@ -1,12 +1,26 @@
 import { Router } from 'express';
-import { authenticate } from '../middleware/authenticate';
+import { authenticate, requireRole } from '../middleware/authenticate';
 import { prisma } from '@fsp/db';
 import { AppError } from '../middleware/errorHandler';
+import type { ApiResponse } from '@fsp/types';
 
 export const squareRouter = Router();
 squareRouter.use(authenticate);
+squareRouter.use(requireRole('owner', 'admin'));
 
-// ─── Square API helpers ───────────────────────────────────────────────────────
+// ─── Per-tenant Square token helpers ─────────────────────────────────────────
+
+/** Get the Square access token for the current tenant.
+ *  Priority: tenant settings → global env var fallback */
+async function getSquareToken(tenantId: string): Promise<string> {
+  const tenant = await prisma.tenant.findUnique({ where: { id: tenantId }, select: { settings: true } });
+  const settings = (tenant?.settings ?? {}) as Record<string, unknown>;
+  const token = settings.squareAccessToken as string | undefined;
+  if (token) return token;
+  // Fallback to global env var (legacy)
+  if (process.env.SQUARE_ACCESS_TOKEN) return process.env.SQUARE_ACCESS_TOKEN;
+  throw new AppError('Square access token not configured. Add it in Settings → Integrations.', 400, 'SQUARE_NOT_CONFIGURED');
+}
 
 function squareBase() {
   return process.env.SQUARE_ENVIRONMENT === 'production'
@@ -14,9 +28,8 @@ function squareBase() {
     : 'https://connect.squareupsandbox.com';
 }
 
-function squareHeaders() {
-  const token = process.env.SQUARE_ACCESS_TOKEN;
-  if (!token) throw new AppError('SQUARE_ACCESS_TOKEN is not configured', 400, 'SQUARE_NOT_CONFIGURED');
+async function squareHeaders(tenantId: string) {
+  const token = await getSquareToken(tenantId);
   return {
     'Square-Version': '2024-01-17',
     Authorization: `Bearer ${token}`,
@@ -24,8 +37,9 @@ function squareHeaders() {
   };
 }
 
-async function squareGet(path: string): Promise<any> {
-  const res = await fetch(`${squareBase()}${path}`, { headers: squareHeaders() });
+async function squareGet(path: string, tenantId: string): Promise<any> {
+  const headers = await squareHeaders(tenantId);
+  const res = await fetch(`${squareBase()}${path}`, { headers });
   if (!res.ok) {
     const body = await res.text();
     throw new AppError(`Square API error (${res.status}): ${body}`, 502, 'SQUARE_API_ERROR');
@@ -33,10 +47,11 @@ async function squareGet(path: string): Promise<any> {
   return res.json();
 }
 
-async function squarePost(path: string, body: unknown): Promise<any> {
+async function squarePost(path: string, body: unknown, tenantId: string): Promise<any> {
+  const headers = await squareHeaders(tenantId);
   const res = await fetch(`${squareBase()}${path}`, {
     method: 'POST',
-    headers: squareHeaders(),
+    headers,
     body: JSON.stringify(body),
   });
   if (!res.ok) {
@@ -46,41 +61,40 @@ async function squarePost(path: string, body: unknown): Promise<any> {
   return res.json();
 }
 
-async function fetchAllSquareCustomers(): Promise<any[]> {
+async function fetchAllSquareCustomers(tenantId: string): Promise<any[]> {
   const results: any[] = [];
   let cursor: string | undefined;
   do {
     const url = cursor
       ? `/v2/customers?limit=100&cursor=${encodeURIComponent(cursor)}`
       : '/v2/customers?limit=100';
-    const data = await squareGet(url);
+    const data = await squareGet(url, tenantId);
     if (data.customers) results.push(...data.customers);
     cursor = data.cursor;
   } while (cursor);
   return results;
 }
 
-async function batchFetchOrders(orderIds: string[]): Promise<Map<string, any>> {
+async function batchFetchOrders(orderIds: string[], tenantId: string): Promise<Map<string, any>> {
   const orderMap = new Map<string, any>();
   if (orderIds.length === 0) return orderMap;
 
-  // Square batch-retrieve limit is 100 per request
   for (let i = 0; i < orderIds.length; i += 100) {
     const chunk = orderIds.slice(i, i + 100);
     try {
-      const data = await squarePost('/v2/orders/batch-retrieve', { order_ids: chunk });
+      const data = await squarePost('/v2/orders/batch-retrieve', { order_ids: chunk }, tenantId);
       for (const order of data.orders ?? []) {
         orderMap.set(order.id, order);
       }
     } catch {
-      // non-critical — fall back to single-line-item if orders unavailable
+      // non-critical
     }
   }
   return orderMap;
 }
 
-async function fetchAllSquareInvoices(): Promise<any[]> {
-  const locData = await squareGet('/v2/locations');
+async function fetchAllSquareInvoices(tenantId: string): Promise<any[]> {
+  const locData = await squareGet('/v2/locations', tenantId);
   const locationIds: string[] = (locData.locations || []).map((l: any) => l.id);
   if (locationIds.length === 0) return [];
 
@@ -89,7 +103,7 @@ async function fetchAllSquareInvoices(): Promise<any[]> {
   do {
     const body: any = { query: { filter: { location_ids: locationIds } }, limit: 100 };
     if (cursor) body.cursor = cursor;
-    const data = await squarePost('/v2/invoices/search', body);
+    const data = await squarePost('/v2/invoices/search', body, tenantId);
     if (data.invoices) results.push(...data.invoices);
     cursor = data.cursor;
   } while (cursor);
@@ -103,16 +117,91 @@ function mapSquareStatus(squareStatus: string): string {
     case 'REFUNDED':
     case 'PARTIALLY_REFUNDED': return 'void';
     case 'DRAFT': return 'draft';
-    default: return 'sent'; // UNPAID, SCHEDULED, PARTIALLY_PAID, PAYMENT_PENDING
+    default: return 'sent';
   }
 }
+
+// ─── Token management ────────────────────────────────────────────────────────
+
+// PUT /api/v1/square/token — save Square access token for this tenant
+squareRouter.put('/token', async (req, res) => {
+  const { accessToken, environment } = req.body as { accessToken: string; environment?: string };
+  if (!accessToken?.trim()) {
+    throw new AppError('accessToken is required', 400, 'VALIDATION_ERROR');
+  }
+
+  const tenantId = req.user!.tenantId;
+  const tenant = await prisma.tenant.findUnique({ where: { id: tenantId }, select: { settings: true } });
+  const settings = ((tenant?.settings ?? {}) as Record<string, unknown>);
+
+  settings.squareAccessToken = accessToken.trim();
+  if (environment) settings.squareEnvironment = environment;
+
+  await prisma.tenant.update({
+    where: { id: tenantId },
+    data: { settings: settings as any },
+  });
+
+  res.json({ success: true, data: { message: 'Square token saved' } } satisfies ApiResponse);
+});
+
+// DELETE /api/v1/square/token — remove Square token
+squareRouter.delete('/token', async (req, res) => {
+  const tenantId = req.user!.tenantId;
+  const tenant = await prisma.tenant.findUnique({ where: { id: tenantId }, select: { settings: true } });
+  const settings = ((tenant?.settings ?? {}) as Record<string, unknown>);
+
+  delete settings.squareAccessToken;
+  delete settings.squareEnvironment;
+
+  await prisma.tenant.update({
+    where: { id: tenantId },
+    data: { settings: settings as any },
+  });
+
+  res.json({ success: true, data: { message: 'Square token removed' } } satisfies ApiResponse);
+});
+
+// GET /api/v1/square/status — check if Square is connected (without leaking token)
+squareRouter.get('/status', async (req, res) => {
+  const tenantId = req.user!.tenantId;
+  try {
+    const token = await getSquareToken(tenantId);
+    // Verify token works by fetching locations
+    const headers = {
+      'Square-Version': '2024-01-17',
+      Authorization: `Bearer ${token}`,
+      'Content-Type': 'application/json',
+    };
+    const locRes = await fetch(`${squareBase()}/v2/locations`, { headers });
+    if (!locRes.ok) {
+      res.json({ success: true, data: { connected: false, error: 'Token is invalid or expired' } } satisfies ApiResponse);
+      return;
+    }
+    const locData = await locRes.json() as { locations?: Array<{ business_name?: string }> };
+    const locations = locData.locations ?? [];
+    const masked = token.slice(0, 8) + '...' + token.slice(-4);
+    res.json({
+      success: true,
+      data: {
+        connected: true,
+        maskedToken: masked,
+        locationCount: locations.length,
+        businessName: locations[0]?.business_name ?? null,
+      },
+    } satisfies ApiResponse);
+  } catch {
+    res.json({ success: true, data: { connected: false, error: 'No Square token configured' } } satisfies ApiResponse);
+  }
+});
 
 // ─── Preview ─────────────────────────────────────────────────────────────────
 
 squareRouter.get('/preview', async (req, res) => {
+  const tenantId = req.user!.tenantId;
   const [customers, invoices] = await Promise.all([
-    fetchAllSquareCustomers(),
-    fetchAllSquareInvoices(),
+    fetchAllSquareCustomers(tenantId),
+    fetchAllSquareInvoices(tenantId),
   ]);
 
   res.json({
@@ -124,7 +213,7 @@ squareRouter.get('/preview', async (req, res) => {
   });
 });
 
-// ─── Import ───────────────────────────────────────────────────────────────────
+// ─── Import ──────────────────────────────────────────────────────────────────
 
 squareRouter.post('/import', async (req, res) => {
   const { importCustomers = true, importInvoices = true, importEstimates = true } = req.body;
@@ -136,12 +225,10 @@ squareRouter.post('/import', async (req, res) => {
     estimates: { imported: 0, skipped: 0 },
   };
 
-  // Map Square customer ID → local customer ID for linking invoices
   const sqCustToLocalId = new Map<string, string>();
 
-  // ── Customers ──────────────────────────────────────────────────────────────
   if (importCustomers) {
-    const squareCustomers = await fetchAllSquareCustomers();
+    const squareCustomers = await fetchAllSquareCustomers(tenantId);
 
     for (const sc of squareCustomers) {
       const email = sc.email_address?.toLowerCase() || null;
@@ -186,20 +273,17 @@ squareRouter.post('/import', async (req, res) => {
     }
   }
 
-  // ── Invoices & Estimates ───────────────────────────────────────────────────
   if (importInvoices || importEstimates) {
-    const squareInvoices = await fetchAllSquareInvoices();
+    const squareInvoices = await fetchAllSquareInvoices(tenantId);
 
-    // Batch-fetch all linked orders up front to get real line items
     const orderIds = squareInvoices.map((si) => si.order_id).filter(Boolean);
-    const orderMap = await batchFetchOrders(orderIds);
+    const orderMap = await batchFetchOrders(orderIds, tenantId);
 
     for (const si of squareInvoices) {
       const isDraft = si.status === 'DRAFT';
       if (isDraft && !importEstimates) continue;
       if (!isDraft && !importInvoices) continue;
 
-      // Resolve local customer
       let customerId: string | null = null;
       const sqCustId = si.primary_recipient?.customer_id;
       if (sqCustId) {
@@ -207,14 +291,14 @@ squareRouter.post('/import', async (req, res) => {
 
         if (!customerId) {
           try {
-            const custData = await squareGet(`/v2/customers/${sqCustId}`);
+            const custData = await squareGet(`/v2/customers/${sqCustId}`, tenantId);
             const email = custData.customer?.email_address?.toLowerCase();
             if (email) {
               const found = await prisma.customer.findFirst({ where: { tenantId, email } });
               if (found) customerId = found.id;
             }
           } catch {
-            // customer lookup failed, skip
+            // customer lookup failed
           }
         }
       }
@@ -225,7 +309,6 @@ squareRouter.post('/import', async (req, res) => {
         continue;
       }
 
-      // Build invoice number
       const prefix = isDraft ? 'EST-SQ-' : 'INV-SQ-';
       const invoiceNumber = si.invoice_number
         ? `${prefix}${si.invoice_number}`
@@ -233,7 +316,6 @@ squareRouter.post('/import', async (req, res) => {
 
       const already = await prisma.invoice.findFirst({ where: { tenantId, invoiceNumber } });
 
-      // Pull real line items from the linked Order
       const order = si.order_id ? orderMap.get(si.order_id) : null;
       const orderLineItems: any[] = order?.line_items ?? [];
 
@@ -246,16 +328,9 @@ squareRouter.post('/import', async (req, res) => {
           const total: number = li.total_money?.amount ?? Math.round(unitPrice * qty);
           const hasTax = (li.applied_taxes?.length ?? 0) > 0 || (li.total_tax_money?.amount ?? 0) > 0;
           const desc = [li.name, li.note].filter(Boolean).join(' — ');
-          return {
-            description: desc || 'Service',
-            quantity: qty,
-            unitPrice,
-            total,
-            taxable: hasTax,
-          };
+          return { description: desc || 'Service', quantity: qty, unitPrice, total, taxable: hasTax };
         });
       } else {
-        // Fallback: single line item from payment_requests total
         const fallbackTotal: number = (si.payment_requests || []).reduce(
           (sum: number, pr: any) =>
             sum + (pr.computed_amount_money?.amount ?? pr.requested_money?.amount ?? 0),
@@ -270,12 +345,11 @@ squareRouter.post('/import', async (req, res) => {
         }];
       }
 
-      // Totals — use order data when available for accurate subtotal/tax split
       const subtotalCents: number = order?.total_money?.amount
         ?? lineItemsData.reduce((s, li) => s + li.total, 0);
       const taxCents: number = order?.total_tax_money?.amount ?? 0;
       const discountCents: number = order?.total_discount_money?.amount ?? 0;
-      const totalCents: number = subtotalCents; // order.total_money is already after tax+discount
+      const totalCents: number = subtotalCents;
       const amountPaidCents: number = (si.payment_requests || []).reduce(
         (sum: number, pr: any) => sum + (pr.total_completed_amount_money?.amount ?? 0),
         0,
@@ -283,7 +357,6 @@ squareRouter.post('/import', async (req, res) => {
 
       const status = mapSquareStatus(si.status);
 
-      // Dates — created_at is the original invoice date; due_date from payment schedule
       const issuedAt = si.created_at ? new Date(si.created_at) : null;
       const dueDate = si.payment_requests?.[0]?.due_date
         ? new Date(si.payment_requests[0].due_date)
@@ -293,7 +366,6 @@ squareRouter.post('/import', async (req, res) => {
           ? new Date(si.payment_requests[0].completed_at)
           : null;
 
-      // Notes: combine Square title + description
       const notes = [si.title, si.description].filter(Boolean).join('\n') || null;
 
       const invoiceFields = {
@@ -311,14 +383,10 @@ squareRouter.post('/import', async (req, res) => {
       };
 
       if (already) {
-        // Update existing invoice — replace line items with latest from Square
         await prisma.invoiceLineItem.deleteMany({ where: { invoiceId: already.id } });
         await prisma.invoice.update({
           where: { id: already.id },
-          data: {
-            ...invoiceFields,
-            lineItems: { create: lineItemsData },
-          },
+          data: { ...invoiceFields, lineItems: { create: lineItemsData } },
         });
         if (isDraft) results.estimates.skipped++;
         else results.invoices.skipped++;
