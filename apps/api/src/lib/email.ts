@@ -1,7 +1,8 @@
 import { Resend } from 'resend';
 import { logger } from './logger';
 
-const FROM = process.env.EMAIL_FROM ?? 'FSP <noreply@yourdomain.com>';
+const rawFrom = process.env.EMAIL_FROM ?? 'FSP <noreply@yourdomain.com>';
+const FROM = rawFrom.includes('<') ? rawFrom : `FieldOps <${rawFrom}>`;
 const ENABLED =
   !!process.env.RESEND_API_KEY && process.env.RESEND_API_KEY !== 'placeholder';
 const resend = ENABLED ? new Resend(process.env.RESEND_API_KEY!) : null;
