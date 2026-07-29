@@ -449,3 +449,15 @@ invoicesRouter.post('/:id/payment-intent', async (req, res) => {
 
   res.json({ success: true, data: { clientSecret: paymentIntent.client_secret } } satisfies ApiResponse);
 });
+
+// POST /api/v1/invoices/wipe-all — owner only, one-time cleanup
+invoicesRouter.post('/wipe-all', requireRole('owner'), async (req, res) => {
+  const tenantId = req.user!.tenantId;
+  const d1 = await prisma.invoiceLineItem.deleteMany({ where: { invoice: { tenantId } } });
+  const d2 = await prisma.payment.deleteMany({ where: { tenantId } });
+  const d3 = await prisma.invoice.deleteMany({ where: { tenantId } });
+  res.json({
+    success: true,
+    data: { lineItems: d1.count, payments: d2.count, invoices: d3.count },
+  } satisfies ApiResponse);
+});
