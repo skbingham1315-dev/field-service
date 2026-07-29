@@ -261,6 +261,20 @@ function TeamTab() {
   });
 
   const toast = useToast();
+
+  const resendInvite = useMutation({
+    mutationFn: async (id: string) => {
+      const { data } = await api.post(`/users/${id}/resend-invite`);
+      return data.data;
+    },
+    onSuccess: (data) => {
+      toast.success('Invite resent — email sent');
+      const url = `${window.location.origin}/accept-invite?token=${data.inviteToken}`;
+      navigator.clipboard.writeText(url).catch(() => {});
+    },
+    onError: (e: any) => toast.error(e.response?.data?.message || 'Failed to resend invite'),
+  });
+
   const { mutate: sendInvite, isPending: inviting } = useMutation({
     mutationFn: () => api.post('/users/invite', invite),
     onSuccess: (res) => {
@@ -385,6 +399,15 @@ function TeamTab() {
                     </td>
                     <td className="py-3 text-right">
                       <div className="flex items-center justify-end gap-2">
+                        {member.status === 'invited' && (
+                          <button
+                            onClick={() => resendInvite.mutate(member.id)}
+                            disabled={resendInvite.isPending}
+                            className="text-xs text-blue-600 hover:text-blue-800 px-2 py-1 border border-blue-200 rounded-lg hover:bg-blue-50 disabled:opacity-50"
+                          >
+                            Resend Invite
+                          </button>
+                        )}
                         {member.role !== 'owner' && (
                           <>
                             <select
