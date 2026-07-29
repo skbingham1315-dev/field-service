@@ -42,6 +42,42 @@ const invoiceInclude = {
   payments: { orderBy: { paidAt: 'desc' as const } },
 };
 
+// GET /api/v1/invoices/stats — dashboard totals across all invoices
+invoicesRouter.get('/stats', async (req, res) => {
+  const tenantId = req.user!.tenantId;
+  const [outstanding, overdue, paid, all] = await Promise.all([
+    prisma.invoice.aggregate({
+      where: { tenantId, status: { in: ['sent', 'viewed'] }, invoiceNumber: { startsWith: 'INV-' } },
+      _sum: { amountDue: true },
+      _count: { id: true },
+    }),
+    prisma.invoice.aggregate({
+      where: { tenantId, status: 'sent', dueDate: { lt: new Date() }, amountDue: { gt: 0 }, invoiceNumber: { startsWith: 'INV-' } },
+      _sum: { amountDue: true },
+      _count: { id: true },
+    }),
+    prisma.invoice.aggregate({
+      where: { tenantId, status: 'paid', invoiceNumber: { startsWith: 'INV-' } },
+      _sum: { amountPaid: true },
+      _count: { id: true },
+    }),
+    prisma.invoice.aggregate({
+      where: { tenantId, status: { not: 'void' }, invoiceNumber: { startsWith: 'INV-' } },
+      _sum: { total: true },
+      _count: { id: true },
+    }),
+  ]);
+  res.json({
+    success: true,
+    data: {
+      outstanding: { total: outstanding._sum.amountDue ?? 0, count: outstanding._count.id },
+      overdue: { total: overdue._sum.amountDue ?? 0, count: overdue._count.id },
+      paid: { total: paid._sum.amountPaid ?? 0, count: paid._count.id },
+      all: { total: all._sum.total ?? 0, count: all._count.id },
+    },
+  } satisfies ApiResponse);
+});
+
 // GET /api/v1/invoices
 invoicesRouter.get('/', async (req, res) => {
   const { status, customerId, page = '1', limit = '20', search } = req.query as Record<string, string>;

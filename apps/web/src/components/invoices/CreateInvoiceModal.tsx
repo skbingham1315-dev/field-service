@@ -1,12 +1,14 @@
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, useMemo } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Plus, Trash2, UserPlus, ChevronDown, ChevronUp, BookOpen, X } from 'lucide-react';
+import { Plus, Trash2, UserPlus, ChevronDown, ChevronUp, BookOpen, X, Search, Briefcase } from 'lucide-react';
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter,
-  Button, Input, Textarea, Select,
+  Button, Input, Textarea,
 } from '@fsp/ui';
 import { api } from '../../lib/api';
 import { useToast } from '../Toast';
+
+// ── Service Item Picker ─────────────────────────────────────────────────────
 
 interface ServiceItem {
   id: string;
@@ -38,43 +40,156 @@ function ItemPickerPopover({
     },
   });
 
+  // Group by category
+  const grouped = useMemo(() => {
+    const map = new Map<string, ServiceItem[]>();
+    for (const item of items) {
+      const cat = item.category || 'Uncategorized';
+      if (!map.has(cat)) map.set(cat, []);
+      map.get(cat)!.push(item);
+    }
+    return map;
+  }, [items]);
+
   return (
-    <div className="absolute z-50 top-full left-0 mt-1 w-72 bg-white border border-gray-200 rounded-xl shadow-xl overflow-hidden">
+    <div className="absolute z-50 top-full left-0 mt-1 w-80 bg-white border border-gray-200 rounded-xl shadow-xl overflow-hidden">
       <div className="p-2 border-b border-gray-100 flex items-center gap-2">
+        <Search className="h-3.5 w-3.5 text-gray-400" />
         <input
           ref={inputRef}
           value={search}
           onChange={(e) => setSearch(e.target.value)}
           placeholder="Search catalog..."
-          className="flex-1 text-sm px-2 py-1 outline-none"
+          className="flex-1 text-sm outline-none"
         />
         <button onClick={onClose} className="text-gray-400 hover:text-gray-600">
           <X className="h-4 w-4" />
         </button>
       </div>
-      <div className="max-h-52 overflow-y-auto">
+      <div className="max-h-60 overflow-y-auto">
         {items.length === 0 && (
           <p className="px-4 py-3 text-xs text-gray-400 text-center">
             {search ? 'No items match' : 'No catalog items yet — add them in Settings'}
           </p>
         )}
-        {items.map((item) => (
-          <button
-            key={item.id}
-            onClick={() => { onSelect(item); onClose(); }}
-            className="w-full text-left px-4 py-2.5 hover:bg-blue-50 transition-colors border-b border-gray-50 last:border-0"
-          >
-            <p className="text-sm font-medium text-gray-900">{item.name}</p>
-            <div className="flex items-center gap-2 mt-0.5">
-              <span className="text-xs text-gray-500">${(item.unitPrice / 100).toFixed(2)}</span>
-              {item.category && <span className="text-xs text-gray-400">{item.category}</span>}
-            </div>
-          </button>
+        {Array.from(grouped).map(([cat, catItems]) => (
+          <div key={cat}>
+            <p className="px-3 py-1.5 text-[10px] font-semibold text-gray-400 uppercase tracking-wider bg-gray-50">{cat}</p>
+            {catItems.map((item) => (
+              <button
+                key={item.id}
+                onClick={() => { onSelect(item); onClose(); }}
+                className="w-full text-left px-4 py-2 hover:bg-blue-50 transition-colors flex items-center justify-between"
+              >
+                <div>
+                  <p className="text-sm font-medium text-gray-900">{item.name}</p>
+                  {item.description && <p className="text-xs text-gray-400 truncate max-w-[200px]">{item.description}</p>}
+                </div>
+                <span className="text-sm font-semibold text-gray-700 ml-2">${(item.unitPrice / 100).toFixed(2)}</span>
+              </button>
+            ))}
+          </div>
         ))}
       </div>
     </div>
   );
 }
+
+// ── Customer Autocomplete ───────────────────────────────────────────────────
+
+interface Customer {
+  id: string;
+  firstName: string;
+  lastName: string;
+  email?: string;
+  phone?: string;
+}
+
+function CustomerAutocomplete({
+  value,
+  onChange,
+  customers,
+  error,
+}: {
+  value: string;
+  onChange: (id: string) => void;
+  customers: Customer[];
+  error?: string;
+}) {
+  const [search, setSearch] = useState('');
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+
+  const selected = customers.find(c => c.id === value);
+
+  const filtered = useMemo(() => {
+    if (!search) return customers;
+    const q = search.toLowerCase();
+    return customers.filter(c =>
+      `${c.firstName} ${c.lastName}`.toLowerCase().includes(q) ||
+      c.email?.toLowerCase().includes(q) ||
+      c.phone?.includes(q)
+    );
+  }, [customers, search]);
+
+  useEffect(() => {
+    const handler = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, []);
+
+  return (
+    <div ref={ref} className="relative">
+      <label className="block text-sm font-medium text-gray-700 mb-1">Customer *</label>
+      {selected && !open ? (
+        <button
+          onClick={() => { setOpen(true); setSearch(''); }}
+          className="w-full text-left px-3 py-2 border border-gray-300 rounded-lg text-sm bg-white hover:border-blue-400 transition-colors flex items-center justify-between"
+        >
+          <span className="font-medium">{selected.firstName} {selected.lastName}</span>
+          <X className="h-3.5 w-3.5 text-gray-400" onClick={(e) => { e.stopPropagation(); onChange(''); }} />
+        </button>
+      ) : (
+        <div className="relative">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
+          <input
+            value={search}
+            onChange={(e) => { setSearch(e.target.value); setOpen(true); }}
+            onFocus={() => setOpen(true)}
+            placeholder="Search by name, email, or phone..."
+            className={`w-full pl-9 pr-3 py-2 border rounded-lg text-sm outline-none transition-colors ${
+              error ? 'border-red-300 focus:ring-red-500' : 'border-gray-300 focus:ring-blue-500'
+            } focus:ring-2`}
+          />
+        </div>
+      )}
+      {error && <p className="text-xs text-red-500 mt-1">{error}</p>}
+      {open && (
+        <div className="absolute z-50 top-full left-0 right-0 mt-1 bg-white border border-gray-200 rounded-xl shadow-xl max-h-48 overflow-y-auto">
+          {filtered.length === 0 && (
+            <p className="px-4 py-3 text-xs text-gray-400 text-center">No customers found</p>
+          )}
+          {filtered.map(c => (
+            <button
+              key={c.id}
+              onClick={() => { onChange(c.id); setOpen(false); setSearch(''); }}
+              className={`w-full text-left px-4 py-2 hover:bg-blue-50 transition-colors ${c.id === value ? 'bg-blue-50' : ''}`}
+            >
+              <p className="text-sm font-medium text-gray-900">{c.firstName} {c.lastName}</p>
+              <p className="text-xs text-gray-400">
+                {[c.email, c.phone].filter(Boolean).join(' · ') || 'No contact info'}
+              </p>
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── Types ────────────────────────────────────────────────────────────────────
 
 interface NewCustomerForm {
   firstName: string;
@@ -86,7 +201,7 @@ interface NewCustomerForm {
 interface LineItem {
   description: string;
   quantity: string;
-  unitPrice: string; // dollars, converted to cents on submit
+  unitPrice: string;
   taxable: boolean;
 }
 
@@ -97,37 +212,53 @@ interface Props {
   onClose: () => void;
 }
 
+// ── Main Modal ──────────────────────────────────────────────────────────────
+
 export function CreateInvoiceModal({ open, onClose }: Props) {
   const qc = useQueryClient();
   const [customerId, setCustomerId] = useState('');
+  const [jobId, setJobId] = useState('');
   const [lineItems, setLineItems] = useState<LineItem[]>([emptyItem()]);
   const [dueDate, setDueDate] = useState('');
   const [notes, setNotes] = useState('');
+  const [discountType, setDiscountType] = useState<'none' | 'percent' | 'fixed'>('none');
+  const [discountValue, setDiscountValue] = useState('');
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [showNewCustomer, setShowNewCustomer] = useState(false);
   const [newCust, setNewCust] = useState<NewCustomerForm>({ firstName: '', lastName: '', email: '', phone: '' });
   const [newCustError, setNewCustError] = useState('');
   const [pickerOpenIdx, setPickerOpenIdx] = useState<number | null>(null);
-  // Down payment
   const [downPayType, setDownPayType] = useState<'none' | 'percent' | 'fixed'>('none');
   const [downPayValue, setDownPayValue] = useState('');
   const [downPayDueDate, setDownPayDueDate] = useState('');
 
+  // Fetch customers
   const { data: customersData } = useQuery({
     queryKey: ['customers', 'all'],
     queryFn: async () => {
-      const { data } = await api.get('/customers?limit=200');
+      const { data } = await api.get('/customers?limit=500');
       return data;
     },
     enabled: open,
   });
-  const customers: Array<{ id: string; firstName: string; lastName: string }> =
-    customersData?.data ?? [];
+  const customers: Customer[] = customersData?.data ?? [];
 
+  // Fetch jobs for selected customer
+  const { data: jobsData } = useQuery({
+    queryKey: ['customer-jobs', customerId],
+    queryFn: async () => {
+      const { data } = await api.get(`/jobs?customerId=${customerId}&limit=50`);
+      return data;
+    },
+    enabled: !!customerId,
+  });
+  const jobs: Array<{ id: string; title: string; status: string }> = jobsData?.data ?? [];
+
+  // New customer mutation
   const { mutate: saveNewCustomer, isPending: savingCust } = useMutation({
     mutationFn: async () => {
       const { data } = await api.post('/customers', newCust);
-      return data.data as { id: string; firstName: string; lastName: string };
+      return data.data as Customer;
     },
     onSuccess: (created) => {
       qc.invalidateQueries({ queryKey: ['customers', 'all'] });
@@ -148,16 +279,26 @@ export function CreateInvoiceModal({ open, onClose }: Props) {
     saveNewCustomer();
   };
 
+  // Calculations
   const subtotalCents = Math.round(lineItems.reduce((sum, li) => {
     const q = parseFloat(li.quantity) || 0;
     const p = parseFloat(li.unitPrice) || 0;
     return sum + q * p;
   }, 0) * 100);
 
+  const discountCents = (() => {
+    if (discountType === 'none') return 0;
+    const v = parseFloat(discountValue) || 0;
+    if (discountType === 'percent') return Math.round(subtotalCents * (v / 100));
+    return Math.round(v * 100);
+  })();
+
+  const totalAfterDiscount = subtotalCents - discountCents;
+
   const downPaymentAmountCents = (() => {
     if (downPayType === 'none') return undefined;
     const v = parseFloat(downPayValue) || 0;
-    if (downPayType === 'percent') return Math.round(subtotalCents * (v / 100));
+    if (downPayType === 'percent') return Math.round(totalAfterDiscount * (v / 100));
     return Math.round(v * 100);
   })();
 
@@ -166,6 +307,7 @@ export function CreateInvoiceModal({ open, onClose }: Props) {
     mutationFn: async () => {
       const payload: Record<string, unknown> = {
         customerId,
+        ...(jobId ? { jobId } : {}),
         lineItems: lineItems.map((li) => ({
           description: li.description,
           quantity: parseFloat(li.quantity) || 1,
@@ -174,6 +316,7 @@ export function CreateInvoiceModal({ open, onClose }: Props) {
         })),
         dueDate: dueDate || undefined,
         notes: notes || undefined,
+        ...(discountCents > 0 ? { discountAmount: discountCents } : {}),
       };
       if (downPaymentAmountCents != null) {
         payload.downPaymentAmount = downPaymentAmountCents;
@@ -192,10 +335,11 @@ export function CreateInvoiceModal({ open, onClose }: Props) {
 
   const validate = () => {
     const e: Record<string, string> = {};
-    if (!customerId) e.customerId = 'Customer is required';
+    if (!customerId) e.customerId = 'Select a customer';
     lineItems.forEach((li, i) => {
-      if (!li.description) e[`desc-${i}`] = 'Required';
-      if (!li.unitPrice || parseFloat(li.unitPrice) <= 0) e[`price-${i}`] = 'Required';
+      if (!li.description.trim()) e[`desc-${i}`] = 'Description required';
+      if (!li.unitPrice || parseFloat(li.unitPrice) <= 0) e[`price-${i}`] = 'Enter a price';
+      if (parseFloat(li.quantity) <= 0) e[`qty-${i}`] = 'Must be > 0';
     });
     setErrors(e);
     return Object.keys(e).length === 0;
@@ -207,9 +351,12 @@ export function CreateInvoiceModal({ open, onClose }: Props) {
 
   const handleClose = () => {
     setCustomerId('');
+    setJobId('');
     setLineItems([emptyItem()]);
     setDueDate('');
     setNotes('');
+    setDiscountType('none');
+    setDiscountValue('');
     setErrors({});
     setShowNewCustomer(false);
     setNewCust({ firstName: '', lastName: '', email: '', phone: '' });
@@ -243,28 +390,21 @@ export function CreateInvoiceModal({ open, onClose }: Props) {
         </DialogHeader>
 
         <div className="space-y-5">
-          {/* Customer */}
+          {/* Customer Autocomplete */}
           <div>
             <div className="flex items-end gap-2">
               <div className="flex-1">
-                <Select
-                  label="Customer *"
+                <CustomerAutocomplete
                   value={customerId}
-                  onChange={(e) => setCustomerId(e.target.value)}
-                  placeholder="Select a customer..."
+                  onChange={setCustomerId}
+                  customers={customers}
                   error={errors.customerId}
-                >
-                  {customers.map((c) => (
-                    <option key={c.id} value={c.id}>
-                      {c.firstName} {c.lastName}
-                    </option>
-                  ))}
-                </Select>
+                />
               </div>
               <button
                 type="button"
                 onClick={() => setShowNewCustomer((v) => !v)}
-                className="flex items-center gap-1.5 px-3 py-2 text-sm text-blue-600 border border-blue-200 rounded-lg hover:bg-blue-50 transition-colors whitespace-nowrap mb-0.5"
+                className="flex items-center gap-1.5 px-3 py-2 text-sm text-blue-600 border border-blue-200 rounded-lg hover:bg-blue-50 transition-colors whitespace-nowrap"
               >
                 <UserPlus className="h-4 w-4" />
                 New
@@ -276,41 +416,41 @@ export function CreateInvoiceModal({ open, onClose }: Props) {
               <div className="mt-3 p-4 bg-blue-50 border border-blue-200 rounded-lg space-y-3">
                 <p className="text-xs font-semibold text-blue-700 uppercase tracking-wide">New Customer</p>
                 <div className="grid grid-cols-2 gap-3">
-                  <Input
-                    placeholder="First Name *"
-                    value={newCust.firstName}
-                    onChange={(e) => setNewCust((p) => ({ ...p, firstName: e.target.value }))}
-                  />
-                  <Input
-                    placeholder="Last Name *"
-                    value={newCust.lastName}
-                    onChange={(e) => setNewCust((p) => ({ ...p, lastName: e.target.value }))}
-                  />
-                  <Input
-                    placeholder="Email"
-                    type="email"
-                    value={newCust.email}
-                    onChange={(e) => setNewCust((p) => ({ ...p, email: e.target.value }))}
-                  />
-                  <Input
-                    placeholder="Phone"
-                    type="tel"
-                    value={newCust.phone}
-                    onChange={(e) => setNewCust((p) => ({ ...p, phone: e.target.value }))}
-                  />
+                  <Input placeholder="First Name *" value={newCust.firstName} onChange={(e) => setNewCust((p) => ({ ...p, firstName: e.target.value }))} />
+                  <Input placeholder="Last Name *" value={newCust.lastName} onChange={(e) => setNewCust((p) => ({ ...p, lastName: e.target.value }))} />
+                  <Input placeholder="Email" type="email" value={newCust.email} onChange={(e) => setNewCust((p) => ({ ...p, email: e.target.value }))} />
+                  <Input placeholder="Phone" type="tel" value={newCust.phone} onChange={(e) => setNewCust((p) => ({ ...p, phone: e.target.value }))} />
                 </div>
                 {newCustError && <p className="text-xs text-red-600">{newCustError}</p>}
                 <div className="flex gap-2">
-                  <Button size="sm" onClick={handleSaveNewCustomer} loading={savingCust}>
-                    Save Customer
-                  </Button>
-                  <Button size="sm" variant="ghost" onClick={() => setShowNewCustomer(false)}>
-                    Cancel
-                  </Button>
+                  <Button size="sm" onClick={handleSaveNewCustomer} loading={savingCust}>Save Customer</Button>
+                  <Button size="sm" variant="ghost" onClick={() => setShowNewCustomer(false)}>Cancel</Button>
                 </div>
               </div>
             )}
           </div>
+
+          {/* Job Attachment (shows when customer selected) */}
+          {customerId && jobs.length > 0 && (
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                <Briefcase className="h-3.5 w-3.5 inline mr-1" />
+                Link to Job <span className="text-gray-400 font-normal">(optional)</span>
+              </label>
+              <select
+                value={jobId}
+                onChange={(e) => setJobId(e.target.value)}
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+              >
+                <option value="">No job linked</option>
+                {jobs.map(j => (
+                  <option key={j.id} value={j.id}>
+                    {j.title} ({j.status.replace('_', ' ')})
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
 
           {/* Due date */}
           <Input
@@ -322,11 +462,11 @@ export function CreateInvoiceModal({ open, onClose }: Props) {
 
           {/* Line items */}
           <div>
-            <p className="text-sm font-medium text-foreground mb-2">Line Items *</p>
+            <p className="text-sm font-medium text-gray-700 mb-2">Line Items *</p>
             <div className="space-y-2">
               {lineItems.map((li, i) => (
                 <div key={i} className="relative">
-                  <div className="grid grid-cols-[1fr_80px_100px_40px_32px_32px] gap-2 items-end">
+                  <div className="grid grid-cols-[1fr_70px_90px_36px_32px_32px] gap-1.5 items-end">
                     <Input
                       placeholder="Description"
                       value={li.description}
@@ -340,9 +480,10 @@ export function CreateInvoiceModal({ open, onClose }: Props) {
                       step="0.01"
                       value={li.quantity}
                       onChange={(e) => updateItem(i, 'quantity', e.target.value)}
+                      error={errors[`qty-${i}`]}
                     />
                     <Input
-                      placeholder="Price ($)"
+                      placeholder="Price $"
                       type="number"
                       min="0"
                       step="0.01"
@@ -350,31 +491,28 @@ export function CreateInvoiceModal({ open, onClose }: Props) {
                       onChange={(e) => updateItem(i, 'unitPrice', e.target.value)}
                       error={errors[`price-${i}`]}
                     />
-                    <div className="flex items-center justify-center h-9">
+                    <div className="flex items-center justify-center h-9" title="Taxable">
                       <input
                         type="checkbox"
                         checked={li.taxable}
                         onChange={(e) => updateItem(i, 'taxable', e.target.checked)}
-                        title="Taxable"
-                        className="h-4 w-4 rounded border-gray-300"
+                        className="h-4 w-4 rounded border-gray-300 accent-blue-600"
                       />
                     </div>
-                    <Button
-                      variant="ghost"
-                      size="icon"
+                    <button
                       onClick={() => setPickerOpenIdx(pickerOpenIdx === i ? null : i)}
                       title="Pick from catalog"
+                      className="h-9 w-8 flex items-center justify-center rounded-lg hover:bg-blue-50 transition-colors"
                     >
                       <BookOpen className="h-4 w-4 text-blue-400" />
-                    </Button>
-                    <Button
-                      variant="ghost"
-                      size="icon"
+                    </button>
+                    <button
                       onClick={() => setLineItems((p) => p.filter((_, idx) => idx !== i))}
                       disabled={lineItems.length === 1}
+                      className="h-9 w-8 flex items-center justify-center rounded-lg hover:bg-red-50 transition-colors disabled:opacity-30"
                     >
                       <Trash2 className="h-4 w-4 text-gray-400" />
-                    </Button>
+                    </button>
                   </div>
                   {pickerOpenIdx === i && (
                     <ItemPickerPopover
@@ -384,9 +522,7 @@ export function CreateInvoiceModal({ open, onClose }: Props) {
                   )}
                 </div>
               ))}
-              <div className="flex items-center gap-1 text-xs text-gray-400 pl-1">
-                <span className="mr-auto">Checkbox = taxable</span>
-              </div>
+              <p className="text-[11px] text-gray-400 pl-1">Tax = checkbox | Catalog = book icon</p>
             </div>
             <Button
               variant="outline"
@@ -399,21 +535,59 @@ export function CreateInvoiceModal({ open, onClose }: Props) {
             </Button>
           </div>
 
-          {/* Subtotal preview */}
-          <div className="bg-gray-50 rounded-lg p-4 text-sm space-y-1">
+          {/* Totals preview */}
+          <div className="bg-gray-50 rounded-xl p-4 text-sm space-y-1.5">
             <div className="flex justify-between text-gray-600">
               <span>Subtotal</span>
               <span>${subtotal.toFixed(2)}</span>
             </div>
-            <div className="flex justify-between font-semibold text-gray-900 pt-1 border-t">
-              <span>Total (excl. tax)</span>
-              <span>${subtotal.toFixed(2)}</span>
+            {/* Discount */}
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <span className="text-gray-600">Discount</span>
+                <div className="flex gap-1">
+                  {(['none', 'percent', 'fixed'] as const).map((t) => (
+                    <button
+                      key={t}
+                      type="button"
+                      onClick={() => { setDiscountType(t); setDiscountValue(''); }}
+                      className={`px-2 py-0.5 text-xs rounded transition-colors ${
+                        discountType === t
+                          ? 'bg-blue-600 text-white'
+                          : 'bg-gray-200 text-gray-500 hover:bg-gray-300'
+                      }`}
+                    >
+                      {t === 'none' ? 'None' : t === 'percent' ? '%' : '$'}
+                    </button>
+                  ))}
+                </div>
+                {discountType !== 'none' && (
+                  <input
+                    type="number"
+                    min="0"
+                    step={discountType === 'percent' ? '1' : '0.01'}
+                    max={discountType === 'percent' ? '100' : undefined}
+                    value={discountValue}
+                    onChange={(e) => setDiscountValue(e.target.value)}
+                    placeholder={discountType === 'percent' ? '10' : '50.00'}
+                    className="w-20 px-2 py-0.5 text-sm border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-blue-500"
+                  />
+                )}
+              </div>
+              <span className={discountCents > 0 ? 'text-red-500 font-medium' : 'text-gray-400'}>
+                {discountCents > 0 ? `-$${(discountCents / 100).toFixed(2)}` : '$0.00'}
+              </span>
             </div>
+            <div className="flex justify-between font-semibold text-gray-900 pt-1.5 border-t border-gray-200">
+              <span>Total (excl. tax)</span>
+              <span>${(totalAfterDiscount / 100).toFixed(2)}</span>
+            </div>
+            <p className="text-[11px] text-gray-400">Tax calculated automatically based on your tenant rate</p>
           </div>
 
           {/* Down payment */}
           <div>
-            <p className="text-sm font-medium text-foreground mb-2">Down Payment</p>
+            <p className="text-sm font-medium text-gray-700 mb-2">Down Payment</p>
             <div className="flex gap-2 mb-2">
               {(['none', 'percent', 'fixed'] as const).map((t) => (
                 <button
@@ -452,7 +626,7 @@ export function CreateInvoiceModal({ open, onClose }: Props) {
             )}
             {downPayType !== 'none' && downPaymentAmountCents != null && downPaymentAmountCents > 0 && (
               <p className="text-xs text-blue-600 mt-1">
-                Down payment: ${(downPaymentAmountCents / 100).toFixed(2)} — remaining balance due after payment
+                Down payment: ${(downPaymentAmountCents / 100).toFixed(2)} — remaining balance due after
               </p>
             )}
           </div>

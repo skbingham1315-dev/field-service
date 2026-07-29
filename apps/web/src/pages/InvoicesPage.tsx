@@ -67,12 +67,20 @@ export function InvoicesPage() {
   const setStatusFilterAndReset = (v: string) => { setStatusFilter(v); setPage(1); };
   const setSearchAndReset = (v: string) => { setSearch(v); setPage(1); };
 
-  // Summary stats (current page only — use status filter for full accuracy)
-  const outstanding = invoices.filter((i) => ['sent', 'viewed', 'overdue'].includes(i.status));
-  const totalOutstanding = outstanding.reduce((s, i) => s + i.amountDue, 0);
-  const overdue = invoices.filter((i) => i.status === 'overdue');
-  const paid = invoices.filter((i) => i.status === 'paid');
-  const totalPaid = paid.reduce((s, i) => s + i.amountPaid, 0);
+  // Real stats from API (not page-scoped)
+  const { data: statsData } = useQuery({
+    queryKey: ['invoices', 'stats'],
+    queryFn: async () => {
+      const { data } = await api.get('/invoices/stats');
+      return data.data as {
+        outstanding: { total: number; count: number };
+        overdue: { total: number; count: number };
+        paid: { total: number; count: number };
+        all: { total: number; count: number };
+      };
+    },
+  });
+  const stats = statsData ?? { outstanding: { total: 0, count: 0 }, overdue: { total: 0, count: 0 }, paid: { total: 0, count: 0 }, all: { total: 0, count: 0 } };
 
   return (
     <div className="p-6 space-y-5">
@@ -132,8 +140,8 @@ export function InvoicesPage() {
             </CardTitle>
           </CardHeader>
           <CardContent className="px-4 pb-4">
-            <p className="text-xl font-bold">{formatMoney(totalOutstanding)}</p>
-            <p className="text-xs text-muted-foreground">{outstanding.length} invoice{outstanding.length !== 1 ? 's' : ''}</p>
+            <p className="text-xl font-bold">{formatMoney(stats.outstanding.total)}</p>
+            <p className="text-xs text-muted-foreground">{stats.outstanding.count} invoice{stats.outstanding.count !== 1 ? 's' : ''}</p>
           </CardContent>
         </Card>
         <Card>
@@ -143,10 +151,8 @@ export function InvoicesPage() {
             </CardTitle>
           </CardHeader>
           <CardContent className="px-4 pb-4">
-            <p className="text-xl font-bold text-red-700">
-              {formatMoney(overdue.reduce((s, i) => s + i.amountDue, 0))}
-            </p>
-            <p className="text-xs text-muted-foreground">{overdue.length} invoice{overdue.length !== 1 ? 's' : ''}</p>
+            <p className="text-xl font-bold text-red-700">{formatMoney(stats.overdue.total)}</p>
+            <p className="text-xs text-muted-foreground">{stats.overdue.count} invoice{stats.overdue.count !== 1 ? 's' : ''}</p>
           </CardContent>
         </Card>
         <Card>
@@ -156,8 +162,8 @@ export function InvoicesPage() {
             </CardTitle>
           </CardHeader>
           <CardContent className="px-4 pb-4">
-            <p className="text-xl font-bold text-green-700">{formatMoney(totalPaid)}</p>
-            <p className="text-xs text-muted-foreground">{paid.length} invoice{paid.length !== 1 ? 's' : ''}</p>
+            <p className="text-xl font-bold text-green-700">{formatMoney(stats.paid.total)}</p>
+            <p className="text-xs text-muted-foreground">{stats.paid.count} invoice{stats.paid.count !== 1 ? 's' : ''}</p>
           </CardContent>
         </Card>
         <Card>
@@ -167,10 +173,8 @@ export function InvoicesPage() {
             </CardTitle>
           </CardHeader>
           <CardContent className="px-4 pb-4">
-            <p className="text-xl font-bold">
-              {formatMoney(invoices.filter(i => i.status !== 'void').reduce((s, i) => s + i.total, 0))}
-            </p>
-            <p className="text-xs text-muted-foreground">{invoices.filter(i => i.status !== 'void').length} invoices</p>
+            <p className="text-xl font-bold">{formatMoney(stats.all.total)}</p>
+            <p className="text-xs text-muted-foreground">{stats.all.count} invoices</p>
           </CardContent>
         </Card>
       </div>
