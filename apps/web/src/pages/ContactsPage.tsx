@@ -524,7 +524,7 @@ function ContactDetailDrawer({ contactId, onClose }: { contactId: string; onClos
 
 // ─── CSV Import Modal ─────────────────────────────────────────────────────────
 
-function CSVImportModal({ onClose }: { onClose: () => void }) {
+function CSVImportModal({ onClose, onImported }: { onClose: () => void; onImported?: (category: string) => void }) {
   const qc = useQueryClient();
   const fileRef = useRef<HTMLInputElement>(null);
   const [step, setStep] = useState<'upload' | 'map' | 'result'>('upload');
@@ -594,6 +594,9 @@ function CSVImportModal({ onClose }: { onClose: () => void }) {
       setResult(data.data);
       setStep('result');
       qc.invalidateQueries({ queryKey: ['contacts'] });
+      qc.invalidateQueries({ queryKey: ['contact-categories'] });
+      const importedCat = importCategory === '__new__' ? newCategory.trim() : importCategory;
+      if (importedCat && onImported) onImported(importedCat);
     } catch {
       alert('Import failed. Please try again.');
     } finally {
@@ -1035,7 +1038,7 @@ export function ContactsPage() {
       )}
 
       {showCreate && <ContactFormModal onClose={() => setShowCreate(false)} />}
-      {showImport && <CSVImportModal onClose={() => setShowImport(false)} />}
+      {showImport && <CSVImportModal onClose={() => setShowImport(false)} onImported={(cat) => setActiveCategory(cat)} />}
       {selectedId && <ContactDetailDrawer contactId={selectedId} onClose={() => setSelectedId(null)} />}
     </div>
   );
