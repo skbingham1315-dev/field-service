@@ -5,6 +5,7 @@ import { authenticate, requireRole } from '../middleware/authenticate';
 import { prisma } from '@fsp/db';
 import { AppError } from '../middleware/errorHandler';
 import type { ApiResponse } from '@fsp/types';
+import { sendTeamInvite } from '../lib/email';
 
 export const usersRouter = Router();
 
@@ -160,6 +161,23 @@ usersRouter.post('/invite', requireRole('owner', 'admin'), async (req, res) => {
   });
 
   res.status(201).json({ success: true, data: { user, inviteToken } } satisfies ApiResponse);
+
+  // Fire-and-forget: send invite email
+  setImmediate(async () => {
+    try {
+      const tenant = await prisma.tenant.findUnique({ where: { id: req.user!.tenantId } });
+      if (!tenant) return;
+      const appUrl = process.env.WEB_URL ?? 'http://localhost:5173';
+      const inviteUrl = `${appUrl}/accept-invite?token=${inviteToken}`;
+      await sendTeamInvite({
+        to: email,
+        firstName,
+        inviteUrl,
+        companyName: tenant.name,
+        role: role.charAt(0).toUpperCase() + role.slice(1),
+      });
+    } catch { /* non-critical */ }
+  });
 });
 
 // PATCH /api/v1/users/:userId — owner/admin only

@@ -13,6 +13,7 @@ const ReviewPage = lazy(() => import('./pages/ReviewPage').then(m => ({ default:
 const PayPage = lazy(() => import('./pages/PayPage').then(m => ({ default: m.PayPage })));
 const PortalApp = lazy(() => import('./pages/PortalApp').then(m => ({ default: m.PortalApp })));
 const CustomerJobPortal = lazy(() => import('./pages/CustomerJobPortal').then(m => ({ default: m.CustomerJobPortal })));
+const AcceptInvitePage = lazy(() => import('./pages/AcceptInvitePage').then(m => ({ default: m.AcceptInvitePage })));
 
 function BillingSuccessBanner({ onDismiss }: { onDismiss: () => void }) {
   return (
@@ -76,12 +77,16 @@ export function App() {
     return <ErrorBoundary><Suspense fallback={LazyFallback}><ReviewPage token={reviewMatch[1]} /></Suspense></ErrorBoundary>;
   }
 
+  if (path === '/accept-invite') {
+    return <ErrorBoundary><Suspense fallback={LazyFallback}><AcceptInvitePage /></Suspense></ErrorBoundary>;
+  }
+
   if (path === '/reset-password') {
     return <ResetPasswordPage onLogin={() => { window.history.replaceState({}, '', '/'); window.location.reload(); }} />;
   }
 
   // Redirect unknown paths to root for authenticated users
-  if (path !== '/' && !path.startsWith('/portal') && !path.startsWith('/pay/') && !path.startsWith('/review/') && path !== '/job-portal' && path !== '/reset-password') {
+  if (path !== '/' && !path.startsWith('/portal') && !path.startsWith('/pay/') && !path.startsWith('/review/') && path !== '/job-portal' && path !== '/reset-password' && path !== '/accept-invite') {
     window.history.replaceState({}, '', '/');
   }
 

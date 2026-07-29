@@ -353,6 +353,32 @@ export async function sendBalanceDue(opts: {
   await sendEmail(opts.to, subject, html);
 }
 
+// ── Team Invite ──────────────────────────────────────────────────────────────
+
+export async function sendTeamInvite(opts: {
+  to: string;
+  firstName: string;
+  inviteUrl: string;
+  companyName: string;
+  role: string;
+}): Promise<void> {
+  const subject = `You're invited to join ${opts.companyName}`;
+  const html = baseHtml(
+    opts.companyName,
+    subject,
+    `<h2 style="margin:0 0 16px;color:#111827;font-size:20px;">Welcome to the Team!</h2>
+    <p style="margin:0 0 16px;color:#374151;">Hi ${opts.firstName},</p>
+    <p style="margin:0 0 16px;color:#374151;">You've been invited to join <strong>${opts.companyName}</strong> as a <strong>${opts.role}</strong>.</p>
+    <p style="margin:0 0 24px;color:#374151;">Click the button below to set up your password and start using the app. This link expires in 7 days.</p>
+    <p style="margin:0 0 32px;">
+      <a href="${opts.inviteUrl}" style="display:inline-block;background:#2563eb;color:#ffffff;padding:12px 28px;border-radius:6px;text-decoration:none;font-weight:600;font-size:15px;">Set Up My Account</a>
+    </p>
+    <p style="margin:0 0 16px;color:#374151;font-size:14px;"><strong>Tip:</strong> After setting up your account, save the app to your phone's home screen for quick access — it works like a native app!</p>
+    <p style="margin:0;color:#6b7280;font-size:13px;">If you weren't expecting this invite, you can safely ignore this email.</p>`,
+  );
+  await sendEmail(opts.to, subject, html);
+}
+
 // ── Password Reset ────────────────────────────────────────────────────────────
 
 export async function sendPasswordReset(opts: {

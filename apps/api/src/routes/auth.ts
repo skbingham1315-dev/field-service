@@ -345,6 +345,78 @@ authRouter.post('/reset-password', async (req, res) => {
   res.json({ success: true, data: { message: 'Password reset successfully. You can now log in.' } });
 });
 
+// POST /api/v1/auth/accept-invite — set password from invite token
+authRouter.post('/accept-invite', async (req, res) => {
+  const { token, password } = req.body as { token: string; password: string };
+  if (!token || !password) {
+    throw new AppError('token and password are required', 400, 'VALIDATION_ERROR');
+  }
+  if (password.length < 8) {
+    throw new AppError('Password must be at least 8 characters', 400, 'VALIDATION_ERROR');
+  }
+
+  const user = await prisma.user.findFirst({
+    where: {
+      inviteToken: token,
+      inviteExpiresAt: { gt: new Date() },
+      status: 'invited',
+    },
+    include: { tenant: { select: { slug: true, name: true } } },
+  });
+
+  if (!user) {
+    throw new AppError('Invalid or expired invite link', 400, 'INVALID_TOKEN');
+  }
+
+  const passwordHash = await bcrypt.hash(password, 12);
+  await prisma.user.update({
+    where: { id: user.id },
+    data: {
+      passwordHash,
+      status: 'active',
+      inviteToken: null,
+      inviteExpiresAt: null,
+    },
+  });
+
+  res.json({
+    success: true,
+    data: {
+      message: 'Account set up successfully! You can now log in.',
+      tenantSlug: user.tenant.slug,
+      tenantName: user.tenant.name,
+      email: user.email,
+    },
+  });
+});
+
+// GET /api/v1/auth/invite-info/:token — get invite details without accepting
+authRouter.get('/invite-info/:token', async (req, res) => {
+  const user = await prisma.user.findFirst({
+    where: {
+      inviteToken: req.params.token,
+      inviteExpiresAt: { gt: new Date() },
+      status: 'invited',
+    },
+    include: { tenant: { select: { name: true } } },
+  });
+
+  if (!user) {
+    throw new AppError('Invalid or expired invite link', 400, 'INVALID_TOKEN');
+  }
+
+  res.json({
+    success: true,
+    data: {
+      firstName: user.firstName,
+      lastName: user.lastName,
+      email: user.email,
+      role: user.role,
+      companyName: user.tenant.name,
+    },
+  });
+});
+
 // POST /api/v1/auth/change-password — authenticated users change their own password
 authRouter.post('/change-password', authenticate, async (req, res) => {
   const { currentPassword, newPassword } = req.body as { currentPassword: string; newPassword: string };
