@@ -378,3 +378,18 @@ estimatesRouter.post('/:id/convert', async (req, res) => {
     } catch (e) { /* non-critical */ }
   });
 });
+
+// DELETE /api/v1/estimates/:id — owner/admin only
+estimatesRouter.delete('/:id', requireRole('owner', 'admin'), async (req, res) => {
+  const estimate = await prisma.invoice.findUnique({ where: { id: req.params.id } });
+  if (
+    !estimate ||
+    estimate.tenantId !== req.user!.tenantId ||
+    !estimate.invoiceNumber.startsWith('EST-')
+  ) {
+    throw new AppError('Estimate not found', 404, 'NOT_FOUND');
+  }
+  await prisma.invoiceLineItem.deleteMany({ where: { invoiceId: req.params.id } });
+  await prisma.invoice.delete({ where: { id: req.params.id } });
+  res.json({ success: true, data: { message: 'Estimate deleted' } } satisfies ApiResponse);
+});

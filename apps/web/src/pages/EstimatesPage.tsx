@@ -4,6 +4,7 @@ import { Plus, Search, X, Trash2 } from 'lucide-react';
 import { Button, Badge, Card, CardContent, CardHeader, CardTitle, Dialog } from '@fsp/ui';
 import { api } from '../lib/api';
 import { useToast } from '../components/Toast';
+import { useConfirm } from '../components/ConfirmDialog';
 
 const fmt = (c: number) =>
   '$' + (c / 100).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -239,6 +240,7 @@ function EstimateDetailModal({
   onConverted?: () => void;
 }) {
   const qc = useQueryClient();
+  const { confirm } = useConfirm();
 
   const { data: estimate, isLoading } = useQuery<EstimateDetail>({
     queryKey: ['estimates', estimateId],
@@ -270,6 +272,16 @@ function EstimateDetailModal({
       onClose();
     },
     onError: () => toast.error('Failed to convert estimate'),
+  });
+
+  const { mutate: deleteEstimate, isPending: deleting } = useMutation({
+    mutationFn: () => api.delete(`/estimates/${estimateId}`),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['estimates'] });
+      toast.success('Estimate deleted');
+      onClose();
+    },
+    onError: () => toast.error('Failed to delete estimate'),
   });
 
   if (!estimateId) return null;
@@ -395,6 +407,17 @@ function EstimateDetailModal({
                   Void
                 </Button>
               )}
+              <Button
+                variant="outline"
+                disabled={deleting}
+                className="text-red-600 border-red-200 hover:bg-red-50"
+                onClick={async () => {
+                  const ok = await confirm({ title: 'Delete Estimate', message: 'Permanently delete this estimate? This cannot be undone.', variant: 'danger', confirmLabel: 'Delete' });
+                  if (ok) deleteEstimate();
+                }}
+              >
+                {deleting ? 'Deleting...' : 'Delete'}
+              </Button>
               <Button variant="outline" onClick={onClose}>Close</Button>
             </div>
           )}
