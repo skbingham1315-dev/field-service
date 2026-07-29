@@ -27,7 +27,7 @@ interface TeamMember {
   lastName: string;
   email: string;
   role: UserRole;
-  isActive: boolean;
+  status: string;
 }
 
 interface Tenant {
@@ -375,8 +375,8 @@ function TeamTab() {
                       <Badge variant={ROLE_BADGE[member.role]}>{ROLE_LABEL[member.role]}</Badge>
                     </td>
                     <td className="py-3 pr-4">
-                      <span className={`text-xs font-medium ${member.isActive ? 'text-green-600' : 'text-gray-400'}`}>
-                        {member.isActive ? 'Active' : 'Inactive'}
+                      <span className={`text-xs font-medium ${member.status === 'active' ? 'text-green-600' : 'text-gray-400'}`}>
+                        {member.status === 'active' ? 'Active' : member.status === 'invited' ? 'Invited' : 'Inactive'}
                       </span>
                     </td>
                     <td className="py-3 text-right">
