@@ -225,22 +225,23 @@ async function main() {
 
   // One-time: wipe all invoices/estimates/payments for Blue Dingo tenant (clean slate)
   try {
-    const bdOwner2 = await prisma.user.findFirst({
-      where: { email: 'kadestephbingham@gmail.com', role: 'owner' },
-      select: { tenantId: true },
+    // Find tenant by slug instead of email
+    const bdTenant = await prisma.tenant.findFirst({
+      where: { slug: { in: ['bluedingoconstruction', 'blue-dingo', 'bluedingo'] } },
+      select: { id: true, settings: true },
     });
-    if (bdOwner2) {
-      const tid = bdOwner2.tenantId;
-      const t = await prisma.tenant.findUnique({ where: { id: tid }, select: { settings: true } });
-      const s = (t?.settings ?? {}) as Record<string, unknown>;
+    if (bdTenant) {
+      const s = (bdTenant.settings ?? {}) as Record<string, unknown>;
       if (!s._invoicesWiped) {
-        const d1 = await prisma.invoiceLineItem.deleteMany({ where: { invoice: { tenantId: tid } } });
-        const d2 = await prisma.payment.deleteMany({ where: { tenantId: tid } });
-        const d3 = await prisma.invoice.deleteMany({ where: { tenantId: tid } });
+        const d1 = await prisma.invoiceLineItem.deleteMany({ where: { invoice: { tenantId: bdTenant.id } } });
+        const d2 = await prisma.payment.deleteMany({ where: { tenantId: bdTenant.id } });
+        const d3 = await prisma.invoice.deleteMany({ where: { tenantId: bdTenant.id } });
         s._invoicesWiped = true;
-        await prisma.tenant.update({ where: { id: tid }, data: { settings: s as any } });
+        await prisma.tenant.update({ where: { id: bdTenant.id }, data: { settings: s as any } });
         logger.info(`Invoice wipe complete: ${d3.count} invoices, ${d2.count} payments, ${d1.count} line items`);
       }
+    } else {
+      logger.warn('Invoice wipe: tenant not found by slug');
     }
   } catch (e) {
     logger.warn('Invoice wipe skipped: ' + String(e));
@@ -248,20 +249,26 @@ async function main() {
 
   // One-time: categorize existing contacts as "Property Management" for Blue Dingo
   try {
-    const bdOwner3 = await prisma.user.findFirst({
-      where: { email: 'kadestephbingham@gmail.com', role: 'owner' },
-      select: { tenantId: true },
+    const bdTenant2 = await prisma.tenant.findFirst({
+      where: { slug: { in: ['bluedingoconstruction', 'blue-dingo', 'bluedingo'] } },
+      select: { id: true, settings: true },
     });
-    if (bdOwner3) {
-      const tid = bdOwner3.tenantId;
-      const uncategorized = await prisma.contact.count({ where: { tenantId: tid, category: null, isArchived: false } });
-      if (uncategorized > 0) {
-        await prisma.contact.updateMany({
-          where: { tenantId: tid, category: null, isArchived: false },
-          data: { category: 'Property Management' },
-        });
-        logger.info(`Categorized ${uncategorized} contacts as "Property Management"`);
+    if (bdTenant2) {
+      const s2 = (bdTenant2.settings ?? {}) as Record<string, unknown>;
+      if (!s2._contactsCategorized) {
+        const uncategorized = await prisma.contact.count({ where: { tenantId: bdTenant2.id, category: null, isArchived: false } });
+        if (uncategorized > 0) {
+          await prisma.contact.updateMany({
+            where: { tenantId: bdTenant2.id, category: null, isArchived: false },
+            data: { category: 'Property Management' },
+          });
+          logger.info(`Categorized ${uncategorized} contacts as "Property Management"`);
+        }
+        s2._contactsCategorized = true;
+        await prisma.tenant.update({ where: { id: bdTenant2.id }, data: { settings: s2 as any } });
       }
+    } else {
+      logger.warn('Contact categorization: tenant not found by slug');
     }
   } catch (e) {
     logger.warn('Contact categorization skipped: ' + String(e));
