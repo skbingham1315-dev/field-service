@@ -260,12 +260,15 @@ function TeamTab() {
     onSuccess: () => qc.invalidateQueries({ queryKey: ['users'] }),
   });
 
+  const toast = useToast();
   const { mutate: sendInvite, isPending: inviting } = useMutation({
     mutationFn: () => api.post('/users/invite', invite),
     onSuccess: (res) => {
-      setInviteResult(res.data);
+      setInviteResult({ inviteToken: res.data.data.inviteToken });
       qc.invalidateQueries({ queryKey: ['users'] });
+      toast.success(`Invite sent to ${invite.email}`);
     },
+    onError: (e: any) => toast.error(e.response?.data?.message || 'Failed to send invite'),
   });
 
   const copyToken = (token: string) => {
@@ -289,7 +292,8 @@ function TeamTab() {
             <h4 className="text-sm font-semibold text-blue-900">Invite New Team Member</h4>
             {inviteResult ? (
               <div className="space-y-3">
-                <p className="text-sm text-green-700 font-medium">Invite created successfully!</p>
+                <p className="text-sm text-green-700 font-medium">Invite email sent to {invite.email}!</p>
+                <p className="text-xs text-gray-500">They'll receive an email with a link to set up their account. You can also share the link directly:</p>
                 <div className="flex items-center gap-2">
                   <input
                     readOnly
