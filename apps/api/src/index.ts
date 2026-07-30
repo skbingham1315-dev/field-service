@@ -274,6 +274,63 @@ async function main() {
     logger.warn('Contact categorization skipped: ' + String(e));
   }
 
+  // One-time: sync Square catalog items for Blue Dingo
+  try {
+    const bdTenant3 = await prisma.tenant.findFirst({
+      where: { slug: { in: ['bluedingoconstruction', 'blue-dingo', 'bluedingo'] } },
+      select: { id: true, settings: true },
+    });
+    if (bdTenant3) {
+      const s3 = (bdTenant3.settings ?? {}) as Record<string, unknown>;
+      if (!s3._catalogSynced && typeof s3.squareAccessToken === 'string' && s3.squareAccessToken.startsWith('EAAA')) {
+        const token = s3.squareAccessToken;
+        const headers = { 'Square-Version': '2024-01-17', Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' };
+        const base = 'https://connect.squareup.com';
+        // Fetch all items
+        const allItems: Array<{ item_data?: { name?: string; description?: string; category_id?: string; variations?: Array<{ item_variation_data?: { pricing_type?: string; price_money?: { amount?: number } } }> } }> = [];
+        let cursor: string | undefined;
+        do {
+          const url = cursor ? `${base}/v2/catalog/list?types=ITEM&cursor=${encodeURIComponent(cursor)}` : `${base}/v2/catalog/list?types=ITEM`;
+          const res = await fetch(url, { headers });
+          const data = await res.json() as { objects?: typeof allItems; cursor?: string };
+          if (data.objects) allItems.push(...data.objects);
+          cursor = data.cursor;
+        } while (cursor);
+        // Fetch categories
+        const catMap = new Map<string, string>();
+        let catCur: string | undefined;
+        do {
+          const url = catCur ? `${base}/v2/catalog/list?types=CATEGORY&cursor=${encodeURIComponent(catCur)}` : `${base}/v2/catalog/list?types=CATEGORY`;
+          const res = await fetch(url, { headers });
+          const data = await res.json() as { objects?: Array<{ id: string; category_data?: { name?: string } }>; cursor?: string };
+          for (const c of data.objects ?? []) catMap.set(c.id, c.category_data?.name ?? 'Uncategorized');
+          catCur = data.cursor;
+        } while (catCur);
+        let imported = 0;
+        for (const item of allItems) {
+          const name = item.item_data?.name;
+          if (!name) continue;
+          const v = item.item_data?.variations?.[0]?.item_variation_data;
+          const unitPrice = v?.price_money?.amount ?? 0;
+          if (v?.pricing_type === 'VARIABLE_PRICING' && unitPrice === 0) continue;
+          const category = catMap.get(item.item_data?.category_id ?? '') ?? null;
+          const description = item.item_data?.description ?? null;
+          const existing = await prisma.$queryRawUnsafe<Array<{ id: string }>>(`SELECT id FROM service_items WHERE "tenantId" = $1 AND LOWER(name) = LOWER($2) AND "isActive" = true LIMIT 1`, bdTenant3.id, name);
+          if (existing.length === 0) {
+            const id = `si_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+            await prisma.$executeRawUnsafe(`INSERT INTO service_items (id, "tenantId", name, description, "unitPrice", taxable, category, "isActive") VALUES ($1, $2, $3, $4, $5, true, $6, true)`, id, bdTenant3.id, name, description, unitPrice, category);
+            imported++;
+          }
+        }
+        s3._catalogSynced = true;
+        await prisma.tenant.update({ where: { id: bdTenant3.id }, data: { settings: s3 as any } });
+        logger.info(`Square catalog synced: ${imported} items imported from ${allItems.length} total`);
+      }
+    }
+  } catch (e) {
+    logger.warn('Square catalog sync skipped: ' + String(e));
+  }
+
   // Service items catalog table
   try {
     await prisma.$executeRawUnsafe(`
