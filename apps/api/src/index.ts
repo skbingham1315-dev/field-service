@@ -282,8 +282,10 @@ async function main() {
     });
     if (bdTenant3) {
       const s3 = (bdTenant3.settings ?? {}) as Record<string, unknown>;
-      if (!s3._catalogSynced && typeof s3.squareAccessToken === 'string' && s3.squareAccessToken.startsWith('EAAA')) {
-        const token = s3.squareAccessToken;
+      const sqToken = typeof s3.squareAccessToken === 'string' ? s3.squareAccessToken : '';
+      logger.info(`Catalog sync check: _catalogSynced=${s3._catalogSynced}, token starts with=${sqToken.slice(0,4)}`);
+      if (!s3._catalogSynced && sqToken.length > 10) {
+        const token = sqToken;
         const headers = { 'Square-Version': '2024-01-17', Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' };
         const base = 'https://connect.squareup.com';
         // Fetch all items
