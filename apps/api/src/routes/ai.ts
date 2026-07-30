@@ -166,6 +166,43 @@ const TOOLS: Anthropic.Tool[] = [
       required: ['jobId'],
     },
   },
+  {
+    name: 'list_service_items',
+    description: 'List available service items from the pricing catalog. Can search by name or category. Returns item names with unit prices in cents.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        search: { type: 'string', description: 'Search by name or description keyword' },
+        category: { type: 'string', description: 'Filter by category' },
+      },
+    },
+  },
+  {
+    name: 'create_estimate',
+    description: 'Create a draft estimate for a customer. Use list_customers to get customerId and list_service_items to find correct pricing. Line item unitPrice is in cents.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        customerId: { type: 'string', description: 'Customer ID — use list_customers first' },
+        lineItems: {
+          type: 'array',
+          items: {
+            type: 'object',
+            properties: {
+              description: { type: 'string' },
+              quantity: { type: 'number' },
+              unitPrice: { type: 'number', description: 'Price in cents (e.g. 15000 = $150.00)' },
+              taxable: { type: 'boolean' },
+            },
+            required: ['description', 'quantity', 'unitPrice'],
+          },
+        },
+        notes: { type: 'string', description: 'Internal notes, WO number, address, vendor instructions, etc.' },
+        dueDate: { type: 'string', description: 'Due date ISO YYYY-MM-DD (optional)' },
+      },
+      required: ['customerId', 'lineItems'],
+    },
+  },
 ];
 
 function allowedTools(role: string): string[] {
@@ -380,6 +417,85 @@ async function executeTool(name: string, input: Record<string, unknown>, tenantI
         `Hi ${job.customer.firstName}, reminder: your appointment "${job.title}" is scheduled for ${date}${time ? ' at ' + time : ''}. Reply STOP to opt out.`;
       await sendSms({ tenantId, customerId: job.customer.id, to: job.customer.phone, body });
       return { success: true, sentTo: job.customer.phone };
+    }
+
+    case 'list_service_items': {
+      const conditions: string[] = ['"tenantId" = $1', '"isActive" = true'];
+      const params: unknown[] = [tenantId];
+      if (input.search) {
+        params.push(`%${input.search}%`);
+        conditions.push(`(LOWER("name") LIKE LOWER($${params.length}) OR LOWER(COALESCE("description",'')) LIKE LOWER($${params.length}))`);
+      }
+      if (input.category) {
+        params.push(input.category);
+        conditions.push(`"category" = $${params.length}`);
+      }
+      const items = await prisma.$queryRawUnsafe<Array<{ id: string; name: string; unitPrice: number; category: string | null; description: string | null }>>(
+        `SELECT id, name, "unitPrice", category, description FROM "service_items" WHERE ${conditions.join(' AND ')} ORDER BY "name" ASC LIMIT 50`,
+        ...params,
+      );
+      return items.map(i => ({ name: i.name, unitPrice: i.unitPrice, priceFormatted: '$' + (i.unitPrice / 100).toFixed(2), category: i.category }));
+    }
+
+    case 'create_estimate': {
+      const lineItems = input.lineItems as Array<{ description: string; quantity: number; unitPrice: number; taxable?: boolean }>;
+      if (!input.customerId || !lineItems?.length) {
+        return { error: 'customerId and lineItems are required' };
+      }
+      const customer = await prisma.customer.findUnique({ where: { id: input.customerId as string } });
+      if (!customer || customer.tenantId !== tenantId) {
+        return { error: 'Customer not found' };
+      }
+      const tenant = await prisma.tenant.findUniqueOrThrow({ where: { id: tenantId } });
+      const taxRate = Number(tenant.taxRate);
+      const subtotal = lineItems.reduce((sum, item) => sum + Math.round(item.quantity * item.unitPrice), 0);
+      const taxableSubtotal = lineItems.filter(i => i.taxable !== false).reduce((sum, item) => sum + Math.round(item.quantity * item.unitPrice), 0);
+      const taxAmount = Math.round(taxableSubtotal * taxRate);
+      const total = subtotal + taxAmount;
+
+      // Generate next estimate number
+      const last = await prisma.invoice.findFirst({
+        where: { tenantId, invoiceNumber: { startsWith: 'EST-' } },
+        orderBy: { invoiceNumber: 'desc' },
+        select: { invoiceNumber: true },
+      });
+      const lastNum = last ? parseInt(last.invoiceNumber.replace('EST-', ''), 10) : 0;
+      const invoiceNumber = `EST-${String(lastNum + 1).padStart(5, '0')}`;
+
+      const dueDate = input.dueDate ? new Date(input.dueDate as string) : undefined;
+      const estimate = await prisma.invoice.create({
+        data: {
+          tenantId,
+          customerId: input.customerId as string,
+          invoiceNumber,
+          status: 'draft',
+          lineItems: {
+            create: lineItems.map(item => ({
+              description: item.description,
+              quantity: item.quantity,
+              unitPrice: Math.round(item.unitPrice),
+              total: Math.round(item.quantity * item.unitPrice),
+              taxable: item.taxable !== false,
+            })),
+          },
+          subtotal,
+          taxAmount,
+          discountAmount: 0,
+          total,
+          amountDue: total,
+          notes: (input.notes as string) || undefined,
+          dueDate,
+        },
+        select: { id: true, invoiceNumber: true, total: true },
+      });
+      return {
+        id: estimate.id,
+        estimateNumber: estimate.invoiceNumber,
+        total: estimate.total,
+        totalFormatted: '$' + (estimate.total / 100).toFixed(2),
+        customer: `${customer.firstName} ${customer.lastName}`,
+        status: 'draft',
+      };
     }
 
     default:

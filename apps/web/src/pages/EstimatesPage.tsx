@@ -1,6 +1,6 @@
-import { useState } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { Plus, Search, X, Trash2 } from 'lucide-react';
+import { Plus, Search, X, Trash2, Upload, Sparkles, FileText } from 'lucide-react';
 import { Button, Badge, Card, CardContent, CardHeader, CardTitle, Dialog } from '@fsp/ui';
 import { api } from '../lib/api';
 import { useToast } from '../components/Toast';
@@ -50,14 +50,33 @@ interface EstimateDetail extends EstimateRow {
   taxAmount: number;
 }
 
-function CreateEstimateModal({ open, onClose }: { open: boolean; onClose: () => void }) {
+interface WOParseResult {
+  woNumber?: string | null;
+  address?: string | null;
+  resident?: string | null;
+  vendorInstructions?: string | null;
+  proposedLineItems: Array<{ description: string; quantity: number; unitPrice: number; taxable: boolean; matchedItem?: string; confidence?: string; reasoning?: string }>;
+  total: number;
+  totalFormatted: string;
+  aiPowered?: boolean;
+}
+
+function CreateEstimateModal({ open, onClose, initialData }: { open: boolean; onClose: () => void; initialData?: { lineItems?: LineItem[]; notes?: string } }) {
   const qc = useQueryClient();
   const [customerId, setCustomerId] = useState('');
-  const [notes, setNotes] = useState('');
+  const [notes, setNotes] = useState(initialData?.notes ?? '');
   const [dueDate, setDueDate] = useState('');
-  const [lineItems, setLineItems] = useState<LineItem[]>([
-    { description: '', quantity: 1, unitPrice: 0, taxable: false },
-  ]);
+  const [lineItems, setLineItems] = useState<LineItem[]>(
+    initialData?.lineItems?.length ? initialData.lineItems : [{ description: '', quantity: 1, unitPrice: 0, taxable: false }],
+  );
+
+  // Reset form when opened with new initial data
+  useEffect(() => {
+    if (open && initialData?.lineItems?.length) {
+      setLineItems(initialData.lineItems);
+      setNotes(initialData.notes ?? '');
+    }
+  }, [open, initialData]);
 
   const { data: customersData } = useQuery({
     queryKey: ['customers', 'select'],
@@ -427,6 +446,133 @@ function EstimateDetailModal({
   );
 }
 
+function WODropZone({ onParsed }: { onParsed: (result: WOParseResult) => void }) {
+  const [dragging, setDragging] = useState(false);
+  const [parsing, setParsing] = useState(false);
+  const [useAI, setUseAI] = useState(false);
+  const [result, setResult] = useState<WOParseResult | null>(null);
+  const toast = useToast();
+
+  const processFile = useCallback(async (file: File) => {
+    if (file.type !== 'application/pdf') {
+      toast.error('Only PDF files are supported');
+      return;
+    }
+    setParsing(true);
+    setResult(null);
+    try {
+      const formData = new FormData();
+      formData.append('file', file);
+      const endpoint = useAI ? '/estimates/parse-wo-ai' : '/estimates/parse-wo';
+      const { data } = await api.post(endpoint, formData, {
+        headers: { 'Content-Type': 'multipart/form-data' },
+      });
+      const parsed = data.data as WOParseResult;
+      setResult(parsed);
+    } catch (err: any) {
+      toast.error(err?.response?.data?.error?.message || 'Failed to parse PDF');
+    } finally {
+      setParsing(false);
+    }
+  }, [useAI, toast]);
+
+  const handleDrop = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    setDragging(false);
+    const files = Array.from(e.dataTransfer.files).filter(f => f.type === 'application/pdf');
+    if (files.length > 0) processFile(files[0]);
+  }, [processFile]);
+
+  return (
+    <Card>
+      <CardContent className="p-4 space-y-3">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <FileText className="h-4 w-4 text-gray-500" />
+            <span className="text-sm font-medium text-gray-700">Work Order Import</span>
+          </div>
+          <label className="flex items-center gap-2 text-xs text-gray-500 cursor-pointer">
+            <Sparkles className={`h-3.5 w-3.5 ${useAI ? 'text-blue-600' : 'text-gray-400'}`} />
+            <span>AI Parse</span>
+            <input type="checkbox" checked={useAI} onChange={e => setUseAI(e.target.checked)} className="h-3.5 w-3.5 rounded border-gray-300 text-blue-600" />
+          </label>
+        </div>
+
+        <div
+          onDragOver={e => { e.preventDefault(); setDragging(true); }}
+          onDragLeave={() => setDragging(false)}
+          onDrop={handleDrop}
+          onClick={() => { const input = document.getElementById('wo-file-input'); input?.click(); }}
+          className={`border-2 border-dashed rounded-xl p-6 text-center cursor-pointer transition-all ${
+            dragging ? 'border-blue-500 bg-blue-50 scale-[1.01]' : 'border-gray-200 bg-gray-50 hover:border-gray-300 hover:bg-white'
+          }`}
+        >
+          <input
+            id="wo-file-input"
+            type="file"
+            accept=".pdf"
+            className="hidden"
+            onChange={e => { const f = e.target.files?.[0]; if (f) processFile(f); e.target.value = ''; }}
+          />
+          {parsing ? (
+            <div className="flex flex-col items-center gap-2">
+              <div className="h-5 w-5 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" />
+              <p className="text-sm text-blue-600">{useAI ? 'AI is analyzing work order...' : 'Parsing work order...'}</p>
+            </div>
+          ) : (
+            <>
+              <Upload className="h-6 w-6 text-gray-400 mx-auto mb-1" />
+              <p className="text-sm font-medium text-gray-600">Drop WO PDF here</p>
+              <p className="text-xs text-gray-400">or click to upload</p>
+            </>
+          )}
+        </div>
+
+        {result && (
+          <div className="bg-white border border-gray-200 rounded-xl p-4 space-y-3">
+            <div className="flex items-center justify-between">
+              <div>
+                {result.woNumber && <span className="text-sm font-semibold text-gray-900">WO #{result.woNumber}</span>}
+                {result.address && <p className="text-xs text-gray-500">{result.address}</p>}
+                {result.aiPowered && <Badge variant="info" className="mt-1">AI Parsed</Badge>}
+              </div>
+              <div className="text-right">
+                <p className="text-lg font-bold text-gray-900">{result.totalFormatted}</p>
+                <p className="text-xs text-gray-500">{result.proposedLineItems.length} items</p>
+              </div>
+            </div>
+
+            <div className="divide-y divide-gray-100 text-sm">
+              {result.proposedLineItems.map((item, i) => (
+                <div key={i} className="flex justify-between py-1.5">
+                  <div className="flex-1 min-w-0">
+                    <span className="text-gray-800 truncate block">{item.description}</span>
+                    {item.matchedItem && <span className="text-xs text-gray-400">matched: {item.matchedItem}</span>}
+                    {item.reasoning && <span className="text-xs text-gray-400">{item.reasoning}</span>}
+                  </div>
+                  <span className="text-gray-900 font-medium ml-3 whitespace-nowrap">
+                    ${(item.unitPrice / 100).toFixed(2)}
+                  </span>
+                </div>
+              ))}
+            </div>
+
+            <Button
+              className="w-full"
+              onClick={() => {
+                onParsed(result);
+                setResult(null);
+              }}
+            >
+              Create Estimate from WO
+            </Button>
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
 const EST_PAGE_LIMIT = 20;
 
 export function EstimatesPage() {
@@ -435,6 +581,7 @@ export function EstimatesPage() {
   const [page, setPage] = useState(1);
   const [showCreate, setShowCreate] = useState(false);
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [woInitialData, setWoInitialData] = useState<{ lineItems?: LineItem[]; notes?: string } | undefined>(undefined);
 
   const { data, isLoading } = useQuery({
     queryKey: ['estimates', statusFilter, search, page],
@@ -467,6 +614,22 @@ export function EstimatesPage() {
           New Estimate
         </Button>
       </div>
+
+      <WODropZone onParsed={(result) => {
+        const lineItems: LineItem[] = result.proposedLineItems.map(i => ({
+          description: i.description,
+          quantity: i.quantity,
+          unitPrice: i.unitPrice,
+          taxable: i.taxable ?? false,
+        }));
+        const notesParts: string[] = [];
+        if (result.woNumber) notesParts.push(`Work Order #${result.woNumber}`);
+        if (result.address) notesParts.push(result.address);
+        if (result.vendorInstructions) notesParts.push(`\nVendor Instructions: ${result.vendorInstructions}`);
+        if (result.resident) notesParts.push(`\nResident: ${result.resident}`);
+        setWoInitialData({ lineItems, notes: notesParts.join('\n') });
+        setShowCreate(true);
+      }} />
 
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
         <Card>
@@ -605,7 +768,7 @@ export function EstimatesPage() {
         </div>
       )}
 
-      <CreateEstimateModal open={showCreate} onClose={() => setShowCreate(false)} />
+      <CreateEstimateModal open={showCreate} onClose={() => { setShowCreate(false); setWoInitialData(undefined); }} initialData={woInitialData} />
       <EstimateDetailModal
         estimateId={selectedId}
         onClose={() => setSelectedId(null)}
