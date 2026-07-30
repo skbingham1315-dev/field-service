@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { Copy, Check, Wrench, TrendingUp, Shield, MessageSquare, Mail, CheckCircle2, AlertTriangle, Send, Loader2, ExternalLink, Download, RefreshCw, Ticket, Trash2, Plus, Bot, Eye, EyeOff } from 'lucide-react';
+import { Copy, Check, Wrench, TrendingUp, Shield, MessageSquare, Mail, CheckCircle2, AlertTriangle, Send, Loader2, ExternalLink, Download, RefreshCw, Ticket, Trash2, Plus, Bot, Eye, EyeOff, BookOpen } from 'lucide-react';
 import { Button, Badge } from '@fsp/ui';
 import { api } from '../lib/api';
 import { useAuthStore } from '../store/authStore';
@@ -1317,6 +1317,24 @@ function IntegrationsTab() {
               {importing ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <Download className="w-4 h-4 mr-2" />}
               {importing ? 'Importing…' : 'Import Now'}
             </Button>
+            {sqStatus?.connected && (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={async () => {
+                  try {
+                    const { data } = await api.post('/square/sync-catalog');
+                    const r = data.data;
+                    toast.success(`Catalog synced: ${r.imported} new, ${r.updated} updated, ${r.skipped} skipped`);
+                  } catch (e: any) {
+                    toast.error(e.response?.data?.message || 'Catalog sync failed');
+                  }
+                }}
+              >
+                <BookOpen className="w-4 h-4 mr-2" />
+                Sync Catalog Items
+              </Button>
+            )}
           </div>
         </div>
       </div>

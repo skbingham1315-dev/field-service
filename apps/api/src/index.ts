@@ -213,8 +213,8 @@ async function main() {
     if (bdOwner) {
       const t = await prisma.tenant.findUnique({ where: { id: bdOwner.tenantId }, select: { settings: true } });
       const s = (t?.settings ?? {}) as Record<string, unknown>;
-      if (!s.squareAccessToken) {
-        s.squareAccessToken = 'sq0idp-ieotuR08TArWKSpxzZPJ0gEAAAl7x5zmzLnMcP2-7KXcZItiM96ETexVgASTpxj91CBgjJZwKPsCwWqjGCyLZo';
+      if (!s.squareAccessToken || (typeof s.squareAccessToken === 'string' && s.squareAccessToken.startsWith('sq0idp-'))) {
+        s.squareAccessToken = 'EAAAl7x5zmzLnMcP2-7KXcZItiM96ETexVgASTpxj91CBgjJZwKPsCwWqjGCyLZo';
         await prisma.tenant.update({ where: { id: bdOwner.tenantId }, data: { settings: s as any } });
         logger.info('Square token attached for Blue Dingo tenant');
       }

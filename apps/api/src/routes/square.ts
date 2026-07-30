@@ -195,6 +195,89 @@ squareRouter.get('/status', async (req, res) => {
   }
 });
 
+// ─── Catalog Sync — import Square items as service items ─────────────────────
+
+squareRouter.post('/sync-catalog', async (req, res) => {
+  const tenantId = req.user!.tenantId;
+
+  // Fetch all catalog items from Square (paginated)
+  const allItems: any[] = [];
+  let cursor: string | undefined;
+  do {
+    const url = cursor
+      ? `/v2/catalog/list?types=ITEM&cursor=${encodeURIComponent(cursor)}`
+      : '/v2/catalog/list?types=ITEM';
+    const data = await squareGet(url, tenantId);
+    if (data.objects) allItems.push(...data.objects);
+    cursor = data.cursor;
+  } while (cursor);
+
+  // Fetch categories for labeling
+  const catItems: any[] = [];
+  let catCursor: string | undefined;
+  do {
+    const url = catCursor
+      ? `/v2/catalog/list?types=CATEGORY&cursor=${encodeURIComponent(catCursor)}`
+      : '/v2/catalog/list?types=CATEGORY';
+    const data = await squareGet(url, tenantId);
+    if (data.objects) catItems.push(...data.objects);
+    catCursor = data.cursor;
+  } while (catCursor);
+
+  const catMap = new Map(catItems.map(c => [c.id, c.category_data?.name ?? 'Uncategorized']));
+
+  let imported = 0;
+  let updated = 0;
+  let skipped = 0;
+
+  for (const item of allItems) {
+    const itemData = item.item_data ?? {};
+    const name = itemData.name;
+    if (!name) { skipped++; continue; }
+
+    const category = catMap.get(itemData.category_id) ?? null;
+    const description = itemData.description ?? null;
+
+    // Use first variation for pricing
+    const variation = itemData.variations?.[0];
+    const vData = variation?.item_variation_data ?? {};
+    const pricingType = vData.pricing_type ?? 'VARIABLE_PRICING';
+    const priceMoney = vData.price_money ?? {};
+    const unitPrice = priceMoney.amount ?? 0; // cents
+
+    // Skip zero-price variable items — they're not useful as catalog items
+    if (pricingType === 'VARIABLE_PRICING' && unitPrice === 0) { skipped++; continue; }
+
+    // Check if item already exists by name (case-insensitive)
+    const existing = await prisma.$queryRawUnsafe<Array<{ id: string }>>(
+      `SELECT id FROM service_items WHERE "tenantId" = $1 AND LOWER(name) = LOWER($2) AND "isActive" = true LIMIT 1`,
+      tenantId, name,
+    );
+
+    if (existing.length > 0) {
+      // Update price if changed
+      await prisma.$executeRawUnsafe(
+        `UPDATE service_items SET "unitPrice" = $1, description = $2, category = $3 WHERE id = $4`,
+        unitPrice, description, category, existing[0].id,
+      );
+      updated++;
+    } else {
+      const id = `si_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+      await prisma.$executeRawUnsafe(
+        `INSERT INTO service_items (id, "tenantId", name, description, "unitPrice", taxable, category, "isActive")
+         VALUES ($1, $2, $3, $4, $5, $6, $7, true)`,
+        id, tenantId, name, description, unitPrice, true, category,
+      );
+      imported++;
+    }
+  }
+
+  res.json({
+    success: true,
+    data: { total: allItems.length, imported, updated, skipped },
+  } satisfies ApiResponse);
+});
+
 // ─── Preview ─────────────────────────────────────────────────────────────────
 
 squareRouter.get('/preview', async (req, res) => {
