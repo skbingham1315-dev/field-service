@@ -189,6 +189,75 @@ function CustomerAutocomplete({
   );
 }
 
+// ── Description Autocomplete (inline catalog suggestions) ───────────────────
+
+function DescriptionAutocomplete({
+  value,
+  onChange,
+  onSelectItem,
+  error,
+}: {
+  value: string;
+  onChange: (v: string) => void;
+  onSelectItem: (item: ServiceItem) => void;
+  error?: string;
+}) {
+  const [focused, setFocused] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+
+  const { data: suggestions = [] } = useQuery<ServiceItem[]>({
+    queryKey: ['service-items-autocomplete', value],
+    queryFn: async () => {
+      if (!value || value.length < 2) return [];
+      const { data } = await api.get(`/service-items?search=${encodeURIComponent(value)}`);
+      return data.data;
+    },
+    enabled: value.length >= 2 && focused,
+  });
+
+  useEffect(() => {
+    const handler = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) setFocused(false);
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, []);
+
+  const showSuggestions = focused && suggestions.length > 0 && value.length >= 2;
+
+  return (
+    <div ref={ref} className="relative">
+      <input
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        onFocus={() => setFocused(true)}
+        placeholder="Start typing to search catalog..."
+        className={`w-full px-3 py-2 border rounded-lg text-sm outline-none transition-colors ${
+          error ? 'border-red-300 focus:ring-red-500' : 'border-gray-300 focus:ring-blue-500'
+        } focus:ring-2`}
+      />
+      {error && <p className="text-xs text-red-500 mt-0.5">{error}</p>}
+      {showSuggestions && (
+        <div className="absolute z-50 top-full left-0 right-0 mt-1 bg-white border border-gray-200 rounded-xl shadow-xl max-h-40 overflow-y-auto">
+          {suggestions.map(item => (
+            <button
+              key={item.id}
+              onMouseDown={(e) => { e.preventDefault(); onSelectItem(item); setFocused(false); }}
+              className="w-full text-left px-3 py-2 hover:bg-blue-50 transition-colors flex items-center justify-between"
+            >
+              <div className="min-w-0">
+                <p className="text-sm font-medium text-gray-900 truncate">{item.name}</p>
+                {item.category && <p className="text-[10px] text-gray-400">{item.category}</p>}
+              </div>
+              <span className="text-sm font-semibold text-gray-600 ml-2 flex-shrink-0">${(item.unitPrice / 100).toFixed(2)}</span>
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ── Types ────────────────────────────────────────────────────────────────────
 
 interface NewCustomerForm {
@@ -467,10 +536,10 @@ export function CreateInvoiceModal({ open, onClose }: Props) {
               {lineItems.map((li, i) => (
                 <div key={i} className="relative">
                   <div className="grid grid-cols-[1fr_70px_90px_36px_32px_32px] gap-1.5 items-end">
-                    <Input
-                      placeholder="Description"
+                    <DescriptionAutocomplete
                       value={li.description}
-                      onChange={(e) => updateItem(i, 'description', e.target.value)}
+                      onChange={(v) => updateItem(i, 'description', v)}
+                      onSelectItem={(item) => applyServiceItem(i, item)}
                       error={errors[`desc-${i}`]}
                     />
                     <Input
