@@ -206,18 +206,20 @@ async function main() {
 
   // One-time: attach Square token for Blue Dingo tenant
   try {
-    const bdOwner = await prisma.user.findFirst({
-      where: { email: 'kadestephbingham@gmail.com', role: 'owner' },
-      select: { tenantId: true },
+    const bdTenantSq = await prisma.tenant.findFirst({
+      where: { slug: { in: ['bluedingoconstruction', 'blue-dingo', 'bluedingo'] } },
+      select: { id: true, settings: true },
     });
-    if (bdOwner) {
-      const t = await prisma.tenant.findUnique({ where: { id: bdOwner.tenantId }, select: { settings: true } });
-      const s = (t?.settings ?? {}) as Record<string, unknown>;
-      if (!s.squareAccessToken || (typeof s.squareAccessToken === 'string' && s.squareAccessToken.startsWith('sq0idp-'))) {
+    if (bdTenantSq) {
+      const s = (bdTenantSq.settings ?? {}) as Record<string, unknown>;
+      const currentToken = typeof s.squareAccessToken === 'string' ? s.squareAccessToken : '';
+      if (!currentToken || currentToken.startsWith('sq0idp-')) {
         s.squareAccessToken = 'EAAAl7x5zmzLnMcP2-7KXcZItiM96ETexVgASTpxj91CBgjJZwKPsCwWqjGCyLZo';
-        await prisma.tenant.update({ where: { id: bdOwner.tenantId }, data: { settings: s as any } });
-        logger.info('Square token attached for Blue Dingo tenant');
+        await prisma.tenant.update({ where: { id: bdTenantSq.id }, data: { settings: s as any } });
+        logger.info('Square production token attached for Blue Dingo tenant');
       }
+    } else {
+      logger.warn('Square token: tenant not found by slug');
     }
   } catch (e) {
     logger.warn('Square token attach skipped: ' + String(e));
