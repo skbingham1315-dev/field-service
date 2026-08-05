@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription,
@@ -24,10 +24,15 @@ interface Props {
 
 export function RecordPaymentModal({ invoice, onClose }: Props) {
   const qc = useQueryClient();
-  const [amount, setAmount] = useState('');
+  const [amount, setAmount] = useState(invoice ? (invoice.amountDue / 100).toFixed(2) : '');
   const [method, setMethod] = useState('cash');
   const [notes, setNotes] = useState('');
   const [paidAt, setPaidAt] = useState(new Date().toISOString().split('T')[0]);
+
+  // Pre-fill amount when invoice changes
+  useEffect(() => {
+    if (invoice) setAmount((invoice.amountDue / 100).toFixed(2));
+  }, [invoice?.id]);
 
   const toast = useToast();
   const { mutate, isPending } = useMutation({

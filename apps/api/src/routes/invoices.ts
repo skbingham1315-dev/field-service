@@ -123,6 +123,13 @@ invoicesRouter.get('/:id', async (req, res) => {
     throw new AppError('Invoice not found', 404, 'NOT_FOUND');
   }
 
+  // Auto-generate payToken if missing
+  if (!invoice.payToken) {
+    const token = generatePayToken();
+    await prisma.invoice.update({ where: { id: invoice.id }, data: { payToken: token } });
+    (invoice as any).payToken = token;
+  }
+
   res.json({ success: true, data: invoice } satisfies ApiResponse);
 });
 
@@ -142,12 +149,20 @@ invoicesRouter.post('/', async (req, res) => {
 
   // Validate line items
   for (const item of lineItems) {
+    if (!item.description || !String(item.description).trim()) {
+      throw new AppError('Line item description is required', 400, 'VALIDATION_ERROR');
+    }
     if (typeof item.quantity !== 'number' || item.quantity <= 0) {
       throw new AppError('Line item quantity must be positive', 400, 'VALIDATION_ERROR');
     }
     if (typeof item.unitPrice !== 'number' || item.unitPrice < 0 || item.unitPrice > 99999999) {
       throw new AppError('Line item unit price must be non-negative and reasonable', 400, 'VALIDATION_ERROR');
     }
+  }
+
+  // Validate notes length
+  if (notes && String(notes).length > 5000) {
+    throw new AppError('Notes must be under 5000 characters', 400, 'VALIDATION_ERROR');
   }
 
   const tenant = await prisma.tenant.findUniqueOrThrow({ where: { id: req.user!.tenantId } });
@@ -166,8 +181,19 @@ invoicesRouter.post('/', async (req, res) => {
       0,
     );
   const taxAmount = Math.round(taxableSubtotal * taxRate);
-  const discount = parseInt(discountAmount) || 0;
+  const discount = Math.max(0, parseInt(discountAmount) || 0);
+  if (discount > subtotal + taxAmount) {
+    throw new AppError('Discount cannot exceed invoice total', 400, 'VALIDATION_ERROR');
+  }
   const total = subtotal + taxAmount - discount;
+
+  // Validate down payment
+  if (downPaymentAmount != null) {
+    const dp = Math.round(Number(downPaymentAmount));
+    if (dp < 0 || dp > total) {
+      throw new AppError('Down payment must be between $0 and the invoice total', 400, 'VALIDATION_ERROR');
+    }
+  }
 
   const invoiceNumber = await getNextInvoiceNumber(req.user!.tenantId);
 
@@ -368,7 +394,16 @@ invoicesRouter.post('/:id/mark-paid', requireRole('owner', 'admin'), async (req,
   };
 
   const paymentAmount = amount ?? invoice.amountDue;
+  if (paymentAmount <= 0) {
+    throw new AppError('Payment amount must be positive', 400, 'VALIDATION_ERROR');
+  }
+  if (paymentAmount > invoice.amountDue) {
+    throw new AppError(`Payment amount ($${(paymentAmount / 100).toFixed(2)}) exceeds amount due ($${(invoice.amountDue / 100).toFixed(2)})`, 400, 'VALIDATION_ERROR');
+  }
   const paymentDate = paidAt ? new Date(paidAt) : new Date();
+  if (paymentDate > new Date(Date.now() + 86400000)) {
+    throw new AppError('Payment date cannot be in the future', 400, 'VALIDATION_ERROR');
+  }
 
   const [payment, updatedInvoice] = await prisma.$transaction(async (tx) => {
     const pmt = await tx.payment.create({
@@ -408,6 +443,8 @@ invoicesRouter.post('/:id/mark-paid', requireRole('owner', 'admin'), async (req,
       const customer = await prisma.customer.findUnique({ where: { id: updatedInvoice.customerId } });
       const tenant = await prisma.tenant.findUnique({ where: { id: updatedInvoice.tenantId } });
       if (!customer || !tenant) return;
+      const webUrl = process.env.WEB_URL ?? 'http://localhost:5173';
+      const payUrl = updatedInvoice.payToken ? `${webUrl}/pay/${updatedInvoice.payToken}` : undefined;
       if (customer.email) {
         await sendPaymentReceived({
           to: customer.email,
@@ -416,11 +453,13 @@ invoicesRouter.post('/:id/mark-paid', requireRole('owner', 'admin'), async (req,
           amountPaid: payment.amount,
           amountDue: updatedInvoice.amountDue,
           companyName: tenant.name,
+          paymentUrl: updatedInvoice.amountDue > 0 ? payUrl : undefined,
         });
       }
       if (customer.phone) {
         const remaining = updatedInvoice.amountDue;
-        const body = `Hi ${customer.firstName}! We received your payment of $${(payment.amount / 100).toFixed(2)} for invoice ${updatedInvoice.invoiceNumber}. Balance: $${(remaining / 100).toFixed(2)}. Thank you!`;
+        const payLink = remaining > 0 && payUrl ? ` Pay here: ${payUrl}` : '';
+        const body = `Hi ${customer.firstName}! We received your payment of $${(payment.amount / 100).toFixed(2)} for invoice ${updatedInvoice.invoiceNumber}. Balance: $${(remaining / 100).toFixed(2)}.${payLink} Thank you!`;
         await sendSms({ tenantId: tenant.id, customerId: customer.id, to: customer.phone, body });
       }
     } catch (e) { /* non-critical */ }

@@ -366,6 +366,25 @@ async function main() {
   await redis.ping();
   logger.info('✅ Redis connected');
 
+  // Auto-update overdue invoices (run now + every hour)
+  async function markOverdueInvoices() {
+    try {
+      const result = await prisma.invoice.updateMany({
+        where: {
+          status: { in: ['sent', 'viewed'] },
+          dueDate: { lt: new Date() },
+          amountDue: { gt: 0 },
+        },
+        data: { status: 'overdue' },
+      });
+      if (result.count > 0) logger.info(`Marked ${result.count} invoices as overdue`);
+    } catch (e) {
+      logger.warn('Overdue check failed: ' + String(e));
+    }
+  }
+  await markOverdueInvoices();
+  setInterval(markOverdueInvoices, 3600000); // every hour
+
   const httpServer = http.createServer(app);
   initSocket(httpServer);
 

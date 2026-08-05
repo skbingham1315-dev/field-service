@@ -269,6 +269,7 @@ export async function sendPaymentReceived(opts: {
   amountPaid: number;
   amountDue: number;
   companyName: string;
+  paymentUrl?: string;
 }): Promise<void> {
   const subject = `Payment received for Invoice ${opts.invoiceNumber} — ${opts.companyName}`;
   const fullyPaid = opts.amountDue === 0;
@@ -294,6 +295,9 @@ export async function sendPaymentReceived(opts: {
         <td style="padding:12px 16px;font-size:13px;font-weight:700;color:${fullyPaid ? '#16a34a' : '#dc2626'};">${fullyPaid ? 'Paid in Full' : formatCents(opts.amountDue)}</td>
       </tr>
     </table>
+    ${!fullyPaid && opts.paymentUrl ? `<div style="text-align:center;margin:16px 0;">
+      <a href="${opts.paymentUrl}" style="display:inline-block;padding:12px 32px;background:#2563eb;color:#ffffff;text-decoration:none;border-radius:8px;font-weight:600;font-size:14px;">Pay Remaining Balance</a>
+    </div>` : ''}
     <p style="margin:0;color:#374151;">Thank you for your payment and for choosing ${opts.companyName}!</p>`,
   );
   await sendEmail(opts.to, subject, html);
