@@ -396,9 +396,10 @@ estimatesRouter.post('/parse-wo', requireRole('owner', 'admin'), pdfUpload.singl
   // Extract text from PDF
   let pdfText: string;
   try {
-    const pdfMod = await import('pdf-parse');
-    const pdfParse = (pdfMod as any).default ?? pdfMod;
-    const result = await pdfParse(req.file.buffer);
+    const { PDFParse } = await import('pdf-parse');
+    const parser = new PDFParse({ data: new Uint8Array(req.file.buffer) });
+    const result = await parser.getText();
+    await parser.destroy();
     pdfText = result.text;
   } catch (err: any) {
     throw new AppError('Could not read PDF file: ' + (err.message || ''), 400, 'PDF_PARSE_ERROR');
@@ -522,9 +523,10 @@ estimatesRouter.post('/parse-wo-ai', requireRole('owner', 'admin'), pdfUpload.si
   // Extract text from PDF
   let pdfText: string;
   try {
-    const pdfMod = await import('pdf-parse');
-    const pdfParse = (pdfMod as any).default ?? pdfMod;
-    const result = await pdfParse(req.file.buffer);
+    const { PDFParse } = await import('pdf-parse');
+    const parser = new PDFParse({ data: new Uint8Array(req.file.buffer) });
+    const result = await parser.getText();
+    await parser.destroy();
     pdfText = result.text;
   } catch (err: any) {
     throw new AppError('Could not read PDF file: ' + (err.message || ''), 400, 'PDF_PARSE_ERROR');
