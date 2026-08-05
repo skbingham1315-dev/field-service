@@ -439,21 +439,51 @@ estimatesRouter.post('/parse-wo', requireRole('owner', 'admin'), pdfUpload.singl
   const descLines = descriptionBlock
     .split(/\n/)
     .map(l => l.trim())
-    .filter(l => l.length > 5)
-    .filter(l => !/^(status|priority|source|requested by|no |open$|medium$|high$|low$|date|created|modified)/i.test(l));
+    .filter(l => l.length > 3)
+    .filter(l => !/^(status|priority|source|requested by|no\s|open$|medium$|high$|low$|date|created|modified|category|trade|n\/a$)/i.test(l));
 
   const proposedItems: Array<{ description: string; quantity: number; unitPrice: number; taxable: boolean; matchedItem?: string; confidence: string }> = [];
 
-  for (const line of descLines) {
+  // Extract quantity hints like "2x", "(3)", "x4", "qty 5"
+  function extractQuantity(text: string): { qty: number; clean: string } {
+    const qtyMatch = text.match(/(?:^|\s)(\d+)\s*x\s/i) ||
+                     text.match(/\((\d+)\)/) ||
+                     text.match(/x\s*(\d+)(?:\s|$)/i) ||
+                     text.match(/qty\s*[:.]?\s*(\d+)/i);
+    const qty = qtyMatch ? parseInt(qtyMatch[1]) : 1;
+    const clean = text.replace(qtyMatch?.[0] ?? '', '').trim();
+    return { qty: Math.min(qty, 100), clean };
+  }
+
+  // Fuzzy match: normalize text, compare word overlap + substring matching
+  function fuzzyScore(catalogName: string, line: string): number {
+    const catWords = catalogName.toLowerCase().replace(/[^a-z0-9\s]/g, '').split(/\s+/).filter(w => w.length > 2);
+    const lineWords = line.toLowerCase().replace(/[^a-z0-9\s]/g, '').split(/\s+/).filter(w => w.length > 2);
     const lower = line.toLowerCase();
+
+    // Direct substring match (catalog name appears in line)
+    if (lower.includes(catalogName.toLowerCase())) return 1.0;
+
+    // Word overlap score
+    const matchedWords = catWords.filter(w => lower.includes(w));
+    const wordScore = catWords.length > 0 ? matchedWords.length / catWords.length : 0;
+
+    // Reverse: line words appearing in catalog name
+    const catLower = catalogName.toLowerCase();
+    const reverseMatched = lineWords.filter(w => catLower.includes(w));
+    const reverseScore = lineWords.length > 0 ? reverseMatched.length / lineWords.length : 0;
+
+    return Math.max(wordScore, (wordScore + reverseScore) / 2);
+  }
+
+  for (const line of descLines) {
+    const { qty, clean } = extractQuantity(line);
     let bestMatch: { name: string; unitPrice: number } | null = null;
     let bestScore = 0;
 
     for (const item of serviceItems) {
-      const itemWords = item.name.toLowerCase().split(/\s+/);
-      const matchedWords = itemWords.filter(w => lower.includes(w));
-      const score = matchedWords.length / itemWords.length;
-      if (score > bestScore && score >= 0.4) {
+      const score = fuzzyScore(item.name, clean || line);
+      if (score > bestScore && score >= 0.35) {
         bestScore = score;
         bestMatch = item;
       }
@@ -462,33 +492,42 @@ estimatesRouter.post('/parse-wo', requireRole('owner', 'admin'), pdfUpload.singl
     if (bestMatch) {
       proposedItems.push({
         description: line,
-        quantity: 1,
+        quantity: qty,
         unitPrice: bestMatch.unitPrice,
         taxable: false,
         matchedItem: bestMatch.name,
-        confidence: bestScore >= 0.8 ? 'high' : bestScore >= 0.6 ? 'medium' : 'low',
+        confidence: bestScore >= 0.8 ? 'high' : bestScore >= 0.5 ? 'medium' : 'low',
       });
     } else {
       // Keyword-based fallback pricing
-      const price = getKeywordPrice(lower);
+      const price = getKeywordPrice((clean || line).toLowerCase());
       if (price > 0) {
         proposedItems.push({
           description: line,
-          quantity: 1,
+          quantity: qty,
           unitPrice: price,
           taxable: false,
           confidence: 'keyword',
+        });
+      } else if (line.length > 10) {
+        // Include unmatched lines as manual-review items
+        proposedItems.push({
+          description: line,
+          quantity: qty,
+          unitPrice: 0,
+          taxable: false,
+          confidence: 'manual',
         });
       }
     }
   }
 
-  // If no items matched, add a generic placeholder
+  // If no items matched at all, add a generic placeholder
   if (proposedItems.length === 0) {
     proposedItems.push({
-      description: 'Work per scope (review needed)',
+      description: descriptionBlock.slice(0, 200) || 'Work per scope (review needed)',
       quantity: 1,
-      unitPrice: 25000,
+      unitPrice: 0,
       taxable: false,
       confidence: 'none',
     });

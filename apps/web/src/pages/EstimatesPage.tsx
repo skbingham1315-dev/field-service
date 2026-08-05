@@ -491,9 +491,9 @@ function WODropZone({ onParsed }: { onParsed: (result: WOParseResult) => void })
             <FileText className="h-4 w-4 text-gray-500" />
             <span className="text-sm font-medium text-gray-700">Work Order Import</span>
           </div>
-          <label className="flex items-center gap-2 text-xs text-gray-500 cursor-pointer">
+          <label className="flex items-center gap-2 text-xs cursor-pointer" title="Uses AI API (requires API credits)">
             <Sparkles className={`h-3.5 w-3.5 ${useAI ? 'text-blue-600' : 'text-gray-400'}`} />
-            <span>AI Parse</span>
+            <span className={useAI ? 'text-blue-600 font-medium' : 'text-gray-400'}>AI Mode {useAI ? 'ON' : 'OFF'}</span>
             <input type="checkbox" checked={useAI} onChange={e => setUseAI(e.target.checked)} className="h-3.5 w-3.5 rounded border-gray-300 text-blue-600" />
           </label>
         </div>
@@ -544,14 +544,23 @@ function WODropZone({ onParsed }: { onParsed: (result: WOParseResult) => void })
 
             <div className="divide-y divide-gray-100 text-sm">
               {result.proposedLineItems.map((item, i) => (
-                <div key={i} className="flex justify-between py-1.5">
+                <div key={i} className={`flex justify-between py-1.5 ${item.confidence === 'manual' ? 'opacity-60' : ''}`}>
                   <div className="flex-1 min-w-0">
-                    <span className="text-gray-800 truncate block">{item.description}</span>
-                    {item.matchedItem && <span className="text-xs text-gray-400">matched: {item.matchedItem}</span>}
+                    <span className="text-gray-800 truncate block">
+                      {item.quantity > 1 && <span className="text-blue-600 font-medium mr-1">{item.quantity}x</span>}
+                      {item.description}
+                    </span>
+                    {item.matchedItem && (
+                      <span className="text-xs text-green-600">
+                        {item.confidence === 'high' ? 'exact' : 'fuzzy'} match: {item.matchedItem}
+                      </span>
+                    )}
+                    {item.confidence === 'keyword' && <span className="text-xs text-blue-500">keyword match</span>}
+                    {item.confidence === 'manual' && <span className="text-xs text-amber-500">needs pricing — no catalog match</span>}
                     {item.reasoning && <span className="text-xs text-gray-400">{item.reasoning}</span>}
                   </div>
-                  <span className="text-gray-900 font-medium ml-3 whitespace-nowrap">
-                    ${(item.unitPrice / 100).toFixed(2)}
+                  <span className={`font-medium ml-3 whitespace-nowrap ${item.unitPrice === 0 ? 'text-amber-500' : 'text-gray-900'}`}>
+                    {item.unitPrice === 0 ? 'TBD' : `$${(item.unitPrice / 100).toFixed(2)}`}
                   </span>
                 </div>
               ))}
