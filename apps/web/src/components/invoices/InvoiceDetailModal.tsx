@@ -2,7 +2,8 @@ import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   Send, DollarSign, XCircle, CheckCircle2,
-  Phone, Mail, Calendar, Pencil, Plus, Trash2, X, Link, Copy, Check,
+  Phone, Mail, Calendar, Pencil, Plus, Trash2, X, Copy, Check,
+  CopyPlus, AlertTriangle, Clock,
 } from 'lucide-react';
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle,
@@ -30,6 +31,11 @@ function formatDate(d?: string | Date | null) {
   if (!d) return '—';
   return new Date(d).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
 }
+function daysOverdue(dueDate?: string | null): number {
+  if (!dueDate) return 0;
+  const diff = Date.now() - new Date(dueDate).getTime();
+  return Math.max(0, Math.floor(diff / 86400000));
+}
 
 const STATUS_COLORS: Record<InvoiceStatus, 'default' | 'info' | 'warning' | 'success' | 'destructive' | 'secondary'> = {
   draft: 'secondary', sent: 'info', viewed: 'info', paid: 'success', overdue: 'destructive', void: 'secondary',
@@ -38,9 +44,10 @@ const STATUS_COLORS: Record<InvoiceStatus, 'default' | 'info' | 'warning' | 'suc
 interface Props {
   invoiceId: string | null;
   onClose: () => void;
+  onDuplicated?: (id: string) => void;
 }
 
-export function InvoiceDetailModal({ invoiceId, onClose }: Props) {
+export function InvoiceDetailModal({ invoiceId, onClose, onDuplicated }: Props) {
   const qc = useQueryClient();
   const { user } = useAuthStore();
   const { confirm } = useConfirm();
@@ -109,6 +116,7 @@ export function InvoiceDetailModal({ invoiceId, onClose }: Props) {
     });
   };
 
+  // Send / resend with confirmation
   const { mutate: sendInvoice, isPending: isSending } = useMutation({
     mutationFn: () => api.post(`/invoices/${invoiceId}/send`),
     onSuccess: (resp) => {
@@ -121,6 +129,42 @@ export function InvoiceDetailModal({ invoiceId, onClose }: Props) {
       setTimeout(() => setSentConfirm(''), 6000);
     },
     onError: () => toast.error('Failed to send invoice'),
+  });
+
+  const handleSend = async () => {
+    if (!invoice) return;
+    const isResend = invoice.status !== 'draft';
+    const customerName = `${invoice.customer.firstName} ${invoice.customer.lastName}`;
+    const email = invoice.customer.email;
+
+    const message = isResend
+      ? `Resend ${invoice.invoiceNumber} (${formatMoney(invoice.total)}) to ${customerName}?${email ? `\n\nEmail will be sent to ${email}` : ''}`
+      : email
+        ? `Send ${invoice.invoiceNumber} (${formatMoney(invoice.total)}) to ${customerName}?\n\nEmail will be sent to ${email}`
+        : `Mark ${invoice.invoiceNumber} as sent? No email on file for this customer.`;
+
+    if (await confirm({
+      title: isResend ? 'Resend Invoice' : 'Send Invoice',
+      message,
+      variant: 'default',
+    })) {
+      sendInvoice();
+    }
+  };
+
+  // Duplicate
+  const { mutate: duplicateInvoice, isPending: isDuplicating } = useMutation({
+    mutationFn: async () => {
+      const { data } = await api.post(`/invoices/${invoiceId}/duplicate`);
+      return data.data;
+    },
+    onSuccess: (dup) => {
+      qc.invalidateQueries({ queryKey: ['invoices'] });
+      toast.success(`Duplicated as ${dup.invoiceNumber}`);
+      onClose();
+      if (onDuplicated) onDuplicated(dup.id);
+    },
+    onError: () => toast.error('Failed to duplicate invoice'),
   });
 
   const { mutate: voidInvoice, isPending: isVoiding } = useMutation({
@@ -162,6 +206,9 @@ export function InvoiceDetailModal({ invoiceId, onClose }: Props) {
     ['owner', 'admin'].includes(user?.role ?? '');
   const canDelete = invoice && ['owner', 'admin'].includes(user?.role ?? '');
 
+  const overdueDays = invoice?.dueDate && ['sent', 'viewed', 'overdue'].includes(invoice.status)
+    ? daysOverdue(invoice.dueDate) : 0;
+
   return (
     <>
       <Dialog open={!!invoiceId} onOpenChange={(o) => !o && onClose()}>
@@ -172,6 +219,12 @@ export function InvoiceDetailModal({ invoiceId, onClose }: Props) {
               {invoice && <Badge variant={STATUS_COLORS[invoice.status]}>{invoice.status}</Badge>}
               {invoice && invoice.amountPaid > 0 && invoice.amountDue > 0 && (
                 <Badge variant="warning">Partially Paid</Badge>
+              )}
+              {overdueDays > 0 && (
+                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-red-100 text-red-700 text-xs font-semibold">
+                  <AlertTriangle className="h-3 w-3" />
+                  {overdueDays} day{overdueDays !== 1 ? 's' : ''} overdue
+                </span>
               )}
             </div>
           </DialogHeader>
@@ -192,7 +245,7 @@ export function InvoiceDetailModal({ invoiceId, onClose }: Props) {
                 )}
                 {canSend && !editing && (
                   <div className="flex items-center gap-2 flex-wrap">
-                    <Button size="sm" variant="outline" onClick={() => sendInvoice()} loading={isSending}>
+                    <Button size="sm" variant="outline" onClick={handleSend} loading={isSending}>
                       <Send className="h-3.5 w-3.5 mr-1.5" />
                       {invoice.status === 'draft'
                         ? (invoice.customer?.email ? 'Send Invoice' : 'Mark as Sent')
@@ -222,6 +275,13 @@ export function InvoiceDetailModal({ invoiceId, onClose }: Props) {
                     Record Payment
                   </Button>
                 )}
+                {/* Duplicate */}
+                {!editing && (
+                  <Button size="sm" variant="outline" onClick={() => duplicateInvoice()} loading={isDuplicating}>
+                    <CopyPlus className="h-3.5 w-3.5 mr-1.5" />
+                    Duplicate
+                  </Button>
+                )}
                 {invoice.status === 'paid' && (
                   <div className="flex items-center gap-1.5 text-sm text-green-700 font-medium">
                     <CheckCircle2 className="h-4 w-4" />
@@ -237,7 +297,6 @@ export function InvoiceDetailModal({ invoiceId, onClose }: Props) {
                     onClick={async () => {
                       if (await confirm({ title: 'Delete Invoice', message: 'Permanently delete this invoice? This cannot be undone.', variant: 'danger' })) {
                         deleteInvoice();
-                        toast.success('Invoice deleted');
                       }
                     }}
                     loading={isDeleting}
@@ -254,7 +313,6 @@ export function InvoiceDetailModal({ invoiceId, onClose }: Props) {
                     onClick={async () => {
                       if (await confirm({ title: 'Void Invoice', message: 'Void this invoice? This cannot be undone.', variant: 'warning' })) {
                         voidInvoice();
-                        toast.success('Invoice voided');
                       }
                     }}
                     loading={isVoiding}
@@ -264,6 +322,27 @@ export function InvoiceDetailModal({ invoiceId, onClose }: Props) {
                   </Button>
                 )}
               </div>
+
+              {/* Overdue warning banner */}
+              {overdueDays > 0 && (
+                <div className="flex items-center gap-3 p-3 bg-red-50 border border-red-200 rounded-lg text-sm">
+                  <AlertTriangle className="h-5 w-5 text-red-500 flex-shrink-0" />
+                  <div>
+                    <p className="font-semibold text-red-800">
+                      This invoice is {overdueDays} day{overdueDays !== 1 ? 's' : ''} past due
+                    </p>
+                    <p className="text-red-600">
+                      Due {formatDate(invoice.dueDate)} · {formatMoney(invoice.amountDue)} outstanding
+                    </p>
+                  </div>
+                  {canSend && (
+                    <Button size="sm" variant="outline" className="ml-auto border-red-300 text-red-700 hover:bg-red-100" onClick={handleSend} loading={isSending}>
+                      <Send className="h-3.5 w-3.5 mr-1.5" />
+                      Send Reminder
+                    </Button>
+                  )}
+                </div>
+              )}
 
               {/* Edit form */}
               {editing && (
@@ -373,9 +452,10 @@ export function InvoiceDetailModal({ invoiceId, onClose }: Props) {
                     Issued: {formatDate(invoice.issuedAt ?? invoice.createdAt)}
                   </div>
                   {invoice.dueDate && (
-                    <div className={`flex items-center justify-end gap-1.5 ${invoice.status === 'overdue' ? 'text-red-600 font-medium' : ''}`}>
+                    <div className={`flex items-center justify-end gap-1.5 ${overdueDays > 0 ? 'text-red-600 font-medium' : ''}`}>
                       <Calendar className="h-3.5 w-3.5" />
                       Due: {formatDate(invoice.dueDate)}
+                      {overdueDays > 0 && <span className="text-xs">({overdueDays}d late)</span>}
                     </div>
                   )}
                 </div>
@@ -429,7 +509,7 @@ export function InvoiceDetailModal({ invoiceId, onClose }: Props) {
                   {invoice.discountAmount > 0 && (
                     <div className="flex justify-between text-gray-600">
                       <span>Discount</span>
-                      <span>−{formatMoney(invoice.discountAmount)}</span>
+                      <span className="text-red-500">−{formatMoney(invoice.discountAmount)}</span>
                     </div>
                   )}
                   <div className="flex justify-between font-semibold text-gray-900 border-t pt-1.5">
@@ -443,9 +523,15 @@ export function InvoiceDetailModal({ invoiceId, onClose }: Props) {
                     </div>
                   )}
                   {invoice.amountDue > 0 && (
-                    <div className="flex justify-between font-bold text-base border-t pt-1.5">
+                    <div className={`flex justify-between font-bold text-base border-t pt-1.5 ${overdueDays > 0 ? 'text-red-700' : ''}`}>
                       <span>Amount Due</span>
-                      <span className="text-blue-700">{formatMoney(invoice.amountDue)}</span>
+                      <span className={overdueDays > 0 ? 'text-red-700' : 'text-blue-700'}>{formatMoney(invoice.amountDue)}</span>
+                    </div>
+                  )}
+                  {invoice.downPaymentAmount && invoice.downPaymentAmount > 0 && (
+                    <div className="flex justify-between text-gray-500 text-xs pt-1">
+                      <span>Down payment required</span>
+                      <span>{formatMoney(invoice.downPaymentAmount)}</span>
                     </div>
                   )}
                 </div>
@@ -454,18 +540,37 @@ export function InvoiceDetailModal({ invoiceId, onClose }: Props) {
               {/* Payment history */}
               {invoice.payments.length > 0 && (
                 <div>
-                  <p className="text-sm font-semibold text-gray-700 mb-2">Payment History</p>
+                  <p className="text-sm font-semibold text-gray-700 mb-2">
+                    Payment History
+                    <span className="ml-2 font-normal text-gray-400">({invoice.payments.length} payment{invoice.payments.length !== 1 ? 's' : ''})</span>
+                  </p>
                   <div className="space-y-2">
-                    {invoice.payments.map((p) => (
-                      <div key={p.id} className="flex items-center justify-between p-3 bg-green-50 rounded-lg text-sm">
-                        <div>
-                          <span className="font-medium text-green-900">{formatMoney(p.amount)}</span>
-                          <span className="text-green-700 ml-2 capitalize">{p.method}</span>
-                          {p.notes && <span className="text-green-600 ml-2">· {p.notes}</span>}
+                    {invoice.payments.map((p, idx) => {
+                      // Calculate running balance
+                      const paymentsUpToHere = invoice.payments.slice(idx);
+                      const paidAfterThis = paymentsUpToHere.reduce((s, pm) => s + pm.amount, 0);
+                      const balanceAfter = invoice.total - paidAfterThis;
+                      return (
+                        <div key={p.id} className="flex items-center justify-between p-3 bg-green-50 rounded-lg text-sm">
+                          <div className="flex items-center gap-3">
+                            <div className="h-8 w-8 rounded-full bg-green-100 flex items-center justify-center">
+                              <DollarSign className="h-4 w-4 text-green-600" />
+                            </div>
+                            <div>
+                              <span className="font-semibold text-green-900">{formatMoney(p.amount)}</span>
+                              <span className="text-green-700 ml-2 capitalize text-xs bg-green-100 px-1.5 py-0.5 rounded">{p.method}</span>
+                              {p.notes && <p className="text-green-600 text-xs mt-0.5">{p.notes}</p>}
+                            </div>
+                          </div>
+                          <div className="text-right">
+                            <p className="text-green-700 text-xs">{formatDate(p.paidAt)}</p>
+                            <p className="text-gray-500 text-[10px]">
+                              Balance: {formatMoney(Math.max(0, balanceAfter))}
+                            </p>
+                          </div>
                         </div>
-                        <span className="text-green-700">{formatDate(p.paidAt)}</span>
-                      </div>
-                    ))}
+                      );
+                    })}
                   </div>
                 </div>
               )}
@@ -488,6 +593,7 @@ export function InvoiceDetailModal({ invoiceId, onClose }: Props) {
           onClose={() => {
             setShowPayment(false);
             qc.invalidateQueries({ queryKey: ['invoices', invoiceId] });
+            qc.invalidateQueries({ queryKey: ['invoices'] });
           }}
         />
       )}

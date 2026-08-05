@@ -1,14 +1,21 @@
-import { useState } from 'react';
-import { useQuery } from '@tanstack/react-query';
-import { Plus, Search, TrendingUp, Clock, AlertCircle, CheckCircle2, Download } from 'lucide-react';
+import { useState, useMemo } from 'react';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { Plus, Search, TrendingUp, Clock, AlertCircle, CheckCircle2, Download, Send, XCircle } from 'lucide-react';
 import { Button, Badge, Card, CardContent, CardHeader, CardTitle } from '@fsp/ui';
 import { api } from '../lib/api';
 import type { InvoiceStatus } from '@fsp/types';
 import { CreateInvoiceModal } from '../components/invoices/CreateInvoiceModal';
 import { InvoiceDetailModal } from '../components/invoices/InvoiceDetailModal';
+import { useToast } from '../components/Toast';
+import { useConfirm } from '../components/ConfirmDialog';
 
 function formatMoney(cents: number) {
   return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(cents / 100);
+}
+function daysOverdue(dueDate?: string | null): number {
+  if (!dueDate) return 0;
+  const diff = Date.now() - new Date(dueDate).getTime();
+  return Math.max(0, Math.floor(diff / 86400000));
 }
 
 const STATUS_COLORS: Record<InvoiceStatus, 'default' | 'info' | 'warning' | 'success' | 'destructive' | 'secondary'> = {
@@ -29,6 +36,15 @@ interface InvoiceRow {
 
 const PAGE_LIMIT = 50;
 
+const QUICK_FILTERS = [
+  { label: 'All', value: '' },
+  { label: 'Draft', value: 'draft' },
+  { label: 'Sent', value: 'sent' },
+  { label: 'Overdue', value: 'overdue' },
+  { label: 'Paid', value: 'paid' },
+  { label: 'Void', value: 'void' },
+] as const;
+
 async function downloadExport(path: string, filename: string) {
   const res = await api.get(path, { responseType: 'blob' });
   const url = URL.createObjectURL(new Blob([res.data], { type: 'text/csv' }));
@@ -40,6 +56,9 @@ async function downloadExport(path: string, filename: string) {
 }
 
 export function InvoicesPage() {
+  const qc = useQueryClient();
+  const toast = useToast();
+  const { confirm } = useConfirm();
   const [statusFilter, setStatusFilter] = useState('');
   const [search, setSearch] = useState('');
   const [page, setPage] = useState(1);
@@ -47,6 +66,7 @@ export function InvoicesPage() {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [showExport, setShowExport] = useState(false);
   const [exporting, setExporting] = useState<string | null>(null);
+  const [selected, setSelected] = useState<Set<string>>(new Set());
 
   const { data, isLoading } = useQuery({
     queryKey: ['invoices', statusFilter, search, page],
@@ -63,11 +83,10 @@ export function InvoicesPage() {
   const total: number = data?.meta?.total ?? 0;
   const totalPages: number = data?.meta?.totalPages ?? 1;
 
-  // Reset to page 1 when filters change
-  const setStatusFilterAndReset = (v: string) => { setStatusFilter(v); setPage(1); };
+  const setStatusFilterAndReset = (v: string) => { setStatusFilter(v); setPage(1); setSelected(new Set()); };
   const setSearchAndReset = (v: string) => { setSearch(v); setPage(1); };
 
-  // Real stats from API (not page-scoped)
+  // Real stats
   const { data: statsData } = useQuery({
     queryKey: ['invoices', 'stats'],
     queryFn: async () => {
@@ -82,6 +101,50 @@ export function InvoicesPage() {
   });
   const stats = statsData ?? { outstanding: { total: 0, count: 0 }, overdue: { total: 0, count: 0 }, paid: { total: 0, count: 0 }, all: { total: 0, count: 0 } };
 
+  // Batch actions
+  const toggleSelect = (id: string) => {
+    setSelected(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  };
+  const toggleAll = () => {
+    if (selected.size === invoices.length) {
+      setSelected(new Set());
+    } else {
+      setSelected(new Set(invoices.map(i => i.id)));
+    }
+  };
+
+  const { mutate: batchSend, isPending: isBatchSending } = useMutation({
+    mutationFn: async () => {
+      const ids = Array.from(selected);
+      await Promise.allSettled(ids.map(id => api.post(`/invoices/${id}/send`)));
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['invoices'] });
+      toast.success(`${selected.size} invoice(s) sent`);
+      setSelected(new Set());
+    },
+  });
+
+  const { mutate: batchVoid, isPending: isBatchVoiding } = useMutation({
+    mutationFn: async () => {
+      const ids = Array.from(selected);
+      await Promise.allSettled(ids.map(id => api.post(`/invoices/${id}/void`)));
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['invoices'] });
+      toast.success(`${selected.size} invoice(s) voided`);
+      setSelected(new Set());
+    },
+  });
+
+  const selectedInvoices = useMemo(() => invoices.filter(i => selected.has(i.id)), [invoices, selected]);
+  const canBatchSend = selectedInvoices.some(i => !['paid', 'void'].includes(i.status));
+  const canBatchVoid = selectedInvoices.some(i => !['paid', 'void'].includes(i.status));
+
   return (
     <div className="p-6 space-y-5">
       {/* Header */}
@@ -92,7 +155,7 @@ export function InvoicesPage() {
           <div className="relative">
             <Button variant="outline" onClick={() => setShowExport((v) => !v)}>
               <Download className="h-4 w-4 mr-2" />
-              Export to QuickBooks
+              Export
             </Button>
             {showExport && (
               <>
@@ -133,7 +196,7 @@ export function InvoicesPage() {
 
       {/* Summary cards */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-        <Card>
+        <Card className="cursor-pointer hover:ring-2 hover:ring-blue-200 transition-all" onClick={() => setStatusFilterAndReset('')}>
           <CardHeader className="pb-1 pt-4 px-4">
             <CardTitle className="text-xs font-medium text-muted-foreground flex items-center gap-1.5">
               <Clock className="h-3.5 w-3.5" /> Outstanding
@@ -144,7 +207,7 @@ export function InvoicesPage() {
             <p className="text-xs text-muted-foreground">{stats.outstanding.count} invoice{stats.outstanding.count !== 1 ? 's' : ''}</p>
           </CardContent>
         </Card>
-        <Card>
+        <Card className="cursor-pointer hover:ring-2 hover:ring-red-200 transition-all" onClick={() => setStatusFilterAndReset('overdue')}>
           <CardHeader className="pb-1 pt-4 px-4">
             <CardTitle className="text-xs font-medium text-red-600 flex items-center gap-1.5">
               <AlertCircle className="h-3.5 w-3.5" /> Overdue
@@ -155,7 +218,7 @@ export function InvoicesPage() {
             <p className="text-xs text-muted-foreground">{stats.overdue.count} invoice{stats.overdue.count !== 1 ? 's' : ''}</p>
           </CardContent>
         </Card>
-        <Card>
+        <Card className="cursor-pointer hover:ring-2 hover:ring-green-200 transition-all" onClick={() => setStatusFilterAndReset('paid')}>
           <CardHeader className="pb-1 pt-4 px-4">
             <CardTitle className="text-xs font-medium text-green-700 flex items-center gap-1.5">
               <CheckCircle2 className="h-3.5 w-3.5" /> Collected
@@ -179,8 +242,28 @@ export function InvoicesPage() {
         </Card>
       </div>
 
-      {/* Filters */}
-      <div className="flex flex-wrap gap-3">
+      {/* Quick filter pills + search */}
+      <div className="flex flex-wrap items-center gap-3">
+        <div className="flex gap-1 bg-gray-100 rounded-lg p-1">
+          {QUICK_FILTERS.map(f => (
+            <button
+              key={f.value}
+              onClick={() => setStatusFilterAndReset(f.value)}
+              className={`px-3 py-1.5 text-sm rounded-md transition-colors font-medium ${
+                statusFilter === f.value
+                  ? 'bg-white text-gray-900 shadow-sm'
+                  : 'text-gray-500 hover:text-gray-700'
+              }`}
+            >
+              {f.label}
+              {f.value === 'overdue' && stats.overdue.count > 0 && (
+                <span className="ml-1.5 inline-flex items-center justify-center h-4 min-w-[16px] px-1 rounded-full bg-red-100 text-red-700 text-[10px] font-bold">
+                  {stats.overdue.count}
+                </span>
+              )}
+            </button>
+          ))}
+        </div>
         <div className="relative flex-1 min-w-[180px]">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
           <input
@@ -191,19 +274,52 @@ export function InvoicesPage() {
             className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
           />
         </div>
-        <select
-          value={statusFilter}
-          onChange={(e) => setStatusFilterAndReset(e.target.value)}
-          className="px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-        >
-          <option value="">All Statuses</option>
-          <option value="draft">Draft</option>
-          <option value="sent">Sent</option>
-          <option value="paid">Paid</option>
-          <option value="overdue">Overdue</option>
-          <option value="void">Void</option>
-        </select>
       </div>
+
+      {/* Batch action bar */}
+      {selected.size > 0 && (
+        <div className="flex items-center gap-3 p-3 bg-blue-50 border border-blue-200 rounded-lg">
+          <span className="text-sm font-medium text-blue-800">
+            {selected.size} selected
+          </span>
+          <div className="flex gap-2 ml-auto">
+            {canBatchSend && (
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={async () => {
+                  if (await confirm({ title: 'Batch Send', message: `Send ${selected.size} invoice(s)?`, variant: 'default' })) {
+                    batchSend();
+                  }
+                }}
+                loading={isBatchSending}
+              >
+                <Send className="h-3.5 w-3.5 mr-1.5" />
+                Send All
+              </Button>
+            )}
+            {canBatchVoid && (
+              <Button
+                size="sm"
+                variant="outline"
+                className="text-red-600 border-red-200 hover:bg-red-50"
+                onClick={async () => {
+                  if (await confirm({ title: 'Batch Void', message: `Void ${selected.size} invoice(s)? This cannot be undone.`, variant: 'danger' })) {
+                    batchVoid();
+                  }
+                }}
+                loading={isBatchVoiding}
+              >
+                <XCircle className="h-3.5 w-3.5 mr-1.5" />
+                Void All
+              </Button>
+            )}
+            <Button size="sm" variant="ghost" onClick={() => setSelected(new Set())}>
+              Clear
+            </Button>
+          </div>
+        </div>
+      )}
 
       {/* Invoice list */}
       {isLoading ? (
@@ -218,15 +334,46 @@ export function InvoicesPage() {
           </CardContent>
         </Card>
       ) : (
-        <div className="space-y-2">
-          {invoices.map((invoice) => (
-            <Card
-              key={invoice.id}
-              className="cursor-pointer hover:shadow-md transition-shadow"
-              onClick={() => setSelectedId(invoice.id)}
-            >
-              <CardContent className="py-4 px-5">
-                <div className="flex items-center gap-4">
+        <div className="space-y-1">
+          {/* Select all header */}
+          <div className="flex items-center gap-3 px-5 py-2 text-xs text-gray-400">
+            <input
+              type="checkbox"
+              checked={selected.size === invoices.length && invoices.length > 0}
+              onChange={toggleAll}
+              className="h-3.5 w-3.5 rounded border-gray-300 accent-blue-600"
+            />
+            <span className="flex-1">Invoice</span>
+            <span className="w-32 text-right hidden sm:block">Due Date</span>
+            <span className="w-28 text-right">Amount</span>
+          </div>
+
+          {invoices.map((invoice) => {
+            const overdue = daysOverdue(invoice.dueDate);
+            const isOverdue = overdue > 0 && ['sent', 'viewed', 'overdue'].includes(invoice.status);
+
+            return (
+              <div
+                key={invoice.id}
+                className={`group flex items-center gap-3 px-5 py-3.5 rounded-xl border transition-all cursor-pointer ${
+                  selected.has(invoice.id)
+                    ? 'border-blue-300 bg-blue-50'
+                    : isOverdue
+                      ? 'border-red-100 bg-red-50/30 hover:border-red-200 hover:shadow-sm'
+                      : 'border-gray-100 bg-white hover:border-gray-200 hover:shadow-sm'
+                }`}
+              >
+                {/* Checkbox */}
+                <input
+                  type="checkbox"
+                  checked={selected.has(invoice.id)}
+                  onChange={(e) => { e.stopPropagation(); toggleSelect(invoice.id); }}
+                  onClick={(e) => e.stopPropagation()}
+                  className="h-4 w-4 rounded border-gray-300 accent-blue-600 flex-shrink-0"
+                />
+
+                {/* Main content — clickable */}
+                <div className="flex items-center gap-4 flex-1 min-w-0" onClick={() => setSelectedId(invoice.id)}>
                   {/* Left: number + customer */}
                   <div className="min-w-0 flex-1">
                     <div className="flex items-center gap-2 flex-wrap">
@@ -236,40 +383,53 @@ export function InvoicesPage() {
                       <Badge variant={STATUS_COLORS[invoice.status]}>
                         {invoice.status}
                       </Badge>
+                      {isOverdue && (
+                        <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-full bg-red-100 text-red-700 text-[10px] font-bold">
+                          <AlertCircle className="h-2.5 w-2.5" />
+                          {overdue}d late
+                        </span>
+                      )}
+                      {invoice.amountPaid > 0 && invoice.amountDue > 0 && (
+                        <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-amber-100 text-amber-700 font-semibold">
+                          Partial
+                        </span>
+                      )}
                     </div>
                     {invoice.customer && (
-                      <p className="text-sm text-gray-600 mt-0.5">
+                      <p className="text-sm text-gray-600 mt-0.5 truncate">
                         {invoice.customer.firstName} {invoice.customer.lastName}
                       </p>
                     )}
                   </div>
 
                   {/* Middle: dates */}
-                  <div className="text-sm text-gray-400 text-right hidden sm:block">
+                  <div className="text-sm text-right hidden sm:block w-32 flex-shrink-0">
                     {invoice.dueDate && (
-                      <p className={invoice.status === 'overdue' ? 'text-red-600 font-medium' : ''}>
-                        Due {new Date(invoice.dueDate).toLocaleDateString()}
+                      <p className={isOverdue ? 'text-red-600 font-semibold' : 'text-gray-400'}>
+                        {isOverdue ? `${overdue}d overdue` : `Due ${new Date(invoice.dueDate).toLocaleDateString()}`}
                       </p>
                     )}
-                    <p>{new Date(invoice.createdAt).toLocaleDateString()}</p>
+                    <p className="text-gray-400 text-xs">{new Date(invoice.createdAt).toLocaleDateString()}</p>
                   </div>
 
                   {/* Right: amounts */}
-                  <div className="text-right min-w-[100px]">
-                    <p className="font-semibold text-gray-900">{formatMoney(invoice.total)}</p>
+                  <div className="text-right min-w-[100px] flex-shrink-0">
+                    <p className={`font-semibold ${isOverdue ? 'text-red-700' : 'text-gray-900'}`}>
+                      {formatMoney(invoice.total)}
+                    </p>
                     {invoice.amountDue > 0 && invoice.status !== 'draft' && (
-                      <p className="text-xs text-blue-700 font-medium">
+                      <p className={`text-xs font-medium ${isOverdue ? 'text-red-600' : 'text-blue-700'}`}>
                         {formatMoney(invoice.amountDue)} due
                       </p>
                     )}
                     {invoice.status === 'paid' && (
-                      <p className="text-xs text-green-700 font-medium">Paid ✓</p>
+                      <p className="text-xs text-green-700 font-medium">Paid</p>
                     )}
                   </div>
                 </div>
-              </CardContent>
-            </Card>
-          ))}
+              </div>
+            );
+          })}
         </div>
       )}
 
@@ -292,7 +452,11 @@ export function InvoicesPage() {
       )}
 
       <CreateInvoiceModal open={showCreate} onClose={() => setShowCreate(false)} />
-      <InvoiceDetailModal invoiceId={selectedId} onClose={() => setSelectedId(null)} />
+      <InvoiceDetailModal
+        invoiceId={selectedId}
+        onClose={() => setSelectedId(null)}
+        onDuplicated={(id) => { setSelectedId(id); qc.invalidateQueries({ queryKey: ['invoices'] }); }}
+      />
     </div>
   );
 }

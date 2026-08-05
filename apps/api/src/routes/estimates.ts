@@ -396,7 +396,8 @@ estimatesRouter.post('/parse-wo', requireRole('owner', 'admin'), pdfUpload.singl
   // Extract text from PDF
   let pdfText: string;
   try {
-    const pdfParse = (await import('pdf-parse')).default;
+    const pdfMod = await import('pdf-parse');
+    const pdfParse = (pdfMod as any).default ?? pdfMod;
     const result = await pdfParse(req.file.buffer);
     pdfText = result.text;
   } catch (err: any) {
@@ -521,7 +522,8 @@ estimatesRouter.post('/parse-wo-ai', requireRole('owner', 'admin'), pdfUpload.si
   // Extract text from PDF
   let pdfText: string;
   try {
-    const pdfParse = (await import('pdf-parse')).default;
+    const pdfMod = await import('pdf-parse');
+    const pdfParse = (pdfMod as any).default ?? pdfMod;
     const result = await pdfParse(req.file.buffer);
     pdfText = result.text;
   } catch (err: any) {
@@ -605,7 +607,7 @@ Return this exact JSON structure:
         max_tokens: 2048,
         messages: [{ role: 'user', content: prompt }],
       });
-      responseText = response.content.filter((b): b is { type: 'text'; text: string } => b.type === 'text').map(b => b.text).join('');
+      responseText = response.content.filter((b: any) => b.type === 'text').map((b: any) => b.text).join('');
     } else {
       const OpenAI = (await import('openai')).default;
       const isGemini = provider === 'gemini';

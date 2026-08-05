@@ -427,6 +427,48 @@ invoicesRouter.post('/:id/mark-paid', requireRole('owner', 'admin'), async (req,
   });
 });
 
+// POST /api/v1/invoices/:id/duplicate — clone invoice as new draft
+invoicesRouter.post('/:id/duplicate', requireRole('owner', 'admin', 'dispatcher', 'sales'), async (req, res) => {
+  const original = await prisma.invoice.findUnique({
+    where: { id: req.params.id },
+    include: { lineItems: true },
+  });
+  if (!original || original.tenantId !== req.user!.tenantId) {
+    throw new AppError('Invoice not found', 404, 'NOT_FOUND');
+  }
+
+  const invoiceNumber = await getNextInvoiceNumber(req.user!.tenantId);
+
+  const duplicate = await prisma.invoice.create({
+    data: {
+      tenantId: req.user!.tenantId,
+      customerId: original.customerId,
+      invoiceNumber,
+      status: 'draft',
+      lineItems: {
+        create: original.lineItems.map((li) => ({
+          description: li.description,
+          quantity: li.quantity,
+          unitPrice: li.unitPrice,
+          total: li.total,
+          taxable: li.taxable,
+        })),
+      },
+      subtotal: original.subtotal,
+      taxAmount: original.taxAmount,
+      discountAmount: original.discountAmount,
+      total: original.total,
+      amountDue: original.total,
+      notes: original.notes,
+      payToken: generatePayToken(),
+      downPaymentAmount: original.downPaymentAmount,
+    },
+    include: invoiceInclude,
+  });
+
+  res.status(201).json({ success: true, data: duplicate } satisfies ApiResponse);
+});
+
 // POST /api/v1/invoices/:id/void — owner/admin only
 invoicesRouter.post('/:id/void', requireRole('owner', 'admin'), async (req, res) => {
   const invoice = await prisma.invoice.findUnique({ where: { id: req.params.id } });
