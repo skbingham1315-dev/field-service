@@ -1,6 +1,7 @@
 import { useEffect } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { MapContainer, TileLayer, Polyline, CircleMarker, Tooltip } from 'react-leaflet';
+import { MAP_TILE_ATTRIBUTION, MAP_TILE_MAX_ZOOM, MAP_TILE_URL } from '../lib/mapTiles';
 import { X, MapPin, Clock, CheckCircle, Briefcase, AlertCircle, BookUser, Users } from 'lucide-react';
 import { api } from '../lib/api';
 
@@ -123,11 +124,7 @@ export function MemberActivityDrawer({ userId, name, onClose }: Props) {
               ) : (
                 <div className="h-48 rounded-xl overflow-hidden border border-gray-200">
                   <MapContainer center={mapCenter} zoom={12} style={{ width: '100%', height: '100%' }} zoomControl={false} scrollWheelZoom={false}>
-                    <TileLayer
-                      url="https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png"
-                      subdomains="abcd"
-                      attribution=""
-                    />
+                    <TileLayer url={MAP_TILE_URL} attribution={MAP_TILE_ATTRIBUTION} maxZoom={MAP_TILE_MAX_ZOOM} />
                     {/* Route line */}
                     <Polyline positions={trailCoords} color="#4f46e5" weight={3} opacity={0.8} />
                     {/* Start dot */}

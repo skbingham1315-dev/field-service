@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { MapContainer, TileLayer, Marker, Popup, useMap } from 'react-leaflet';
+import { MAP_TILE_ATTRIBUTION, MAP_TILE_MAX_ZOOM, MAP_TILE_URL } from '../lib/mapTiles';
 import { MemberActivityDrawer } from '../components/MemberActivityDrawer';
 import L from 'leaflet';
 import { api } from '../lib/api';
@@ -198,12 +199,7 @@ export function MapPage() {
           style={{ width: '100%', height: '100%', minHeight: '400px' }}
           scrollWheelZoom={true}
         >
-          <TileLayer
-            attribution='&copy; <a href="https://carto.com/">CARTO</a>'
-            url="https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png"
-            subdomains="abcd"
-            maxZoom={19}
-          />
+          <TileLayer url={MAP_TILE_URL} attribution={MAP_TILE_ATTRIBUTION} maxZoom={MAP_TILE_MAX_ZOOM} />
           <FitBounds points={allPoints} />
 
           {/* Job markers */}
