@@ -67,6 +67,10 @@ app.use(helmet({
       frameSrc: ["'self'", "https://www.google.com"],
     },
   },
+  // helmet's default is no-referrer, which makes OpenStreetMap block every map
+  // tile (its usage policy requires browser apps to send a Referer). This sends
+  // only our origin cross-site, never the path, so tokens in URLs don't leak.
+  referrerPolicy: { policy: 'strict-origin-when-cross-origin' },
 }));
 app.use(
   cors({
