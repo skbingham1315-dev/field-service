@@ -98,29 +98,6 @@ propertiesRouter.post('/', async (req, res) => {
   res.status(201).json(property);
 });
 
-propertiesRouter.get('/:id', async (req, res) => {
-  const tenantId = req.user!.tenantId;
-  const property = await prisma.property.findFirst({
-    where: { id: req.params.id, tenantId },
-    include: {
-      units: {
-        include: {
-          leases: {
-            where: { status: 'active' as any },
-            include: { pmTenant: true },
-            take: 1,
-          },
-        },
-        orderBy: { unitNumber: 'asc' },
-      },
-      ownerContacts: true,
-      expenses: { orderBy: { date: 'desc' }, take: 20 },
-    },
-  });
-  if (!property) { res.status(404).json({ error: 'Not found' }); return; }
-  res.json(property);
-});
-
 propertiesRouter.patch('/:id', async (req, res) => {
   const tenantId = req.user!.tenantId;
   const property = await prisma.property.updateMany({
@@ -822,4 +799,31 @@ propertiesRouter.post('/import/ledger', upload.single('file'), async (req, res) 
     } catch { skipped++; }
   }
   res.json({ imported, skipped, total: data.length });
+});
+
+// ─── Single property ─────────────────────────────────────────────────────────
+// Registered last on purpose: as a one-segment wildcard it would otherwise
+// swallow /pm-tenants, /listings and /dashboard (each read as a property id → 404).
+
+propertiesRouter.get('/:id', async (req, res) => {
+  const tenantId = req.user!.tenantId;
+  const property = await prisma.property.findFirst({
+    where: { id: req.params.id, tenantId },
+    include: {
+      units: {
+        include: {
+          leases: {
+            where: { status: 'active' as any },
+            include: { pmTenant: true },
+            take: 1,
+          },
+        },
+        orderBy: { unitNumber: 'asc' },
+      },
+      ownerContacts: true,
+      expenses: { orderBy: { date: 'desc' }, take: 20 },
+    },
+  });
+  if (!property) { res.status(404).json({ error: 'Not found' }); return; }
+  res.json(property);
 });
