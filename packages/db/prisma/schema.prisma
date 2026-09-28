@@ -208,6 +208,7 @@ model User {
   rolePlaySessions    RolePlaySession[]
   exerciseAnswers     TrainingExerciseAnswer[]
   jobFiles            JobFile[]
+  workRequestFeeDecisions PortalWorkRequest[] @relation("WorkRequestFeeDecider")
 
   @@unique([tenantId, email])
   @@index([tenantId, role])
@@ -1086,6 +1087,7 @@ model Property {
   units           Unit[]
   expenses        Expense[]
   ownerContacts   OwnerContact[]
+  workRequests    PortalWorkRequest[]
 
   @@index([tenantId])
   @@map("properties")
@@ -1128,7 +1130,10 @@ model PMTenant {
   updatedAt         DateTime @updatedAt
 
   fspTenant         Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  /// Leases this person HOLDS. An occupant who is not on the lease has none.
   leases            Lease[]
+  occupancies       LeaseOccupant[]
+  portalUsers       PortalUser[]
 
   @@index([tenantId])
   @@map("pm_tenants")
@@ -1154,10 +1159,34 @@ model Lease {
   unit            Unit        @relation(fields: [unitId], references: [id])
   pmTenant        PMTenant    @relation(fields: [pmTenantId], references: [id])
   ledgerEntries   RentLedger[]
+  occupants       LeaseOccupant[]
 
   @@index([unitId])
   @@index([pmTenantId])
   @@map("leases")
+}
+
+/// Someone who LIVES at the unit without being named on the lease — a spouse,
+/// adult child, or roommate. Distinct from Lease.pmTenant, who is the one
+/// legally on the hook. Occupants get a portal login and can report issues;
+/// they just aren't leaseholders.
+model LeaseOccupant {
+  id           String   @id @default(cuid())
+  leaseId      String
+  pmTenantId   String
+  /// spouse | partner | adult_child | roommate | other
+  relationship String?
+  notes        String?
+  addedAt      DateTime @default(now())
+  removedAt    DateTime?
+
+  lease        Lease    @relation(fields: [leaseId], references: [id], onDelete: Cascade)
+  pmTenant     PMTenant @relation(fields: [pmTenantId], references: [id], onDelete: Cascade)
+
+  @@unique([leaseId, pmTenantId])
+  @@index([leaseId])
+  @@index([pmTenantId])
+  @@map("lease_occupants")
 }
 
 model RentLedger {
@@ -1286,6 +1315,21 @@ model PortalConfig {
   notifyOnInvoice     Boolean     @default(true)
   notifyOnMessage     Boolean     @default(true)
 
+  // Work-request service fee (home-warranty model).
+  // The fee is DISCLOSED when the tenant submits and only ASSESSED once someone
+  // decides who was responsible — see WorkRequestResponsibility. Landlords in most
+  // states carry the repair and habitability duty, so a fee charged unconditionally
+  // on every request is the part that invites disputes. Leave the auto-waive flags
+  // on unless the client's counsel has signed off on charging for those cases.
+  serviceFeeEnabled        Boolean  @default(false)
+  serviceFeeAmount         Decimal  @default(0) @db.Decimal(10, 2)
+  /// Shown to the tenant on the submit screen. Falls back to a generated sentence.
+  serviceFeeDisclosure     String?
+  /// Emergencies (gas, flooding, no heat/AC, security) are never worth deterring.
+  serviceFeeWaiveEmergency Boolean  @default(true)
+  /// Waive automatically when the request is judged the landlord's responsibility.
+  serviceFeeWaiveLandlord  Boolean  @default(true)
+
   createdAt           DateTime    @default(now())
   updatedAt           DateTime    @updatedAt
 
@@ -1298,6 +1342,8 @@ model PortalUser {
   id              String    @id @default(cuid())
   tenantId        String
   customerId      String?
+  /// Set instead of customerId when the portal user is a rental tenant.
+  pmTenantId      String?
   email           String
   phone           String?
   displayName     String?
@@ -1308,12 +1354,14 @@ model PortalUser {
 
   tenant          Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   customer        Customer? @relation(fields: [customerId], references: [id], onDelete: SetNull)
+  pmTenant        PMTenant? @relation(fields: [pmTenantId], references: [id], onDelete: SetNull)
   sessions        PortalSession[]
   workRequests    PortalWorkRequest[]
   messages        PortalMessage[]
 
   @@unique([tenantId, email])
   @@index([tenantId])
+  @@index([pmTenantId])
   @@map("portal_users")
 }
 
@@ -1334,11 +1382,38 @@ model PortalSession {
   @@map("portal_sessions")
 }
 
+/// Who caused the issue — decides whether the service fee is actually charged.
+enum WorkRequestResponsibility {
+  undetermined
+  /// Habitability, normal wear, appliance/system failure — landlord's duty.
+  landlord
+  /// Tenant-caused damage, misuse, or negligence.
+  tenant
+  /// Technician attended and found nothing wrong.
+  no_fault_found
+}
+
+enum WorkRequestFeeStatus {
+  /// Fee disabled for this client, or the request predates the fee.
+  not_applicable
+  /// Quoted to the tenant at submission; no decision yet.
+  disclosed
+  /// Decided as not chargeable.
+  waived
+  /// Decided as chargeable, not yet billed.
+  assessed
+  /// Rolled onto an invoice.
+  invoiced
+  paid
+}
+
 model PortalWorkRequest {
   id             String    @id @default(cuid())
   tenantId       String
   portalUserId   String
   crmJobId       String?
+  /// Set when the portal user is a rental tenant with a current lease.
+  propertyId     String?
   title          String
   description    String
   serviceAddress String?
@@ -1347,14 +1422,31 @@ model PortalWorkRequest {
   status         String    @default("submitted") // submitted | reviewing | scheduled | in_progress | completed | cancelled
   photoUrls      String[]
   notes          String?
+
+  // ─── Service fee ───────────────────────────────────────────────────────────
+  feeStatus         WorkRequestFeeStatus      @default(not_applicable)
+  /// The amount quoted at submission. Frozen here so a later config change
+  /// never retroactively alters what the tenant was told.
+  feeAmount         Decimal?                  @db.Decimal(10, 2)
+  /// Set when the tenant ticked the acknowledgement on the submit screen.
+  feeAcknowledgedAt DateTime?
+  responsibility    WorkRequestResponsibility @default(undetermined)
+  feeDecidedAt      DateTime?
+  feeDecidedById    String?
+  feeDecisionNote   String?
+
   createdAt      DateTime  @default(now())
   updatedAt      DateTime  @updatedAt
 
   tenant         Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   portalUser     PortalUser @relation(fields: [portalUserId], references: [id])
+  property       Property?  @relation(fields: [propertyId], references: [id], onDelete: SetNull)
+  feeDecidedBy   User?      @relation("WorkRequestFeeDecider", fields: [feeDecidedById], references: [id], onDelete: SetNull)
 
   @@index([tenantId, status])
   @@index([portalUserId])
+  @@index([propertyId])
+  @@index([tenantId, feeStatus])
   @@map("portal_work_requests")
 }
 

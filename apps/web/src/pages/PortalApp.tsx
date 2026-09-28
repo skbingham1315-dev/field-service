@@ -59,6 +59,23 @@ interface PortalMeResponse {
       state: string;
     }>;
   };
+  /** Present instead of `customer` when the portal user is a rental tenant. */
+  rental?: {
+    propertyId: string;
+    propertyName: string;
+    address: string;
+    leaseEndDate?: string | null;
+    /** False for occupants — they live there but aren't named on the lease. */
+    isLeaseholder: boolean;
+  } | null;
+}
+
+/** What the tenant is told about the service fee before they submit. */
+interface FeeQuote {
+  applies: boolean;
+  amount: number | null;
+  disclosure: string;
+  requiresAcknowledgement: boolean;
 }
 
 interface PortalInvoice {
@@ -81,6 +98,8 @@ interface WorkRequest {
   urgency: string;
   category?: string;
   createdAt: string;
+  feeStatus?: 'not_applicable' | 'disclosed' | 'waived' | 'assessed' | 'invoiced' | 'paid';
+  feeAmount?: string | number | null;
 }
 
 interface PortalMessage {
@@ -93,7 +112,13 @@ interface PortalMessage {
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
-const API_BASE = import.meta.env.VITE_API_URL ?? '/api/v1';
+// `??` is wrong here: VITE_API_URL is set to an EMPTY STRING in .env for dev
+// (the Vite proxy handles routing), and ?? only falls back on null/undefined.
+// That left API_BASE as '' so every portal call hit the Vite dev server, got
+// index.html back with a 200, and silently parsed HTML as JSON.
+const API_BASE = import.meta.env.VITE_API_URL
+  ? `${import.meta.env.VITE_API_URL}/api/v1`
+  : '/api/v1';
 
 const INVOICE_STATUS_COLORS: Record<string, string> = {
   draft: 'text-slate-600 bg-slate-100',
@@ -111,6 +136,28 @@ const REQUEST_STATUS: Record<string, { label: string; color: string }> = {
   in_progress: { label: 'In Progress', color: 'text-orange-700 bg-orange-50' },
   completed: { label: 'Completed', color: 'text-emerald-700 bg-emerald-50' },
   cancelled: { label: 'Cancelled', color: 'text-slate-500 bg-slate-100' },
+};
+
+/**
+ * Service-fee outcome, as the tenant sees it. `disclosed` deliberately reads as
+ * "may apply" — nothing has been decided at that point, and telling someone they
+ * owe money before anyone has looked is how disputes start.
+ */
+const FEE_STATUS: Record<string, { label: (amount: number | null) => string; color: string }> = {
+  disclosed: {
+    label: (a) => (a != null ? `$${a.toFixed(2)} fee may apply` : 'Fee may apply'),
+    color: 'text-amber-700 bg-amber-50',
+  },
+  waived: { label: () => 'No fee', color: 'text-emerald-700 bg-emerald-50' },
+  assessed: {
+    label: (a) => (a != null ? `$${a.toFixed(2)} fee` : 'Fee applies'),
+    color: 'text-rose-700 bg-rose-50',
+  },
+  invoiced: {
+    label: (a) => (a != null ? `$${a.toFixed(2)} billed` : 'Fee billed'),
+    color: 'text-rose-700 bg-rose-50',
+  },
+  paid: { label: () => 'Fee paid', color: 'text-slate-600 bg-slate-100' },
 };
 
 // ─── Local storage helpers ────────────────────────────────────────────────────
@@ -456,6 +503,9 @@ function RequestsTab({ slug, primaryColor, me }: { slug: string; primaryColor: s
   const [showForm, setShowForm] = useState(false);
   const [form, setForm] = useState({ title: '', description: '', urgency: 'normal', category: '', serviceAddress: '' });
   const [submitting, setSubmitting] = useState(false);
+  const [fee, setFee] = useState<FeeQuote | null>(null);
+  const [acknowledgedFee, setAcknowledgedFee] = useState(false);
+  const [submitError, setSubmitError] = useState<string | null>(null);
 
   function loadRequests() {
     portalApi(slug)
@@ -467,17 +517,53 @@ function RequestsTab({ slug, primaryColor, me }: { slug: string; primaryColor: s
 
   useEffect(() => { loadRequests(); }, [slug]);
 
+  // Re-quote whenever urgency changes — emergencies are typically fee-free, so
+  // the disclosure has to track the selection rather than being fetched once.
+  useEffect(() => {
+    if (!showForm) return;
+    let cancelled = false;
+    portalApi(slug)
+      .get('/portal/service-fee', { params: { urgency: form.urgency } })
+      .then((r) => { if (!cancelled) setFee(r.data); })
+      .catch(() => { if (!cancelled) setFee(null); });
+    return () => { cancelled = true; };
+  }, [slug, showForm, form.urgency]);
+
+  // A fresh quote means a fresh decision — never carry a tick across a change
+  // that altered what the tenant is agreeing to.
+  useEffect(() => { setAcknowledgedFee(false); }, [fee?.amount, fee?.applies]);
+
+  function resetForm() {
+    setShowForm(false);
+    setForm({ title: '', description: '', urgency: 'normal', category: '', serviceAddress: '' });
+    setAcknowledgedFee(false);
+    setSubmitError(null);
+  }
+
   async function submitRequest() {
     if (!form.title || !form.description) return;
     setSubmitting(true);
+    setSubmitError(null);
     try {
-      await portalApi(slug).post('/portal/work-requests', form);
-      setShowForm(false);
-      setForm({ title: '', description: '', urgency: 'normal', category: '', serviceAddress: '' });
+      await portalApi(slug).post('/portal/work-requests', { ...form, acknowledgedFee });
+      resetForm();
       loadRequests();
-    } catch {}
+    } catch (err: any) {
+      setSubmitError(
+        err?.response?.data?.error ?? 'Could not submit your request. Please try again.',
+      );
+    }
     setSubmitting(false);
   }
+
+  const needsAck = Boolean(fee?.requiresAcknowledgement);
+  // Only co-tenants hit this — everyone else gets an address from their lease or customer record.
+  const needsTypedAddress = !me.rental && !me.customer?.serviceAddresses?.length;
+  const canSubmit =
+    Boolean(form.title) &&
+    Boolean(form.description) &&
+    (!needsTypedAddress || Boolean(form.serviceAddress.trim())) &&
+    (!needsAck || acknowledgedFee);
 
   if (loading) return <div className="flex justify-center py-12"><Loader2 className="h-6 w-6 animate-spin text-slate-400" /></div>;
 
@@ -544,6 +630,17 @@ function RequestsTab({ slug, primaryColor, me }: { slug: string; primaryColor: s
                 />
               </div>
             </div>
+            {me.rental && (
+              <div>
+                <label className="block text-xs font-medium text-slate-600 mb-1">Service Address</label>
+                <div className="w-full border border-slate-200 bg-slate-50 rounded-xl px-3 py-2 text-sm text-slate-600">
+                  {me.rental.address}
+                </div>
+                <p className="text-[11px] text-slate-400 mt-1">
+                  Taken from your lease. Contact the office if this is wrong.
+                </p>
+              </div>
+            )}
             {me.customer && me.customer.serviceAddresses.length > 0 && (
               <div>
                 <label className="block text-xs font-medium text-slate-600 mb-1">Service Address</label>
@@ -561,16 +658,83 @@ function RequestsTab({ slug, primaryColor, me }: { slug: string; primaryColor: s
                 </select>
               </div>
             )}
+            {/* Co-tenants aren't named on a lease, so nothing resolves an address for
+                them. Without this they'd submit a request with no address at all. */}
+            {!me.rental && !me.customer?.serviceAddresses?.length && (
+              <div>
+                <label className="block text-xs font-medium text-slate-600 mb-1">
+                  Service Address *
+                </label>
+                <input
+                  value={form.serviceAddress}
+                  onChange={(e) => setForm((f) => ({ ...f, serviceAddress: e.target.value }))}
+                  className="w-full border border-slate-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2"
+                  placeholder="Street address of the property"
+                />
+              </div>
+            )}
+            {fee?.disclosure && (
+              <div
+                className={`rounded-xl border p-3 ${
+                  fee.applies
+                    ? 'border-amber-200 bg-amber-50'
+                    : 'border-emerald-200 bg-emerald-50'
+                }`}
+              >
+                <div className="flex items-start gap-2">
+                  <AlertCircle
+                    className={`h-4 w-4 mt-0.5 shrink-0 ${
+                      fee.applies ? 'text-amber-600' : 'text-emerald-600'
+                    }`}
+                  />
+                  <div className="flex-1">
+                    {fee.applies && fee.amount != null && (
+                      <p className="text-sm font-semibold text-amber-900 mb-0.5">
+                        ${fee.amount.toFixed(2)} service fee may apply
+                      </p>
+                    )}
+                    <p
+                      className={`text-xs leading-relaxed ${
+                        fee.applies ? 'text-amber-800' : 'text-emerald-800'
+                      }`}
+                    >
+                      {fee.disclosure}
+                    </p>
+                    {needsAck && (
+                      <label className="flex items-start gap-2 mt-2.5 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={acknowledgedFee}
+                          onChange={(e) => setAcknowledgedFee(e.target.checked)}
+                          className="mt-0.5 h-4 w-4 rounded border-amber-300"
+                        />
+                        <span className="text-xs font-medium text-amber-900">
+                          I understand a ${fee.amount?.toFixed(2)} service fee may apply to this
+                          request.
+                        </span>
+                      </label>
+                    )}
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {submitError && (
+              <p className="text-xs text-rose-600 bg-rose-50 border border-rose-200 rounded-xl px-3 py-2">
+                {submitError}
+              </p>
+            )}
+
             <div className="flex justify-end gap-2 pt-1">
               <button
-                onClick={() => setShowForm(false)}
+                onClick={resetForm}
                 className="px-4 py-2 rounded-xl border border-slate-200 text-sm text-slate-600 hover:bg-slate-50"
               >
                 Cancel
               </button>
               <button
                 onClick={submitRequest}
-                disabled={!form.title || !form.description || submitting}
+                disabled={!canSubmit || submitting}
                 className="px-5 py-2 rounded-xl text-white text-sm font-medium disabled:opacity-50 flex items-center gap-2"
                 style={{ background: primaryColor }}
               >
@@ -601,6 +765,17 @@ function RequestsTab({ slug, primaryColor, me }: { slug: string; primaryColor: s
                     {r.urgency !== 'normal' && (
                       <span className="text-[11px] px-2 py-0.5 rounded-full font-medium text-amber-700 bg-amber-50">
                         {r.urgency}
+                      </span>
+                    )}
+                    {r.feeStatus && r.feeStatus !== 'not_applicable' && (
+                      <span
+                        className={`text-[11px] px-2 py-0.5 rounded-full font-medium ${
+                          FEE_STATUS[r.feeStatus].color
+                        }`}
+                      >
+                        {FEE_STATUS[r.feeStatus].label(
+                          r.feeAmount != null ? Number(r.feeAmount) : null,
+                        )}
                       </span>
                     )}
                   </div>

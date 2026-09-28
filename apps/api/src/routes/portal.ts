@@ -8,7 +8,8 @@
  *   POST /portal/auth/otp/verify   — verify OTP → issue session JWT
  *
  * Portal-auth routes (portal session JWT):
- *   GET  /portal/me                — portal user profile + linked customer info
+ *   GET  /portal/me                — portal user profile + linked customer/rental info
+ *   GET  /portal/service-fee       — fee quote + disclosure for the submit screen
  *   GET  /portal/invoices          — customer invoices
  *   GET  /portal/jobs              — service history (CRM jobs)
  *   POST /portal/work-requests     — submit work request
@@ -21,22 +22,66 @@
  *   GET    /portal/config          — get portal config
  *   PUT    /portal/config          — upsert portal config
  *   GET    /portal/users           — list portal users
- *   POST   /portal/users           — invite portal user
+ *   POST   /portal/users           — create portal user (sends nothing)
+ *   POST   /portal/users/:id/send-login-link — explicitly email a sign-in link
  *   DELETE /portal/users/:id       — deactivate portal user
  *   GET    /portal/admin/messages  — all message threads
  *   POST   /portal/admin/messages  — reply to customer
  *   GET    /portal/admin/work-requests — all work requests
  *   PATCH  /portal/admin/work-requests/:id — update status
+ *   PATCH  /portal/admin/work-requests/:id/fee — set responsibility → fee outcome
+ *   POST   /portal/admin/work-requests/:id/convert — create a CRM job from a request
  */
 
 import { Router, Request, Response, NextFunction } from 'express';
 import { prisma } from '@fsp/db';
+import { WorkRequestFeeStatus, WorkRequestResponsibility } from '@prisma/client';
 import { authenticate, requireRole } from '../middleware/authenticate';
+import { decideFee, quoteFee } from '../lib/service-fee';
 import jwt from 'jsonwebtoken';
 import crypto from 'crypto';
-import nodemailer from 'nodemailer';
+import { sendPortalMagicLink, type EmailDeliveryResult } from '../lib/email';
 
 export const portalRouter = Router();
+
+/**
+ * Where a rental tenant lives.
+ *
+ * Resolved either as the LEASEHOLDER (Lease.pmTenantId) or as an OCCUPANT — a
+ * spouse, adult child, or roommate who lives there without being on the lease.
+ * Both need the property stamped onto their work requests so the office doesn't
+ * have to match a free-text address back to a door.
+ *
+ * Returns null when neither applies — someone who has moved out can still sign
+ * in, and their old requests should stay readable.
+ */
+async function resolveRentalContext(pmTenantId: string) {
+  const lease =
+    (await prisma.lease.findFirst({
+      where: { pmTenantId, status: 'active' },
+      orderBy: { startDate: 'desc' },
+      include: { unit: { include: { property: true } } },
+    })) ??
+    (await prisma.lease.findFirst({
+      where: {
+        status: 'active',
+        occupants: { some: { pmTenantId, removedAt: null } },
+      },
+      orderBy: { startDate: 'desc' },
+      include: { unit: { include: { property: true } } },
+    }));
+
+  if (!lease) return null;
+
+  const p = lease.unit.property;
+  return {
+    propertyId: p.id,
+    propertyName: p.name,
+    address: `${p.street}, ${p.city} ${p.state} ${p.zip}`,
+    leaseEndDate: lease.endDate,
+    isLeaseholder: lease.pmTenantId === pmTenantId,
+  };
+}
 
 const JWT_SECRET = process.env.JWT_SECRET ?? 'dev_secret';
 const PORTAL_JWT_SECRET = process.env.PORTAL_JWT_SECRET ?? JWT_SECRET + '_portal';
@@ -87,38 +132,44 @@ async function portalAuth(req: Request, res: Response, next: NextFunction): Prom
   }
 }
 
-// ─── Helper: send magic link email ───────────────────────────────────────────
+// ─── Helper: issue + send a magic link ───────────────────────────────────────
 
-async function sendMagicLinkEmail(
-  to: string,
-  token: string,
-  portalName: string,
-  baseUrl: string,
-): Promise<void> {
-  const link = `${baseUrl}/portal/verify?token=${token}`;
-  // Use nodemailer with SMTP env vars if available; otherwise log to console
-  if (process.env.SMTP_HOST) {
-    const transporter = nodemailer.createTransport({
-      host: process.env.SMTP_HOST,
-      port: parseInt(process.env.SMTP_PORT ?? '587'),
-      auth: {
-        user: process.env.SMTP_USER,
-        pass: process.env.SMTP_PASS,
-      },
-    });
-    await transporter.sendMail({
-      from: process.env.SMTP_FROM ?? `noreply@${process.env.APP_DOMAIN ?? 'fieldops.app'}`,
-      to,
-      subject: `Sign in to ${portalName}`,
-      text: `Click this link to sign in: ${link}\n\nThis link expires in ${MAGIC_LINK_EXPIRY_MINS} minutes.`,
-      html: `<p>Click the button below to sign in to <strong>${portalName}</strong>:</p>
-             <p><a href="${link}" style="background:#2563eb;color:#fff;padding:12px 24px;border-radius:6px;text-decoration:none;display:inline-block">Sign In</a></p>
-             <p style="color:#6b7280;font-size:14px">This link expires in ${MAGIC_LINK_EXPIRY_MINS} minutes. If you did not request this, ignore this email.</p>`,
-    });
-  } else {
-    // Dev mode: log link
-    console.log(`[Portal Magic Link] To: ${to} → ${link}`);
-  }
+/**
+ * Creates a single-use sign-in link and emails it.
+ *
+ * The tenant slug is REQUIRED in the path: PortalApp reads the workspace from
+ * pathname.split('/')[2], so a link of /portal/verify parses the slug as
+ * "verify" and the session lands against a workspace that doesn't exist.
+ */
+async function issueAndSendMagicLink(opts: {
+  portalUserId: string;
+  to: string;
+  displayName?: string | null;
+  portalName: string;
+  tenantSlug: string;
+}): Promise<{ result: EmailDeliveryResult; link: string }> {
+  const token = crypto.randomBytes(32).toString('hex');
+  await prisma.portalSession.create({
+    data: {
+      portalUserId: opts.portalUserId,
+      token,
+      type: 'magic_link',
+      expiresAt: new Date(Date.now() + MAGIC_LINK_EXPIRY_MINS * 60 * 1000),
+    },
+  });
+
+  const baseUrl = process.env.WEB_URL ?? 'http://localhost:5173';
+  const link = `${baseUrl}/portal/${opts.tenantSlug}/verify?token=${token}`;
+
+  const result = await sendPortalMagicLink({
+    to: opts.to,
+    portalName: opts.portalName,
+    link,
+    expiryMins: MAGIC_LINK_EXPIRY_MINS,
+    greetingName: opts.displayName?.split(' ')[0],
+  });
+
+  return { result, link };
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -322,21 +373,17 @@ portalRouter.post('/auth/magic-link', async (req: Request, res: Response): Promi
     return;
   }
 
-  const token = crypto.randomBytes(32).toString('hex');
-  const expiresAt = new Date(Date.now() + MAGIC_LINK_EXPIRY_MINS * 60 * 1000);
-
-  await prisma.portalSession.create({
-    data: {
-      portalUserId: portalUser.id,
-      token,
-      type: 'magic_link',
-      expiresAt,
-    },
+  await issueAndSendMagicLink({
+    portalUserId: portalUser.id,
+    to: email,
+    displayName: portalUser.displayName,
+    portalName: tenant.portalConfig.portalName,
+    tenantSlug: tenant.slug,
   });
 
-  const baseUrl = process.env.WEB_URL ?? 'http://localhost:5173';
-  await sendMagicLinkEmail(email, token, tenant.portalConfig.portalName, baseUrl);
-
+  // Deliberately the same response whether or not delivery succeeded — this
+  // route is unauthenticated, and a distinguishable reply turns it into an
+  // address-enumeration oracle.
   res.json({ message: 'Magic link sent. Check your email.' });
 });
 
@@ -479,12 +526,16 @@ portalRouter.get('/me', portalAuth, async (req: Request, res: Response): Promise
       })
     : null;
 
+  // Rental tenants are linked to a PMTenant rather than a Customer.
+  const rental = portalUser.pmTenantId ? await resolveRentalContext(portalUser.pmTenantId) : null;
+
   res.json({
     id: portalUser.id,
     email: portalUser.email,
     phone: portalUser.phone,
     displayName: portalUser.displayName,
     customer,
+    rental,
     portalName: portalUser.tenant.portalConfig?.portalName ?? 'Customer Portal',
     config: {
       primaryColor: portalUser.tenant.portalConfig?.primaryColor ?? '#2563eb',
@@ -493,6 +544,20 @@ portalRouter.get('/me', portalAuth, async (req: Request, res: Response): Promise
       enableWorkRequests: portalUser.tenant.portalConfig?.enableWorkRequests ?? true,
       enableMessaging: portalUser.tenant.portalConfig?.enableMessaging ?? true,
     },
+  });
+});
+
+// GET /portal/service-fee?urgency=normal
+// What to show the tenant on the submit screen, before they commit to anything.
+portalRouter.get('/service-fee', portalAuth, async (req: Request, res: Response): Promise<void> => {
+  const portalUser = (req as any).portalUser;
+  const { urgency } = req.query as { urgency?: string };
+  const quote = quoteFee(portalUser.tenant.portalConfig, urgency ?? 'normal');
+  res.json({
+    applies: quote.applies,
+    amount: quote.amount ? Number(quote.amount) : null,
+    disclosure: quote.disclosure,
+    requiresAcknowledgement: quote.requiresAcknowledgement,
   });
 });
 
@@ -547,28 +612,59 @@ portalRouter.post(
   portalAuth,
   async (req: Request, res: Response): Promise<void> => {
     const portalUser = (req as any).portalUser;
-    const { title, description, serviceAddress, category, urgency, photoUrls } = req.body as {
+    const {
+      title,
+      description,
+      serviceAddress,
+      category,
+      urgency,
+      photoUrls,
+      acknowledgedFee,
+    } = req.body as {
       title?: string;
       description?: string;
       serviceAddress?: string;
       category?: string;
       urgency?: string;
       photoUrls?: string[];
+      acknowledgedFee?: boolean;
     };
     if (!title || !description) {
       res.status(400).json({ error: 'title and description are required' });
       return;
     }
+
+    const effectiveUrgency = urgency ?? 'normal';
+    const quote = quoteFee(portalUser.tenant.portalConfig, effectiveUrgency);
+
+    // The tenant must have been shown the fee and agreed to it. Refusing here
+    // rather than silently recording the fee keeps "I was never told" off the table.
+    if (quote.requiresAcknowledgement && !acknowledgedFee) {
+      res.status(400).json({
+        error: 'Service fee acknowledgement required',
+        code: 'FEE_ACKNOWLEDGEMENT_REQUIRED',
+        fee: { amount: Number(quote.amount), disclosure: quote.disclosure },
+      });
+      return;
+    }
+
+    const rental = portalUser.pmTenantId ? await resolveRentalContext(portalUser.pmTenantId) : null;
+
     const request = await prisma.portalWorkRequest.create({
       data: {
         tenantId: portalUser.tenantId,
         portalUserId: portalUser.id,
+        propertyId: rental?.propertyId ?? null,
         title,
         description,
-        serviceAddress,
+        // Fall back to the leased address so the office always has somewhere to go.
+        serviceAddress: serviceAddress ?? rental?.address ?? null,
         category,
-        urgency: urgency ?? 'normal',
+        urgency: effectiveUrgency,
         photoUrls: photoUrls ?? [],
+        feeStatus: quote.status,
+        feeAmount: quote.amount,
+        feeAcknowledgedAt: quote.applies ? new Date() : null,
       },
     });
     res.status(201).json(request);
@@ -714,10 +810,45 @@ portalRouter.get(
     const tenantId = (req as any).user.tenantId;
     const users = await prisma.portalUser.findMany({
       where: { tenantId },
-      include: { customer: { select: { firstName: true, lastName: true, email: true } } },
-      orderBy: { createdAt: 'desc' },
+      include: {
+        pmTenant: {
+          select: {
+            firstName: true,
+            lastName: true,
+            leases: {
+              where: { status: 'active' },
+              select: { unit: { select: { property: { select: { name: true } } } } },
+              take: 1,
+            },
+            occupancies: {
+              where: { removedAt: null, lease: { status: 'active' } },
+              select: { lease: { select: { unit: { select: { property: { select: { name: true } } } } } } },
+              take: 1,
+            },
+          },
+        },
+      },
+      orderBy: [{ displayName: 'asc' }],
     });
-    res.json(users);
+
+    res.json(
+      users.map((u) => {
+        const asLeaseholder = u.pmTenant?.leases[0]?.unit.property.name ?? null;
+        const asOccupant = u.pmTenant?.occupancies[0]?.lease.unit.property.name ?? null;
+        return {
+          id: u.id,
+          email: u.email,
+          phone: u.phone,
+          displayName: u.displayName,
+          isActive: u.isActive,
+          lastLoginAt: u.lastLoginAt,
+          createdAt: u.createdAt,
+          isRentalTenant: !!u.pmTenantId,
+          property: asLeaseholder ?? asOccupant,
+          role: asLeaseholder ? 'leaseholder' : asOccupant ? 'occupant' : null,
+        };
+      }),
+    );
   },
 );
 
@@ -751,6 +882,57 @@ portalRouter.post(
       data: { tenantId, email, phone, displayName, customerId },
     });
     res.status(201).json(user);
+  },
+);
+
+// POST /portal/users/:id/send-login-link (admin)
+// Explicit and manual on purpose — creating a portal user sends nothing, and
+// nothing in this system emails a tenant unless an operator asks for it here.
+portalRouter.post(
+  '/users/:id/send-login-link',
+  authenticate,
+  requireRole('owner', 'admin'),
+  async (req: Request, res: Response): Promise<void> => {
+    const tenantId = (req as any).user.tenantId;
+
+    const portalUser = await prisma.portalUser.findFirst({
+      where: { id: req.params.id, tenantId },
+      include: { tenant: { include: { portalConfig: true } } },
+    });
+    if (!portalUser) {
+      res.status(404).json({ error: 'Portal user not found' });
+      return;
+    }
+    if (!portalUser.isActive) {
+      res.status(409).json({ error: 'This portal user is deactivated' });
+      return;
+    }
+    if (!portalUser.tenant.portalConfig?.isEnabled) {
+      res.status(409).json({ error: 'The portal is not enabled for this workspace' });
+      return;
+    }
+
+    const { result, link } = await issueAndSendMagicLink({
+      portalUserId: portalUser.id,
+      to: portalUser.email,
+      displayName: portalUser.displayName,
+      portalName: portalUser.tenant.portalConfig.portalName,
+      tenantSlug: portalUser.tenant.slug,
+    });
+
+    // Admin-triggered, so report honestly rather than always claiming success.
+    res.json({
+      result,
+      to: portalUser.email,
+      // Surfaced only when email isn't configured, so links can still be shared by hand.
+      link: result === 'simulated' ? link : undefined,
+      message:
+        result === 'sent'
+          ? `Login link emailed to ${portalUser.email}.`
+          : result === 'simulated'
+            ? 'Email is not configured (RESEND_API_KEY unset), so nothing was sent. The link is included here.'
+            : 'The email provider rejected the message. Nothing was delivered.',
+    });
   },
 );
 
@@ -883,16 +1065,24 @@ portalRouter.get(
   requireRole('owner', 'admin', 'dispatcher'),
   async (req: Request, res: Response): Promise<void> => {
     const tenantId = (req as any).user.tenantId;
-    const { status } = req.query as { status?: string };
+    const { status, feeStatus } = req.query as { status?: string; feeStatus?: string };
     const requests = await prisma.portalWorkRequest.findMany({
       where: {
         tenantId,
         ...(status ? { status } : {}),
+        ...(feeStatus ? { feeStatus: feeStatus as WorkRequestFeeStatus } : {}),
       },
       include: {
         portalUser: {
-          select: { email: true, displayName: true, customerId: true },
+          select: {
+            email: true,
+            displayName: true,
+            customerId: true,
+            pmTenant: { select: { firstName: true, lastName: true, phone: true } },
+          },
         },
+        property: { select: { id: true, name: true, street: true, city: true, zip: true } },
+        feeDecidedBy: { select: { firstName: true, lastName: true } },
       },
       orderBy: { createdAt: 'desc' },
       take: 100,
@@ -918,5 +1108,148 @@ portalRouter.patch(
       return;
     }
     res.json({ success: true });
+  },
+);
+
+// PATCH /portal/admin/work-requests/:id/fee
+// Record who was responsible; the fee status follows from that rather than
+// being set directly, so "waived" and "assessed" always have a reason attached.
+portalRouter.patch(
+  '/admin/work-requests/:id/fee',
+  authenticate,
+  requireRole('owner', 'admin', 'dispatcher'),
+  async (req: Request, res: Response): Promise<void> => {
+    const user = (req as any).user;
+    const { responsibility, note } = req.body as {
+      responsibility?: WorkRequestResponsibility;
+      note?: string;
+    };
+
+    if (!responsibility || !(responsibility in WorkRequestResponsibility)) {
+      res.status(400).json({
+        error: `responsibility must be one of: ${Object.keys(WorkRequestResponsibility).join(', ')}`,
+      });
+      return;
+    }
+
+    const existing = await prisma.portalWorkRequest.findFirst({
+      where: { id: req.params.id, tenantId: user.tenantId },
+    });
+    if (!existing) {
+      res.status(404).json({ error: 'Work request not found' });
+      return;
+    }
+
+    const config = await prisma.portalConfig.findUnique({ where: { tenantId: user.tenantId } });
+    const nextStatus = decideFee(config, responsibility, existing.urgency, existing.feeStatus);
+
+    const updated = await prisma.portalWorkRequest.update({
+      where: { id: existing.id },
+      data: {
+        responsibility,
+        ...(nextStatus ? { feeStatus: nextStatus } : {}),
+        feeDecidedAt: new Date(),
+        feeDecidedById: user.id,
+        feeDecisionNote: note ?? null,
+      },
+    });
+
+    res.json({
+      id: updated.id,
+      responsibility: updated.responsibility,
+      feeStatus: updated.feeStatus,
+      feeAmount: updated.feeAmount ? Number(updated.feeAmount) : null,
+    });
+  },
+);
+
+// POST /portal/admin/work-requests/:id/convert
+// Turn an accepted request into a CRM job. Previously requests accumulated in
+// their own table with no way through to scheduled work.
+portalRouter.post(
+  '/admin/work-requests/:id/convert',
+  authenticate,
+  requireRole('owner', 'admin', 'dispatcher'),
+  async (req: Request, res: Response): Promise<void> => {
+    const user = (req as any).user;
+
+    const request = await prisma.portalWorkRequest.findFirst({
+      where: { id: req.params.id, tenantId: user.tenantId },
+      include: {
+        portalUser: { include: { pmTenant: true } },
+        property: true,
+      },
+    });
+    if (!request) {
+      res.status(404).json({ error: 'Work request not found' });
+      return;
+    }
+    if (request.crmJobId) {
+      res.status(409).json({ error: 'Already converted', crmJobId: request.crmJobId });
+      return;
+    }
+
+    // CRMJob requires a Contact. Rental tenants live in PMTenant, so find or
+    // create the matching Contact rather than duplicating one per request.
+    const pm = request.portalUser.pmTenant;
+    const fullName = pm
+      ? `${pm.firstName} ${pm.lastName}`
+      : (request.portalUser.displayName ?? request.portalUser.email);
+    const phone = pm?.phone ?? request.portalUser.phone ?? '';
+
+    let contact = await prisma.contact.findFirst({
+      where: { tenantId: user.tenantId, fullName, isArchived: false },
+    });
+    if (!contact) {
+      contact = await prisma.contact.create({
+        data: {
+          tenantId: user.tenantId,
+          type: 'individual',
+          fullName,
+          phone,
+          email: request.portalUser.email,
+          address: request.property?.street ?? request.serviceAddress ?? null,
+          city: request.property?.city ?? null,
+          state: request.property?.state ?? null,
+          zip: request.property?.zip ?? null,
+          category: 'Tenant',
+          status: 'active_client',
+          leadSource: 'natural_contact',
+          notes: 'Created automatically from a tenant portal work request.',
+        },
+      });
+    }
+
+    const year = new Date().getFullYear();
+    const last = await prisma.cRMJob.findFirst({
+      where: { tenantId: user.tenantId, jobNumber: { startsWith: `JOB-${year}-` } },
+      orderBy: { jobNumber: 'desc' },
+    });
+    const seq = last ? parseInt(last.jobNumber.split('-')[2] ?? '0') + 1 : 1;
+    const jobNumber = `JOB-${year}-${String(seq).padStart(4, '0')}`;
+
+    const job = await prisma.cRMJob.create({
+      data: {
+        tenantId: user.tenantId,
+        jobNumber,
+        name: request.title,
+        contactId: contact.id,
+        serviceAddress: request.property?.street ?? request.serviceAddress ?? null,
+        serviceCity: request.property?.city ?? null,
+        serviceState: request.property?.state ?? null,
+        serviceZip: request.property?.zip ?? null,
+        tradeCategory: request.category ?? null,
+        status: 'approved',
+        notes: request.description,
+        createdById: user.id,
+      },
+    });
+
+    await prisma.portalWorkRequest.update({
+      where: { id: request.id },
+      data: { crmJobId: job.id, status: 'scheduled' },
+    });
+
+    res.status(201).json({ crmJobId: job.id, jobNumber: job.jobNumber, contactId: contact.id });
   },
 );

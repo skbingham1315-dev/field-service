@@ -406,3 +406,58 @@ export async function sendPasswordReset(opts: {
   );
   await sendEmail(opts.to, subject, html);
 }
+
+// ── Tenant Portal Magic Link ──────────────────────────────────────────────────
+
+/**
+ * Outcome of an explicitly-triggered send, so the caller can tell the operator
+ * what actually happened. The fire-and-forget `sendEmail` above swallows this;
+ * an admin clicking "send login link" deserves a real answer.
+ */
+export type EmailDeliveryResult = 'sent' | 'simulated' | 'failed';
+
+/**
+ * The portal sign-in link. Previously this went through a separate nodemailer
+ * SMTP path in routes/portal.ts, which meant configuring RESEND_API_KEY made
+ * every other email work while tenant logins silently logged to the console.
+ * One mailer, one key.
+ */
+export async function sendPortalMagicLink(opts: {
+  to: string;
+  portalName: string;
+  link: string;
+  expiryMins: number;
+  greetingName?: string;
+}): Promise<EmailDeliveryResult> {
+  const { to, portalName, link, expiryMins, greetingName } = opts;
+  const hello = greetingName ? `Hi ${greetingName},` : 'Hi,';
+
+  const html = baseHtml(
+    portalName,
+    `Sign in to ${portalName}`,
+    `<p style="margin:0 0 16px;color:#111827;font-size:16px;">${hello}</p>
+     <p style="margin:0 0 24px;color:#374151;font-size:15px;line-height:1.6;">
+       Use the button below to sign in and report a maintenance issue. There is no
+       password to remember.
+     </p>
+     <p style="margin:0 0 24px;">
+       <a href="${link}" style="background:#2563eb;color:#ffffff;padding:12px 24px;border-radius:6px;text-decoration:none;display:inline-block;font-weight:600;">Sign In</a>
+     </p>
+     <p style="margin:0;color:#6b7280;font-size:13px;line-height:1.6;">
+       This link expires in ${expiryMins} minutes and can only be used once.
+       If you did not request it, you can ignore this email.
+     </p>`,
+  );
+
+  if (!ENABLED || !resend) {
+    logger.info(`[email] simulated portal magic link to ${to}: ${link}`);
+    return 'simulated';
+  }
+  try {
+    await resend.emails.send({ from: FROM, to: [to], subject: `Sign in to ${portalName}`, html });
+    return 'sent';
+  } catch (err) {
+    logger.warn('[email] failed to send portal magic link', { to, err });
+    return 'failed';
+  }
+}

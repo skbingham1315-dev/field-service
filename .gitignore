@@ -38,3 +38,9 @@ packages/db/src/generated/
 
 # Uploads
 uploads/
+
+# Generated local credentials
+*.local.txt
+
+# Client rosters with tenant PII — never commit
+packages/db/scripts/*brandon*

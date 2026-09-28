@@ -362,9 +362,19 @@ async function main() {
   await prisma.$connect();
   logger.info('✅ PostgreSQL connected');
 
-  // Verify Redis connection
-  await redis.ping();
-  logger.info('✅ Redis connected');
+  // Verify Redis connection.
+  // Nothing in the API reads or writes Redis yet — this ping and the quit() on
+  // shutdown are its only call sites — so a missing Redis must not block startup.
+  // Promote this back to a hard failure once something actually depends on it.
+  try {
+    await redis.ping();
+    logger.info('✅ Redis connected');
+  } catch (e) {
+    logger.warn(
+      'Redis unavailable — continuing without it. No feature currently depends on Redis. ' +
+        `(${e instanceof Error ? e.message : String(e)})`,
+    );
+  }
 
   // Auto-update overdue invoices (run now + every hour)
   async function markOverdueInvoices() {
@@ -397,7 +407,8 @@ async function main() {
     logger.info('Shutting down...');
     httpServer.close();
     await prisma.$disconnect();
-    await redis.quit();
+    // Never connected when Redis is absent — don't let shutdown hang on it.
+    await redis.quit().catch(() => undefined);
     process.exit(0);
   };
 

@@ -68,6 +68,10 @@ interface PortalUser {
   lastLoginAt?: string;
   customerId?: string;
   customer?: { firstName: string; lastName: string; email?: string };
+  /** Rental tenants resolve to a property; plain customers do not. */
+  isRentalTenant?: boolean;
+  property?: string | null;
+  role?: 'leaseholder' | 'occupant' | null;
 }
 
 interface WorkRequest {
@@ -380,9 +384,31 @@ function UsersTab() {
       qc.invalidateQueries({ queryKey: ['portal-users'] });
       setShowInvite(false);
       setInvite({ email: '', displayName: '', phone: '' });
-      toast.success('Portal user invited');
+      toast.success('Account created. No email was sent — use Send login link when ready.');
     },
-    onError: () => toast.error('Failed to invite user'),
+    onError: () => toast.error('Failed to create account'),
+  });
+
+  // Nothing here goes out on its own — one person, one click, every time.
+  const [sending, setSending] = useState<string | null>(null);
+  const sendLink = useMutation({
+    mutationFn: (id: string) =>
+      api.post(`/portal/users/${id}/send-login-link`).then((r) => r.data),
+    onMutate: (id: string) => setSending(id),
+    onSettled: () => setSending(null),
+    onSuccess: (data: { result: string; message: string; link?: string }) => {
+      qc.invalidateQueries({ queryKey: ['portal-users'] });
+      if (data.result === 'sent') toast.success(data.message);
+      // Simulated and failed are NOT successes — say so plainly rather than
+      // letting an operator believe a tenant was emailed.
+      else if (data.result === 'simulated') {
+        toast.error(data.message);
+        // eslint-disable-next-line no-console
+        console.info('[portal] sign-in link (email not configured):', data.link);
+      } else toast.error(data.message);
+    },
+    onError: (err: any) =>
+      toast.error(err?.response?.data?.error ?? 'Could not send the login link'),
   });
 
   const toggleActive = useMutation({
@@ -405,10 +431,17 @@ function UsersTab() {
       <div className="flex items-center justify-between">
         <div>
           <h3 className="font-semibold text-slate-800">Portal Users</h3>
-          <p className="text-sm text-slate-500">{users.length} customer{users.length !== 1 ? 's' : ''} with portal access</p>
+          <p className="text-sm text-slate-500">
+            {users.length} with portal access
+            {users.filter((u) => !u.lastLoginAt).length > 0 &&
+              ` · ${users.filter((u) => !u.lastLoginAt).length} never signed in`}
+          </p>
+          <p className="text-xs text-slate-400 mt-0.5">
+            Nothing is emailed automatically. Send each person a link when you're ready.
+          </p>
         </div>
         <Button onClick={() => setShowInvite(true)} className="flex items-center gap-1.5">
-          <UserPlus className="h-4 w-4" /> Invite Customer
+          <UserPlus className="h-4 w-4" /> Add Portal User
         </Button>
       </div>
 
@@ -416,7 +449,7 @@ function UsersTab() {
       {showInvite && (
         <div className="bg-white rounded-2xl border border-slate-200 p-5">
           <div className="flex items-center justify-between mb-4">
-            <h4 className="font-semibold text-slate-800">Invite Customer</h4>
+            <h4 className="font-semibold text-slate-800">Add Portal User</h4>
             <button onClick={() => setShowInvite(false)} className="text-slate-400 hover:text-slate-600">
               <X className="h-4 w-4" />
             </button>
@@ -491,7 +524,14 @@ function UsersTab() {
                   {u.displayName ?? u.email}
                 </p>
                 <p className="text-xs text-slate-500 truncate">{u.email}</p>
-                {u.customer && (
+                {u.property && (
+                  <p className="text-xs text-slate-400">
+                    {u.property}
+                    {u.role === 'occupant' && ' · occupant'}
+                    {u.role === 'leaseholder' && ' · leaseholder'}
+                  </p>
+                )}
+                {!u.property && u.customer && (
                   <p className="text-xs text-slate-400">
                     Linked: {u.customer.firstName} {u.customer.lastName}
                   </p>
@@ -503,11 +543,29 @@ function UsersTab() {
                     Last login {new Date(u.lastLoginAt).toLocaleDateString()}
                   </span>
                 ) : (
-                  <span className="text-xs text-slate-400">Never logged in</span>
+                  <span className="text-xs font-medium text-amber-600">Never signed in</span>
                 )}
                 <Badge variant={u.isActive ? 'success' : 'secondary'}>
                   {u.isActive ? 'Active' : 'Inactive'}
                 </Badge>
+                <Button
+                  variant="outline"
+                  onClick={() => sendLink.mutate(u.id)}
+                  disabled={!u.isActive || sending === u.id}
+                  className="text-xs px-3 py-1.5 h-auto"
+                  title={`Email a sign-in link to ${u.email}`}
+                >
+                  {sending === u.id ? (
+                    <span className="flex items-center gap-1.5">
+                      <Loader2 className="h-3 w-3 animate-spin" /> Sending…
+                    </span>
+                  ) : (
+                    <span className="flex items-center gap-1.5">
+                      <Send className="h-3 w-3" />
+                      {u.lastLoginAt ? 'Resend link' : 'Send login link'}
+                    </span>
+                  )}
+                </Button>
                 <button
                   onClick={() => toggleActive.mutate({ id: u.id, isActive: !u.isActive })}
                   className="text-slate-400 hover:text-slate-700"
