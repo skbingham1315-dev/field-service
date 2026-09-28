@@ -76,6 +76,8 @@ interface FeeQuote {
   amount: number | null;
   disclosure: string;
   requiresAcknowledgement: boolean;
+  headline?: string;
+  acknowledgementLabel?: string;
 }
 
 interface PortalInvoice {
@@ -690,11 +692,11 @@ function RequestsTab({ slug, primaryColor, me }: { slug: string; primaryColor: s
                   <div className="flex-1">
                     {fee.applies && fee.amount != null && (
                       <p className="text-sm font-semibold text-amber-900 mb-0.5">
-                        ${fee.amount.toFixed(2)} service fee may apply
+                        {fee.headline || `$${fee.amount.toFixed(2)} service fee may apply`}
                       </p>
                     )}
                     <p
-                      className={`text-xs leading-relaxed ${
+                      className={`text-xs leading-relaxed whitespace-pre-line max-h-56 overflow-y-auto ${
                         fee.applies ? 'text-amber-800' : 'text-emerald-800'
                       }`}
                     >
@@ -709,8 +711,8 @@ function RequestsTab({ slug, primaryColor, me }: { slug: string; primaryColor: s
                           className="mt-0.5 h-4 w-4 rounded border-amber-300"
                         />
                         <span className="text-xs font-medium text-amber-900">
-                          I understand a ${fee.amount?.toFixed(2)} service fee may apply to this
-                          request.
+                          {fee.acknowledgementLabel ||
+                            `I understand a $${fee.amount?.toFixed(2)} service fee may apply to this request.`}
                         </span>
                       </label>
                     )}

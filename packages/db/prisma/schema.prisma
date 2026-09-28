@@ -1430,6 +1430,8 @@ model PortalWorkRequest {
   feeAmount         Decimal?                  @db.Decimal(10, 2)
   /// Set when the tenant ticked the acknowledgement on the submit screen.
   feeAcknowledgedAt DateTime?
+  /// Verbatim disclosure + checkbox text the tenant accepted, frozen at submission.
+  feeDisclosureSnapshot String?
   responsibility    WorkRequestResponsibility @default(undetermined)
   feeDecidedAt      DateTime?
   feeDecidedById    String?

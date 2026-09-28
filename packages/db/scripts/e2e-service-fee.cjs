@@ -167,7 +167,10 @@ async function call(path, opts) {
     token: adminToken,
     body: { responsibility: 'landlord', note: 'Compressor failure -- owner responsibility.' },
   });
-  check('landlord responsibility -> waived', r1.body.feeStatus === 'waived', r1.body.feeStatus);
+  // Clients choose whether landlord-responsibility repairs are waived (Brandon Rentals charges them).
+  const cfg = await p.portalConfig.findUnique({ where: { tenantId: org.id } });
+  const expectLandlord = cfg.serviceFeeWaiveLandlord ? 'waived' : 'assessed';
+  check('landlord responsibility -> ' + expectLandlord, r1.body.feeStatus === expectLandlord, r1.body.feeStatus);
 
   const tenantReq = await mk('Garbage disposal jammed');
   const r2 = await call('/portal/admin/work-requests/' + tenantReq.id + '/fee', {

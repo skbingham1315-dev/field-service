@@ -43,6 +43,10 @@ export interface FeeQuote {
   disclosure: string;
   /** When true the UI must collect an explicit acknowledgement before submitting. */
   requiresAcknowledgement: boolean;
+  /** One-line summary above the disclosure, e.g. "$50.00 service fee applies". */
+  headline: string;
+  /** Text beside the checkbox — what the tenant is actually agreeing to. */
+  acknowledgementLabel: string;
 }
 
 function money(amount: Prisma.Decimal | number): string {
@@ -64,6 +68,8 @@ export function quoteFee(policy: FeePolicy | null, urgency: string): FeeQuote {
       status: WorkRequestFeeStatus.not_applicable,
       disclosure: '',
       requiresAcknowledgement: false,
+      headline: '',
+      acknowledgementLabel: '',
     };
   }
 
@@ -76,6 +82,8 @@ export function quoteFee(policy: FeePolicy | null, urgency: string): FeeQuote {
         'No service fee applies to emergencies. If this is a gas leak, flood, fire, ' +
         'or a threat to your safety, call 911 first.',
       requiresAcknowledgement: false,
+      headline: 'No service fee for emergencies',
+      acknowledgementLabel: '',
     };
   }
 
@@ -87,12 +95,23 @@ export function quoteFee(policy: FeePolicy | null, urgency: string): FeeQuote {
       `normal wear, or a system or appliance failure. The fee applies when the damage ` +
       `was caused by the household, or when a technician visits and finds nothing wrong.`;
 
+  // With the landlord waiver off, every non-emergency request is charged, so the
+  // wording has to say "applies" — "may apply" would understate what they agree to.
+  const certain = !policy.serviceFeeWaiveLandlord;
+
   return {
     applies: true,
     amount,
     status: WorkRequestFeeStatus.disclosed,
     disclosure,
     requiresAcknowledgement: true,
+    headline: certain
+      ? `${money(amount)} service fee applies to this request`
+      : `${money(amount)} service fee may apply`,
+    acknowledgementLabel: certain
+      ? `I have read and agree to the terms above, and I agree to pay the ${money(amount)} ` +
+        `service fee for this request.`
+      : `I understand a ${money(amount)} service fee may apply to this request.`,
   };
 }
 

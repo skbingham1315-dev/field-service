@@ -558,6 +558,8 @@ portalRouter.get('/service-fee', portalAuth, async (req: Request, res: Response)
     amount: quote.amount ? Number(quote.amount) : null,
     disclosure: quote.disclosure,
     requiresAcknowledgement: quote.requiresAcknowledgement,
+    headline: quote.headline,
+    acknowledgementLabel: quote.acknowledgementLabel,
   });
 });
 
@@ -665,6 +667,12 @@ portalRouter.post(
         feeStatus: quote.status,
         feeAmount: quote.amount,
         feeAcknowledgedAt: quote.applies ? new Date() : null,
+        // Exactly what the tenant agreed to, kept even if the policy text changes later.
+        feeDisclosureSnapshot: quote.applies
+          ? `${quote.disclosure}
+
+[Acknowledged] ${quote.acknowledgementLabel}`
+          : null,
       },
     });
     res.status(201).json(request);
