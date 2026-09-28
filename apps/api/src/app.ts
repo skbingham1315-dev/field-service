@@ -175,8 +175,9 @@ if (process.env.NODE_ENV === 'production') {
     // at chunks that the last deploy removed.
     app.use(
       '/assets',
-      express.static(path.join(webDist, 'assets'), { immutable: true, maxAge: '1y', fallthrough: false }),
+      express.static(path.join(webDist, 'assets'), { immutable: true, maxAge: '1y' }),
     );
+    app.use('/assets', (_req, res) => { res.status(404).end(); });
     app.use(express.static(webDist, { index: false }));
     app.get('*', (_req, res, next) => {
       const index = path.join(webDist, 'index.html');
