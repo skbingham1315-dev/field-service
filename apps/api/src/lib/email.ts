@@ -50,15 +50,21 @@ function baseHtml(companyName: string, title: string, bodyContent: string): stri
 </html>`;
 }
 
-async function sendEmail(to: string, subject: string, html: string): Promise<void> {
+async function sendEmail(to: string, subject: string, html: string): Promise<EmailDeliveryResult> {
   if (!ENABLED || !resend) {
     logger.info(`[email] simulated: ${subject}`);
-    return;
+    return 'simulated';
   }
   try {
-    await resend.emails.send({ from: FROM, to: [to], subject, html });
+    const { error } = await resend.emails.send({ from: FROM, to: [to], subject, html });
+    if (error) {
+      logger.warn('[email] provider rejected email', { subject, to, error });
+      return 'failed';
+    }
+    return 'sent';
   } catch (err) {
     logger.warn('[email] failed to send email', { subject, to, err });
+    return 'failed';
   }
 }
 
@@ -221,7 +227,11 @@ export async function sendInvoiceSent(opts: {
   companyName: string;
   dueDate?: string;
   paymentUrl?: string;
-}): Promise<void> {
+  /** Shown under the pay button. Defaults to Stripe, which backs the /pay page. */
+  paymentProvider?: string;
+  /** Optional sentence explaining what the invoice is for. */
+  intro?: string;
+}): Promise<EmailDeliveryResult> {
   const subject = `Invoice ${opts.invoiceNumber} from ${opts.companyName} — Payment Due`;
   const html = baseHtml(
     opts.companyName,
@@ -229,7 +239,7 @@ export async function sendInvoiceSent(opts: {
     `<h2 style="margin:0 0 8px;color:#111827;font-size:20px;">Invoice Ready for Payment</h2>
     <p style="margin:0 0 24px;color:#374151;">Hi ${opts.customerName},</p>
     <p style="margin:0 0 24px;color:#374151;">
-      Your invoice from ${opts.companyName} is ready. Please see the payment details below.
+      Your invoice from ${opts.companyName} is ready.${opts.intro ? ' ' + opts.intro : ''} Please see the payment details below.
     </p>
     <table width="100%" cellpadding="0" cellspacing="0" style="border:1px solid #e5e7eb;border-radius:6px;overflow:hidden;margin-bottom:24px;">
       <tr style="background:#f9fafb;">
@@ -253,11 +263,11 @@ export async function sendInvoiceSent(opts: {
       <a href="${opts.paymentUrl}" style="display:inline-block;background:#2563eb;color:#ffffff;font-size:16px;font-weight:700;padding:14px 36px;border-radius:8px;text-decoration:none;">
         Pay Now — ${formatCents(opts.amountDue)}
       </a>
-      <p style="margin:12px 0 0;color:#6b7280;font-size:12px;">Secure payment powered by Stripe</p>
+      <p style="margin:12px 0 0;color:#6b7280;font-size:12px;">Secure payment powered by ${opts.paymentProvider ?? 'Stripe'}</p>
     </div>` : ''}
     <p style="margin:0;color:#374151;">Please contact us if you have any questions about this invoice.</p>`,
   );
-  await sendEmail(opts.to, subject, html);
+  return sendEmail(opts.to, subject, html);
 }
 
 // ── Payment Received ──────────────────────────────────────────────────────────
@@ -454,7 +464,11 @@ export async function sendPortalMagicLink(opts: {
     return 'simulated';
   }
   try {
-    await resend.emails.send({ from: FROM, to: [to], subject: `Sign in to ${portalName}`, html });
+    const { error } = await resend.emails.send({ from: FROM, to: [to], subject: `Sign in to ${portalName}`, html });
+    if (error) {
+      logger.warn('[email] provider rejected portal magic link', { to, error });
+      return 'failed';
+    }
     return 'sent';
   } catch (err) {
     logger.warn('[email] failed to send portal magic link', { to, err });

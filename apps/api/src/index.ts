@@ -204,27 +204,6 @@ async function main() {
     logger.warn('invoice payToken backfill skipped: ' + String(e));
   }
 
-  // One-time: attach Square token for Blue Dingo tenant
-  try {
-    const bdTenantSq = await prisma.tenant.findFirst({
-      where: { slug: { in: ['bluedingoconstruction', 'blue-dingo', 'bluedingo'] } },
-      select: { id: true, settings: true },
-    });
-    if (bdTenantSq) {
-      const s = (bdTenantSq.settings ?? {}) as Record<string, unknown>;
-      const currentToken = typeof s.squareAccessToken === 'string' ? s.squareAccessToken : '';
-      if (!currentToken || currentToken.startsWith('sq0idp-')) {
-        s.squareAccessToken = 'EAAAl7x5zmzLnMcP2-7KXcZItiM96ETexVgASTpxj91CBgjJZwKPsCwWqjGCyLZo';
-        await prisma.tenant.update({ where: { id: bdTenantSq.id }, data: { settings: s as any } });
-        logger.info('Square production token attached for Blue Dingo tenant');
-      }
-    } else {
-      logger.warn('Square token: tenant not found by slug');
-    }
-  } catch (e) {
-    logger.warn('Square token attach skipped: ' + String(e));
-  }
-
   // One-time: wipe all invoices/estimates/payments for Blue Dingo tenant (clean slate)
   try {
     // Find tenant by slug instead of email

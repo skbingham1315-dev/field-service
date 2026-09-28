@@ -84,7 +84,27 @@ interface WorkRequest {
   serviceAddress?: string;
   createdAt: string;
   portalUser: { email: string; displayName?: string; customerId?: string };
+  feeStatus: 'not_applicable' | 'disclosed' | 'waived' | 'assessed' | 'invoiced' | 'paid';
+  feeAmount?: string | number | null;
+  feeAcknowledgedAt?: string | null;
+  feeInvoice?: {
+    id: string;
+    invoiceNumber: string;
+    status: string;
+    amountDue: number;
+    squarePaymentUrl?: string | null;
+    paidAt?: string | null;
+  } | null;
 }
+
+const FEE_BADGE: Record<WorkRequest['feeStatus'], { label: string; cls: string }> = {
+  not_applicable: { label: 'No fee', cls: 'text-slate-500 bg-slate-100' },
+  disclosed: { label: 'Fee agreed', cls: 'text-amber-700 bg-amber-50' },
+  assessed: { label: 'Fee owed', cls: 'text-amber-700 bg-amber-50' },
+  waived: { label: 'Fee waived', cls: 'text-slate-600 bg-slate-100' },
+  invoiced: { label: 'Fee invoiced', cls: 'text-blue-700 bg-blue-50' },
+  paid: { label: 'Fee paid', cls: 'text-emerald-700 bg-emerald-50' },
+};
 
 interface MessageThread {
   portalUserId: string;
@@ -736,6 +756,10 @@ function MessagesTab() {
 
 // ─── Work Requests Tab ────────────────────────────────────────────────────────
 
+function fmtFee(amount: string | number | null | undefined): string {
+  return '$' + Number(amount ?? 0).toFixed(2);
+}
+
 function WorkRequestsTab() {
   const qc = useQueryClient();
   const [expanded, setExpanded] = useState<string | null>(null);
@@ -755,6 +779,28 @@ function WorkRequestsTab() {
       api.patch(`/portal/admin/work-requests/${id}`, { status }).then((r) => r.data),
     onSuccess: (_data, { status }) => { qc.invalidateQueries({ queryKey: ['portal-work-requests'] }); toast.success(`Request ${status}`); },
     onError: () => toast.error('Failed to update request'),
+  });
+
+  const invoiceFee = useMutation({
+    mutationFn: (id: string) =>
+      api.post(`/portal/admin/work-requests/${id}/invoice-fee`).then((r) => r.data as {
+        invoiceNumber: string;
+        paymentUrl: string;
+        email: 'sent' | 'simulated' | 'failed' | 'no_email_on_file';
+      }),
+    onSuccess: (data) => {
+      qc.invalidateQueries({ queryKey: ['portal-work-requests'] });
+      if (data.email === 'sent') {
+        toast.success(`${data.invoiceNumber} emailed to the tenant with a Square pay link`);
+      } else {
+        // Be explicit: the invoice exists, but nobody was told about it.
+        toast.error(
+          `${data.invoiceNumber} created but NOT emailed (${data.email.replace(/_/g, ' ')}). Send the tenant this link: ${data.paymentUrl}`,
+        );
+      }
+    },
+    onError: (err: any) =>
+      toast.error(err?.response?.data?.error?.message ?? err?.response?.data?.error ?? 'Could not invoice the fee'),
   });
 
   if (isLoading) {
@@ -811,6 +857,11 @@ function WorkRequestsTab() {
                     >
                       {r.urgency}
                     </span>
+                    {r.feeStatus && r.feeStatus !== 'not_applicable' && (
+                      <span className={`text-[11px] px-2 py-0.5 rounded-full font-medium ${FEE_BADGE[r.feeStatus].cls}`}>
+                        {FEE_BADGE[r.feeStatus].label}
+                      </span>
+                    )}
                   </div>
                   <p className="text-xs text-slate-500 mt-0.5">
                     {r.portalUser.displayName ?? r.portalUser.email} ·{' '}
@@ -831,6 +882,57 @@ function WorkRequestsTab() {
                   )}
                   {r.category && (
                     <p className="text-xs text-slate-500 mt-1">Category: {r.category}</p>
+                  )}
+                  {r.feeStatus !== 'not_applicable' && r.feeAmount != null && (
+                    <div className="mt-4 rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 flex items-center gap-3 flex-wrap">
+                      <div className="flex-1 min-w-[12rem]">
+                        <p className="text-sm font-medium text-slate-800">
+                          {fmtFee(r.feeAmount)} service fee · {FEE_BADGE[r.feeStatus].label.toLowerCase()}
+                        </p>
+                        <p className="text-xs text-slate-500 mt-0.5">
+                          {r.feeInvoice
+                            ? `Invoice ${r.feeInvoice.invoiceNumber} · ${r.feeInvoice.status}${
+                                r.feeInvoice.paidAt ? ' ' + new Date(r.feeInvoice.paidAt).toLocaleDateString() : ''
+                              }`
+                            : r.feeAcknowledgedAt
+                              ? `Tenant agreed ${new Date(r.feeAcknowledgedAt).toLocaleString()}`
+                              : 'Not yet invoiced'}
+                        </p>
+                      </div>
+                      {r.feeInvoice?.squarePaymentUrl && r.feeStatus === 'invoiced' && (
+                        <a
+                          href={r.feeInvoice.squarePaymentUrl}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="text-xs px-2.5 py-1.5 rounded-lg border border-slate-200 bg-white hover:bg-slate-50 text-slate-600 inline-flex items-center gap-1"
+                        >
+                          <ExternalLink className="h-3.5 w-3.5" /> Pay link
+                        </a>
+                      )}
+                      {(r.feeStatus === 'assessed' || r.feeStatus === 'disclosed') && r.urgency !== 'emergency' && (
+                        <button
+                          onClick={() => {
+                            const who = r.portalUser.displayName ?? r.portalUser.email;
+                            if (
+                              window.confirm(
+                                `Invoice ${who} ${fmtFee(r.feeAmount)} for "${r.title}"?\n\nThis emails the tenant a Square payment link.`,
+                              )
+                            ) {
+                              invoiceFee.mutate(r.id);
+                            }
+                          }}
+                          disabled={invoiceFee.isPending}
+                          className="text-xs px-3 py-1.5 rounded-lg bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50 inline-flex items-center gap-1"
+                        >
+                          {invoiceFee.isPending && invoiceFee.variables === r.id ? (
+                            <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                          ) : (
+                            <Send className="h-3.5 w-3.5" />
+                          )}
+                          Invoice {fmtFee(r.feeAmount)} fee
+                        </button>
+                      )}
+                    </div>
                   )}
                   <div className="flex items-center gap-2 mt-4">
                     <span className="text-xs text-slate-500">Update status:</span>

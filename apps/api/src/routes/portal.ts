@@ -38,6 +38,7 @@ import { prisma } from '@fsp/db';
 import { WorkRequestFeeStatus, WorkRequestResponsibility } from '@prisma/client';
 import { authenticate, requireRole } from '../middleware/authenticate';
 import { decideFee, quoteFee } from '../lib/service-fee';
+import { invoiceServiceFee, syncServiceFeePayments } from '../lib/fee-invoice';
 import jwt from 'jsonwebtoken';
 import crypto from 'crypto';
 import { sendPortalMagicLink, type EmailDeliveryResult } from '../lib/email';
@@ -570,6 +571,8 @@ portalRouter.get('/invoices', portalAuth, async (req: Request, res: Response): P
     res.json([]);
     return;
   }
+  // A tenant who just paid through Square should see it reflected here.
+  await syncServiceFeePayments(portalUser.tenantId).catch(() => undefined);
   const invoicesRaw = await prisma.invoice.findMany({
     where: { customerId: portalUser.customerId },
     include: { lineItems: true, payments: true },
@@ -1074,6 +1077,7 @@ portalRouter.get(
   async (req: Request, res: Response): Promise<void> => {
     const tenantId = (req as any).user.tenantId;
     const { status, feeStatus } = req.query as { status?: string; feeStatus?: string };
+    await syncServiceFeePayments(tenantId).catch(() => undefined);
     const requests = await prisma.portalWorkRequest.findMany({
       where: {
         tenantId,
@@ -1091,6 +1095,9 @@ portalRouter.get(
         },
         property: { select: { id: true, name: true, street: true, city: true, zip: true } },
         feeDecidedBy: { select: { firstName: true, lastName: true } },
+        feeInvoice: {
+          select: { id: true, invoiceNumber: true, status: true, amountDue: true, squarePaymentUrl: true, paidAt: true },
+        },
       },
       orderBy: { createdAt: 'desc' },
       take: 100,
@@ -1168,6 +1175,20 @@ portalRouter.patch(
       feeStatus: updated.feeStatus,
       feeAmount: updated.feeAmount ? Number(updated.feeAmount) : null,
     });
+  },
+);
+
+// POST /portal/admin/work-requests/:id/invoice-fee
+// Bill the service fee after the visit: creates the invoice, a Square payment
+// link, and emails the tenant. Only ever runs on an explicit click.
+portalRouter.post(
+  '/admin/work-requests/:id/invoice-fee',
+  authenticate,
+  requireRole('owner', 'admin'),
+  async (req: Request, res: Response): Promise<void> => {
+    const tenantId = (req as any).user.tenantId;
+    const result = await invoiceServiceFee(tenantId, req.params.id);
+    res.status(201).json(result);
   },
 );
 

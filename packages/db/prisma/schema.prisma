@@ -452,6 +452,10 @@ model Invoice {
   downPaymentAmount      Int?          // cents
   downPaymentDueDate     DateTime?
   notes                  String?
+  /// Square payment link used to collect this invoice (service-fee invoices).
+  squarePaymentLinkId    String?
+  squarePaymentUrl       String?
+  squareOrderId          String?
   createdAt              DateTime      @default(now())
   updatedAt              DateTime      @updatedAt
 
@@ -460,6 +464,7 @@ model Invoice {
   lineItems InvoiceLineItem[]
   payments  Payment[]
   jobs      Job[]
+  feeWorkRequests PortalWorkRequest[] @relation("WorkRequestFeeInvoice")
 
   @@unique([tenantId, invoiceNumber])
   @@index([tenantId, status])
@@ -1436,6 +1441,8 @@ model PortalWorkRequest {
   feeDecidedAt      DateTime?
   feeDecidedById    String?
   feeDecisionNote   String?
+  /// The invoice that billed this fee to the tenant, once one exists.
+  feeInvoiceId      String?
 
   createdAt      DateTime  @default(now())
   updatedAt      DateTime  @updatedAt
@@ -1444,11 +1451,13 @@ model PortalWorkRequest {
   portalUser     PortalUser @relation(fields: [portalUserId], references: [id])
   property       Property?  @relation(fields: [propertyId], references: [id], onDelete: SetNull)
   feeDecidedBy   User?      @relation("WorkRequestFeeDecider", fields: [feeDecidedById], references: [id], onDelete: SetNull)
+  feeInvoice     Invoice?   @relation("WorkRequestFeeInvoice", fields: [feeInvoiceId], references: [id], onDelete: SetNull)
 
   @@index([tenantId, status])
   @@index([portalUserId])
   @@index([propertyId])
   @@index([tenantId, feeStatus])
+  @@index([feeInvoiceId])
   @@map("portal_work_requests")
 }
 

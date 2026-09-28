@@ -6,11 +6,7 @@ import Stripe from 'stripe';
 import type { ApiResponse } from '@fsp/types';
 import { sendInvoiceSent, sendPaymentReceived } from '../lib/email';
 import { sendSms } from '../lib/sms';
-import crypto from 'crypto';
-
-function generatePayToken(): string {
-  return crypto.randomBytes(24).toString('hex');
-}
+import { generatePayToken, getNextInvoiceNumber } from '../lib/invoice-number';
 
 export const invoicesRouter = Router();
 
@@ -25,16 +21,6 @@ invoicesRouter.use((req, res, next) => {
 });
 
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY ?? '', { apiVersion: '2024-04-10' });
-
-async function getNextInvoiceNumber(tenantId: string): Promise<string> {
-  const last = await prisma.invoice.findFirst({
-    where: { tenantId, invoiceNumber: { startsWith: 'INV-' } },
-    orderBy: { invoiceNumber: 'desc' },
-    select: { invoiceNumber: true },
-  });
-  const lastNum = last ? parseInt(last.invoiceNumber.replace('INV-', ''), 10) : 0;
-  return `INV-${String(lastNum + 1).padStart(5, '0')}`;
-}
 
 const invoiceInclude = {
   customer: { select: { id: true, firstName: true, lastName: true, email: true, phone: true } },

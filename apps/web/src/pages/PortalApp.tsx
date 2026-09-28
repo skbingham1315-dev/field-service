@@ -479,7 +479,10 @@ function InvoicesTab({ slug, primaryColor }: { slug: string; primaryColor: strin
                       className="px-5 py-2.5 rounded-xl text-white text-sm font-medium"
                       style={{ background: primaryColor }}
                       onClick={() => {
-                        if ((inv as any).payToken) {
+                        // Service-fee invoices are collected through Square; everything else uses /pay.
+                        if ((inv as any).squarePaymentUrl) {
+                          window.open((inv as any).squarePaymentUrl, '_blank');
+                        } else if ((inv as any).payToken) {
                           window.open(`/pay/${(inv as any).payToken}`, '_blank');
                         }
                       }}
