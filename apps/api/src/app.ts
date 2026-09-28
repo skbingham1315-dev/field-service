@@ -170,9 +170,17 @@ if (process.env.NODE_ENV === 'production') {
   // process.cwd() = /app/apps/api when started via nixpacks start cmd
   const webDist = path.resolve(process.cwd(), '..', 'web', 'dist');
   if (fs.existsSync(webDist)) {
-    app.use(express.static(webDist));
+    // Hashed build files never change under the same name, so they can be cached
+    // forever. index.html must always be revalidated, or a browser keeps pointing
+    // at chunks that the last deploy removed.
+    app.use(
+      '/assets',
+      express.static(path.join(webDist, 'assets'), { immutable: true, maxAge: '1y', fallthrough: false }),
+    );
+    app.use(express.static(webDist, { index: false }));
     app.get('*', (_req, res, next) => {
       const index = path.join(webDist, 'index.html');
+      res.setHeader('Cache-Control', 'no-cache');
       res.sendFile(index, (err) => { if (err) next(err); });
     });
   }
