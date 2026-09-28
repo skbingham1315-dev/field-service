@@ -5,7 +5,7 @@ import { MemberActivityDrawer } from '../components/MemberActivityDrawer';
 import L from 'leaflet';
 import { api } from '../lib/api';
 import { getSocket, connectSocket } from '../lib/socket';
-import { MapPin, User, RefreshCw, ChevronLeft, ChevronRight, Filter } from 'lucide-react';
+import { MapPin, User, RefreshCw, ChevronLeft, ChevronRight, Filter, Home } from 'lucide-react';
 
 // Fix Leaflet default icon paths broken by bundlers
 delete (L.Icon.Default.prototype as unknown as Record<string, unknown>)._getIconUrl;
@@ -32,6 +32,35 @@ function makeTechIcon(initials: string) {
     iconAnchor: [18, 18],
   });
 }
+
+function makeRentalIcon(occupied: boolean, openRequests: number) {
+  const bg = occupied ? '#0f766e' : '#94a3b8';
+  const ring = openRequests > 0 ? 'box-shadow:0 0 0 3px #f59e0b,0 1px 4px rgba(0,0,0,0.4);' : 'box-shadow:0 1px 4px rgba(0,0,0,0.4);';
+  const badge = openRequests > 0
+    ? `<div style="position:absolute;top:-6px;right:-6px;min-width:16px;height:16px;padding:0 3px;border-radius:8px;background:#f59e0b;color:white;font-size:10px;font-weight:700;line-height:16px;text-align:center">${openRequests}</div>`
+    : '';
+  return L.divIcon({
+    className: '',
+    html: `<div style="position:relative;width:26px;height:26px;border-radius:6px;background:${bg};border:2px solid white;${ring}display:flex;align-items:center;justify-content:center">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M3 10.5 12 3l9 7.5"/><path d="M5 9.5V21h14V9.5"/></svg>${badge}</div>`,
+    iconSize: [26, 26],
+    iconAnchor: [13, 13],
+  });
+}
+
+interface RentalPin {
+  id: string;
+  name: string;
+  address: string;
+  lat: number | null;
+  lng: number | null;
+  occupied: boolean;
+  leaseEnd: string | null;
+  residents: string[];
+  openRequests: number;
+}
+
+const SHOW_RENTALS_KEY = 'fsp_map_show_rentals';
 
 const STATUS_COLORS: Record<string, string> = {
   scheduled: '#3b82f6',
@@ -62,19 +91,43 @@ interface TechLocation {
   isAvailable: boolean;
 }
 
-// Fit map to show all techs + jobs on first load
+// Fit the map to everything on it. Refits when more points arrive (rentals load
+// separately from jobs) until the user pans or zooms themselves.
 function FitBounds({ points }: { points: [number, number][] }) {
   const map = useMap();
-  const fitted = useRef(false);
-  useEffect(() => {
-    if (fitted.current || points.length === 0) return;
-    fitted.current = true;
-    if (points.length === 1) {
-      map.setView(points[0], 13);
+  const fittedCount = useRef(0);
+  const userMoved = useRef(false);
+  const latest = useRef(points);
+  latest.current = points;
+
+  const fit = useCallback(() => {
+    const pts = latest.current;
+    if (userMoved.current || pts.length === 0) return;
+    map.invalidateSize();
+    if (pts.length === 1) {
+      map.setView(pts[0], 13);
     } else {
-      map.fitBounds(L.latLngBounds(points), { padding: [48, 48] });
+      map.fitBounds(L.latLngBounds(pts), { padding: [48, 48], maxZoom: 15 });
     }
-  }, [map, points]);
+  }, [map]);
+
+  useEffect(() => {
+    const mark = () => { userMoved.current = true; };
+    const el = map.getContainer();
+    map.on('dragstart', mark);
+    el.addEventListener('wheel', mark, { passive: true });
+    // The container is often still mid-layout when points first arrive. Refit
+    // whenever it changes size, so the first fit isn't computed for a tiny box.
+    const ro = new ResizeObserver(() => fit());
+    ro.observe(el);
+    return () => { map.off('dragstart', mark); el.removeEventListener('wheel', mark); ro.disconnect(); };
+  }, [map, fit]);
+
+  useEffect(() => {
+    if (points.length === 0 || points.length <= fittedCount.current) return;
+    fittedCount.current = points.length;
+    fit();
+  }, [points, fit]);
   return null;
 }
 
@@ -90,6 +143,26 @@ export function MapPage() {
   const [selectedMember, setSelectedMember] = useState<{ id: string; name: string } | null>(null);
   const [dateFilter, setDateFilter] = useState(todayStr());
   const [statusFilter, setStatusFilter] = useState<string>('');
+  const [rentals, setRentals] = useState<RentalPin[]>([]);
+  const [showRentals, setShowRentals] = useState(() => {
+    try { return localStorage.getItem(SHOW_RENTALS_KEY) !== '0'; } catch { return true; }
+  });
+  const toggleRentals = (on: boolean) => {
+    setShowRentals(on);
+    try { localStorage.setItem(SHOW_RENTALS_KEY, on ? '1' : '0'); } catch { /* storage blocked */ }
+  };
+
+  // Rentals change rarely, so they load once (and on manual refresh) rather than
+  // on the 30s job poll. Workspaces without properties just get an empty list.
+  const loadRentals = useCallback(async () => {
+    try {
+      const res = await api.get('/properties/map');
+      setRentals(Array.isArray(res.data) ? res.data : []);
+    } catch {
+      setRentals([]);
+    }
+  }, []);
+  useEffect(() => { loadRentals(); }, [loadRentals]);
 
   const load = useCallback(async () => {
     try {
@@ -139,10 +212,13 @@ export function MapPage() {
   const filteredJobs = statusFilter ? jobs.filter(j => j.status === statusFilter) : jobs;
   const jobsWithCoords = filteredJobs.filter((j) => j.serviceAddress?.lat && j.serviceAddress?.lng);
 
-  // All points for initial fit: techs first (most current), then jobs
+  const rentalsWithCoords = showRentals ? rentals.filter((r) => r.lat != null && r.lng != null) : [];
+
+  // All points for initial fit: techs first (most current), then jobs, then rentals
   const allPoints: [number, number][] = [
     ...techs.map((t): [number, number] => [t.lastLat, t.lastLng]),
     ...jobsWithCoords.map((j): [number, number] => [j.serviceAddress!.lat!, j.serviceAddress!.lng!]),
+    ...rentalsWithCoords.map((r): [number, number] => [r.lat!, r.lng!]),
   ];
 
   const center: [number, number] = [33.4484, -112.074]; // Phoenix fallback (only used before data loads)
@@ -176,13 +252,21 @@ export function MapPage() {
             <span className="flex items-center gap-1"><span className="h-3 w-3 rounded-full bg-emerald-500 inline-block" /> Completed</span>
             <span className="flex items-center gap-1"><span className="h-3 w-3 rounded-full bg-indigo-600 inline-block" /> Technician</span>
           </div>
+          {rentals.length > 0 && (
+            <label className="flex items-center gap-1.5 text-xs text-gray-600 cursor-pointer select-none">
+              <input type="checkbox" checked={showRentals} onChange={(e) => toggleRentals(e.target.checked)} className="h-3.5 w-3.5" />
+              <span className="h-3.5 w-3.5 rounded bg-teal-700 inline-flex items-center justify-center"><Home className="h-2.5 w-2.5 text-white" /></span>
+              Rentals
+            </label>
+          )}
         </div>
         <div className="flex items-center gap-3">
           <span className="text-xs text-gray-400">
-            {jobsWithCoords.length} jobs · {techs.length} field staff · updated {lastRefresh.toLocaleTimeString()}
+            {jobsWithCoords.length} jobs · {techs.length} field staff
+            {rentals.length > 0 && ` · ${rentals.filter((r) => r.lat != null).length} rentals`} · updated {lastRefresh.toLocaleTimeString()}
           </span>
           <button
-            onClick={load}
+            onClick={() => { load(); loadRentals(); }}
             className="p-1.5 rounded-lg hover:bg-gray-100 text-gray-500 hover:text-gray-900 transition-colors"
             title="Refresh"
           >
@@ -201,6 +285,33 @@ export function MapPage() {
         >
           <TileLayer url={MAP_TILE_URL} attribution={MAP_TILE_ATTRIBUTION} maxZoom={MAP_TILE_MAX_ZOOM} />
           <FitBounds points={allPoints} />
+
+          {/* Rental property markers */}
+          {rentalsWithCoords.map((r) => (
+            <Marker key={`rental-${r.id}`} position={[r.lat!, r.lng!]} icon={makeRentalIcon(r.occupied, r.openRequests)}>
+              <Popup>
+                <div className="min-w-[180px]">
+                  <p className="font-semibold text-sm">{r.name}</p>
+                  <p className="text-xs text-gray-500">{r.address}</p>
+                  {r.residents.length > 0 ? (
+                    <p className="text-xs text-gray-700 mt-1.5">{r.residents.join(', ')}</p>
+                  ) : (
+                    <p className="text-xs text-gray-400 mt-1.5">Vacant</p>
+                  )}
+                  {r.leaseEnd && (
+                    <p className="text-xs text-gray-500 mt-0.5">
+                      Lease ends {new Date(r.leaseEnd).toLocaleDateString([], { month: 'short', day: 'numeric', year: 'numeric' })}
+                    </p>
+                  )}
+                  {r.openRequests > 0 && (
+                    <span className="inline-block mt-1.5 px-2 py-0.5 rounded-full bg-amber-500 text-white text-xs font-medium">
+                      {r.openRequests} open request{r.openRequests === 1 ? '' : 's'}
+                    </span>
+                  )}
+                </div>
+              </Popup>
+            </Marker>
+          ))}
 
           {/* Job markers */}
           {jobsWithCoords.map((job) => (
@@ -275,6 +386,13 @@ export function MapPage() {
           name={selectedMember.name}
           onClose={() => setSelectedMember(null)}
         />
+      )}
+
+      {showRentals && rentals.some((r) => r.lat == null) && (
+        <div className="px-4 py-1.5 bg-amber-50 border-t border-amber-100 text-xs text-amber-700 flex items-center gap-1.5 flex-shrink-0">
+          <Home className="h-3.5 w-3.5" />
+          {rentals.filter((r) => r.lat == null).length} rental(s) could not be located from their address and are not shown.
+        </div>
       )}
 
       {/* No coords notice */}

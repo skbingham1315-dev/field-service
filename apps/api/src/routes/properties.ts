@@ -50,6 +50,7 @@ import Papa from 'papaparse';
 import * as XLSX from 'xlsx';
 import { prisma } from '@fsp/db';
 import { authenticate } from '../middleware/authenticate';
+import { geocodeAddress, geocodePropertyAndSave } from '../lib/geocode';
 
 export const propertiesRouter = Router();
 propertiesRouter.use(authenticate);
@@ -95,6 +96,7 @@ propertiesRouter.post('/', async (req, res) => {
   const property = await prisma.property.create({
     data: { tenantId, name, type, street, city, state, zip, country, totalUnits, yearBuilt, notes },
   });
+  geocodePropertyAndSave(property.id, { street, city, state, zip, country });
   res.status(201).json(property);
 });
 
@@ -105,6 +107,12 @@ propertiesRouter.patch('/:id', async (req, res) => {
     data: req.body,
   });
   if (!property.count) { res.status(404).json({ error: 'Not found' }); return; }
+  // Re-pin on the map when the address moves (unless coordinates were sent explicitly).
+  const b = req.body ?? {};
+  if (['street', 'city', 'state', 'zip'].some((k) => k in b) && !('lat' in b)) {
+    const p = await prisma.property.findUnique({ where: { id: req.params.id } });
+    if (p) geocodePropertyAndSave(p.id, p);
+  }
   res.json({ success: true });
 });
 
@@ -799,6 +807,69 @@ propertiesRouter.post('/import/ledger', upload.single('file'), async (req, res) 
     } catch { skipped++; }
   }
   res.json({ imported, skipped, total: data.length });
+});
+
+// ─── Map pins ────────────────────────────────────────────────────────────────
+// Rentals for the Live Map: coordinates, who lives there, and open requests.
+// Properties still missing coordinates are geocoded here (a few per call), so
+// the map fills itself in without a separate backfill step.
+
+propertiesRouter.get('/map', async (req, res) => {
+  const tenantId = req.user!.tenantId;
+  const missing = await prisma.property.findMany({
+    where: { tenantId, isArchived: false, lat: null },
+    take: 10,
+  });
+  for (const p of missing) {
+    const coords = await geocodeAddress(p);
+    if (coords) await prisma.property.update({ where: { id: p.id }, data: coords });
+  }
+
+  const properties = await prisma.property.findMany({
+    where: { tenantId, isArchived: false },
+    select: {
+      id: true, name: true, street: true, city: true, state: true, zip: true, lat: true, lng: true,
+      units: {
+        select: {
+          leases: {
+            where: { status: 'active' as any },
+            select: {
+              endDate: true,
+              pmTenant: { select: { firstName: true, lastName: true } },
+              occupants: { select: { pmTenant: { select: { firstName: true, lastName: true } } } },
+            },
+            take: 1,
+          },
+        },
+      },
+      _count: {
+        select: { workRequests: { where: { status: { notIn: ['completed', 'cancelled'] } } } },
+      },
+    },
+    orderBy: { name: 'asc' },
+  });
+
+  res.json(
+    properties.map((p) => {
+      const lease = p.units.flatMap((u) => u.leases)[0];
+      const residents = lease
+        ? [lease.pmTenant, ...lease.occupants.map((o) => o.pmTenant)]
+            .filter(Boolean)
+            .map((t) => `${t!.firstName} ${t!.lastName}`.trim())
+        : [];
+      return {
+        id: p.id,
+        name: p.name,
+        address: `${p.street}, ${p.city}, ${p.state} ${p.zip}`,
+        lat: p.lat,
+        lng: p.lng,
+        occupied: !!lease,
+        leaseEnd: lease?.endDate ?? null,
+        residents,
+        openRequests: p._count.workRequests,
+      };
+    }),
+  );
 });
 
 // ─── Single property ─────────────────────────────────────────────────────────

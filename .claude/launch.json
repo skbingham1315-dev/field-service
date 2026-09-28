@@ -3,8 +3,14 @@
   "configurations": [
     {
       "name": "fsp-dev",
-      "runtimeExecutable": "C:\\nvm4w\\nodejs\\npm.cmd",
+      "runtimeExecutable": "C:\nvm4w\nodejs\npm.cmd",
       "runtimeArgs": ["run", "dev"],
+      "port": 5173
+    },
+    {
+      "name": "fsp-web",
+      "runtimeExecutable": "C:\nvm4w\nodejs\npm.cmd",
+      "runtimeArgs": ["run", "dev", "-w", "apps/web"],
       "port": 5173
     }
   ]
