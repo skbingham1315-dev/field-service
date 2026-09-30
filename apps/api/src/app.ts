@@ -40,6 +40,8 @@ import { jobFilesRouter } from './routes/job-files';
 import { inviteCodesRouter } from './routes/invite-codes';
 import { serviceItemsRouter } from './routes/service-items';
 import { payRouter } from './routes/pay';
+import { phoneBridgeRouter } from './routes/phone-bridge';
+import { mcpRouter } from './routes/mcp';
 
 export const app = express();
 
@@ -165,8 +167,10 @@ apiV1.use('/job-files', jobFilesRouter);
 apiV1.use('/invite-codes', inviteCodesRouter);
 apiV1.use('/service-items', serviceItemsRouter);
 apiV1.use('/pay', payRouter);
+apiV1.use('/phone-bridge', phoneBridgeRouter);
 
 app.use('/api/v1', apiV1);
+app.use('/mcp', mcpRouter);
 app.use('/webhooks', webhooksRouter);
 
 // ─── Serve frontend in production ────────────────────────────────────────────

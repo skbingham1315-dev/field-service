@@ -140,6 +140,14 @@ model Tenant {
   exerciseAnswers      TrainingExerciseAnswer[]
   jobFiles             JobFile[]
   payments             Payment[]
+  phoneBridgeDevices   PhoneBridgeDevice[]
+  phoneThreads         PhoneThread[]
+  phoneMessages        PhoneMessage[]
+  phoneCalls           PhoneCall[]
+  phoneAutoReplyLogs   PhoneAutoReplyLog[]
+  phoneDraftReplies    PhoneDraftReply[]
+  phoneGeofenceEvents  PhoneGeofenceEvent[]
+  mcpAuditLogs         McpAuditLog[]
 
   @@map("tenants")
 }
@@ -237,6 +245,7 @@ model Customer {
   invoices         Invoice[]
   smsMessages      SmsMessage[]
   portalUsers      PortalUser[]
+  phoneThreads     PhoneThread[]
 
   @@index([tenantId])
   @@index([tenantId, email])
@@ -307,6 +316,7 @@ model Job {
   review              JobReview?
   timeEntries         TimeEntry[]
   assignedTechnicians JobTechnician[]
+  geofenceEvents      PhoneGeofenceEvent[]
 
   @@index([tenantId, status])
   @@index([tenantId, technicianId])
@@ -1568,4 +1578,163 @@ model TrainingExerciseAnswer {
   @@unique([userId, exerciseId])
   @@index([tenantId, userId])
   @@map("training_exercise_answers")
+}
+
+// ─── Phone Bridge ────────────────────────────────────────────────────────────
+
+model PhoneBridgeDevice {
+  id            String    @id @default(cuid())
+  tenantId      String
+  deviceName    String
+  deviceModel   String?
+  tokenHash     String    @unique
+  isActive      Boolean   @default(true)
+  lastSeenAt    DateTime?
+  pushToken     String?
+  config        Json      @default("{}")
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  tenant        Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId])
+  @@map("phone_bridge_devices")
+}
+
+model PhoneThread {
+  id                String    @id @default(cuid())
+  tenantId          String
+  phoneNumber       String
+  displayName       String?
+  customerId        String?
+  contactId         String?
+  isKnown           Boolean   @default(false)
+  lastMessageAt     DateTime?
+  lastMessagePreview String?
+  unreadCount       Int       @default(0)
+  isArchived        Boolean   @default(false)
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  tenant            Tenant         @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  customer          Customer?      @relation(fields: [customerId], references: [id], onDelete: SetNull)
+  messages          PhoneMessage[]
+  calls             PhoneCall[]
+  autoReplyLogs     PhoneAutoReplyLog[]
+  draftReplies      PhoneDraftReply[]
+
+  @@unique([tenantId, phoneNumber])
+  @@index([tenantId, lastMessageAt])
+  @@index([customerId])
+  @@map("phone_threads")
+}
+
+model PhoneMessage {
+  id            String    @id @default(cuid())
+  tenantId      String
+  threadId      String
+  direction     String    // inbound | outbound
+  body          String
+  source        String    @default("captured") // captured | auto_reply | draft_approved | twilio
+  timestamp     DateTime
+  isRead        Boolean   @default(false)
+  metadata      Json?
+  createdAt     DateTime  @default(now())
+
+  tenant        Tenant       @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  thread        PhoneThread  @relation(fields: [threadId], references: [id], onDelete: Cascade)
+
+  @@index([threadId, timestamp])
+  @@index([tenantId, timestamp])
+  @@map("phone_messages")
+}
+
+model PhoneCall {
+  id              String    @id @default(cuid())
+  tenantId        String
+  threadId        String
+  phoneNumber     String
+  direction       String    // inbound | outbound | missed
+  duration        Int       @default(0) // seconds
+  timestamp       DateTime
+  hasVoicemail    Boolean   @default(false)
+  autoReplySent   Boolean   @default(false)
+  createdAt       DateTime  @default(now())
+
+  tenant          Tenant       @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  thread          PhoneThread  @relation(fields: [threadId], references: [id], onDelete: Cascade)
+
+  @@index([threadId, timestamp])
+  @@index([tenantId, direction])
+  @@map("phone_calls")
+}
+
+model PhoneAutoReplyLog {
+  id              String    @id @default(cuid())
+  tenantId        String
+  threadId        String
+  phoneNumber     String
+  replyType       String    // missed_call | after_hours | arrival
+  body            String
+  aiGenerated     Boolean   @default(false)
+  templateFallback Boolean  @default(false)
+  sentAt          DateTime  @default(now())
+
+  tenant          Tenant       @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  thread          PhoneThread  @relation(fields: [threadId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId, sentAt])
+  @@index([phoneNumber, sentAt])
+  @@map("phone_auto_reply_logs")
+}
+
+model PhoneDraftReply {
+  id            String    @id @default(cuid())
+  tenantId      String
+  threadId      String
+  body          String
+  status        String    @default("pending") // pending | approved | rejected | expired
+  source        String    @default("mcp") // mcp | ai | manual
+  jobId         String?
+  createdAt     DateTime  @default(now())
+  decidedAt     DateTime?
+
+  tenant        Tenant       @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  thread        PhoneThread  @relation(fields: [threadId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId, status])
+  @@index([threadId])
+  @@map("phone_draft_replies")
+}
+
+model PhoneGeofenceEvent {
+  id              String    @id @default(cuid())
+  tenantId        String
+  jobId           String
+  eventType       String    // arrival | departure
+  lat             Float
+  lng             Float
+  timestamp       DateTime  @default(now())
+  autoTextSent    Boolean   @default(false)
+
+  tenant          Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  job             Job       @relation(fields: [jobId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId, jobId])
+  @@map("phone_geofence_events")
+}
+
+model McpAuditLog {
+  id            String    @id @default(cuid())
+  tenantId      String
+  userId        String?
+  tool          String
+  input         Json
+  output        Json?
+  timestamp     DateTime  @default(now())
+
+  tenant        Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId, timestamp])
+  @@map("mcp_audit_logs")
 }
