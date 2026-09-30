@@ -337,6 +337,96 @@ async function main() {
     logger.warn('service_items table setup skipped: ' + String(e));
   }
 
+  // Phone Bridge tables
+  try {
+    await prisma.$executeRawUnsafe(`
+      CREATE TABLE IF NOT EXISTS "phone_bridge_devices" (
+        "id" TEXT NOT NULL DEFAULT gen_random_uuid(), "tenantId" TEXT NOT NULL, "deviceName" TEXT NOT NULL,
+        "deviceModel" TEXT, "tokenHash" TEXT NOT NULL, "isActive" BOOLEAN NOT NULL DEFAULT true,
+        "lastSeenAt" TIMESTAMP(3), "pushToken" TEXT, "config" JSONB NOT NULL DEFAULT '{}',
+        "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP, "updatedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        CONSTRAINT "phone_bridge_devices_pkey" PRIMARY KEY ("id"), CONSTRAINT "phone_bridge_devices_tokenHash_key" UNIQUE ("tokenHash")
+      )
+    `);
+    await prisma.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "phone_bridge_devices_tenantId_idx" ON "phone_bridge_devices"("tenantId")`);
+    await prisma.$executeRawUnsafe(`
+      CREATE TABLE IF NOT EXISTS "phone_threads" (
+        "id" TEXT NOT NULL DEFAULT gen_random_uuid(), "tenantId" TEXT NOT NULL, "phoneNumber" TEXT NOT NULL,
+        "displayName" TEXT, "customerId" TEXT, "contactId" TEXT, "isKnown" BOOLEAN NOT NULL DEFAULT false,
+        "lastMessageAt" TIMESTAMP(3), "lastMessagePreview" TEXT, "unreadCount" INTEGER NOT NULL DEFAULT 0,
+        "isArchived" BOOLEAN NOT NULL DEFAULT false, "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        "updatedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        CONSTRAINT "phone_threads_pkey" PRIMARY KEY ("id"), CONSTRAINT "phone_threads_tenantId_phoneNumber_key" UNIQUE ("tenantId", "phoneNumber")
+      )
+    `);
+    await prisma.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "phone_threads_tenantId_lastMessageAt_idx" ON "phone_threads"("tenantId", "lastMessageAt")`);
+    await prisma.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "phone_threads_customerId_idx" ON "phone_threads"("customerId")`);
+    await prisma.$executeRawUnsafe(`
+      CREATE TABLE IF NOT EXISTS "phone_messages" (
+        "id" TEXT NOT NULL DEFAULT gen_random_uuid(), "tenantId" TEXT NOT NULL, "threadId" TEXT NOT NULL,
+        "direction" TEXT NOT NULL, "body" TEXT NOT NULL, "source" TEXT NOT NULL DEFAULT 'captured',
+        "timestamp" TIMESTAMP(3) NOT NULL, "isRead" BOOLEAN NOT NULL DEFAULT false, "metadata" JSONB,
+        "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        CONSTRAINT "phone_messages_pkey" PRIMARY KEY ("id")
+      )
+    `);
+    await prisma.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "phone_messages_threadId_timestamp_idx" ON "phone_messages"("threadId", "timestamp")`);
+    await prisma.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "phone_messages_tenantId_timestamp_idx" ON "phone_messages"("tenantId", "timestamp")`);
+    await prisma.$executeRawUnsafe(`
+      CREATE TABLE IF NOT EXISTS "phone_calls" (
+        "id" TEXT NOT NULL DEFAULT gen_random_uuid(), "tenantId" TEXT NOT NULL, "threadId" TEXT NOT NULL,
+        "phoneNumber" TEXT NOT NULL, "direction" TEXT NOT NULL, "duration" INTEGER NOT NULL DEFAULT 0,
+        "timestamp" TIMESTAMP(3) NOT NULL, "hasVoicemail" BOOLEAN NOT NULL DEFAULT false,
+        "autoReplySent" BOOLEAN NOT NULL DEFAULT false, "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        CONSTRAINT "phone_calls_pkey" PRIMARY KEY ("id")
+      )
+    `);
+    await prisma.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "phone_calls_threadId_timestamp_idx" ON "phone_calls"("threadId", "timestamp")`);
+    await prisma.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "phone_calls_tenantId_direction_idx" ON "phone_calls"("tenantId", "direction")`);
+    await prisma.$executeRawUnsafe(`
+      CREATE TABLE IF NOT EXISTS "phone_auto_reply_logs" (
+        "id" TEXT NOT NULL DEFAULT gen_random_uuid(), "tenantId" TEXT NOT NULL, "threadId" TEXT NOT NULL,
+        "phoneNumber" TEXT NOT NULL, "replyType" TEXT NOT NULL, "body" TEXT NOT NULL,
+        "aiGenerated" BOOLEAN NOT NULL DEFAULT false, "templateFallback" BOOLEAN NOT NULL DEFAULT false,
+        "sentAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        CONSTRAINT "phone_auto_reply_logs_pkey" PRIMARY KEY ("id")
+      )
+    `);
+    await prisma.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "phone_auto_reply_logs_tenantId_sentAt_idx" ON "phone_auto_reply_logs"("tenantId", "sentAt")`);
+    await prisma.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "phone_auto_reply_logs_phoneNumber_sentAt_idx" ON "phone_auto_reply_logs"("phoneNumber", "sentAt")`);
+    await prisma.$executeRawUnsafe(`
+      CREATE TABLE IF NOT EXISTS "phone_draft_replies" (
+        "id" TEXT NOT NULL DEFAULT gen_random_uuid(), "tenantId" TEXT NOT NULL, "threadId" TEXT NOT NULL,
+        "body" TEXT NOT NULL, "status" TEXT NOT NULL DEFAULT 'pending', "source" TEXT NOT NULL DEFAULT 'mcp',
+        "jobId" TEXT, "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP, "decidedAt" TIMESTAMP(3),
+        CONSTRAINT "phone_draft_replies_pkey" PRIMARY KEY ("id")
+      )
+    `);
+    await prisma.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "phone_draft_replies_tenantId_status_idx" ON "phone_draft_replies"("tenantId", "status")`);
+    await prisma.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "phone_draft_replies_threadId_idx" ON "phone_draft_replies"("threadId")`);
+    await prisma.$executeRawUnsafe(`
+      CREATE TABLE IF NOT EXISTS "phone_geofence_events" (
+        "id" TEXT NOT NULL DEFAULT gen_random_uuid(), "tenantId" TEXT NOT NULL, "jobId" TEXT NOT NULL,
+        "eventType" TEXT NOT NULL, "lat" DOUBLE PRECISION NOT NULL, "lng" DOUBLE PRECISION NOT NULL,
+        "timestamp" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP, "autoTextSent" BOOLEAN NOT NULL DEFAULT false,
+        CONSTRAINT "phone_geofence_events_pkey" PRIMARY KEY ("id")
+      )
+    `);
+    await prisma.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "phone_geofence_events_tenantId_jobId_idx" ON "phone_geofence_events"("tenantId", "jobId")`);
+    await prisma.$executeRawUnsafe(`
+      CREATE TABLE IF NOT EXISTS "mcp_audit_logs" (
+        "id" TEXT NOT NULL DEFAULT gen_random_uuid(), "tenantId" TEXT NOT NULL, "userId" TEXT,
+        "tool" TEXT NOT NULL, "input" JSONB NOT NULL, "output" JSONB,
+        "timestamp" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        CONSTRAINT "mcp_audit_logs_pkey" PRIMARY KEY ("id")
+      )
+    `);
+    await prisma.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "mcp_audit_logs_tenantId_timestamp_idx" ON "mcp_audit_logs"("tenantId", "timestamp")`);
+    logger.info('Phone Bridge tables ensured');
+  } catch (e) {
+    logger.warn('Phone Bridge table setup: ' + String(e));
+  }
+
   // Verify DB connection
   await prisma.$connect();
   logger.info('✅ PostgreSQL connected');
