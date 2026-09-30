@@ -22,6 +22,7 @@ import {
   Building2,
   Star,
   GraduationCap,
+  Smartphone,
 } from 'lucide-react';
 import { useAuthStore } from '../store/authStore';
 import { DashboardPage } from '../pages/DashboardPage';
@@ -44,12 +45,13 @@ import { ConnectPage } from '../pages/ConnectPage';
 import { PropertyManagementPage } from '../pages/PropertyManagementPage';
 import { ReviewsPage } from '../pages/ReviewsPage';
 import { TrainingPage } from '../pages/TrainingPage';
+import { PhoneBridgePage } from '../pages/PhoneBridgePage';
 import { AIAssistant } from '../components/AIAssistant';
 import { useLocationSharing } from '../hooks/useLocationSharing';
 
-type Page = 'dashboard' | 'customers' | 'jobs' | 'schedule' | 'map' | 'invoices' | 'estimates' | 'team' | 'payroll' | 'billing' | 'settings' | 'contacts' | 'crm-jobs' | 'subs' | 'connect' | 'properties' | 'reviews' | 'training';
+type Page = 'dashboard' | 'customers' | 'jobs' | 'schedule' | 'map' | 'invoices' | 'estimates' | 'team' | 'payroll' | 'billing' | 'settings' | 'contacts' | 'crm-jobs' | 'subs' | 'connect' | 'properties' | 'reviews' | 'training' | 'phone-bridge';
 
-const VALID_PAGES: Page[] = ['dashboard','customers','jobs','schedule','map','invoices','estimates','team','payroll','contacts','crm-jobs','subs','connect','properties','reviews','training','billing','settings'];
+const VALID_PAGES: Page[] = ['dashboard','customers','jobs','schedule','map','invoices','estimates','team','payroll','contacts','crm-jobs','subs','connect','properties','reviews','training','phone-bridge','billing','settings'];
 
 function pageFromHash(): Page {
   const hash = window.location.hash.replace('#', '');
@@ -83,6 +85,7 @@ const NAV_ITEMS: Array<{ id: Page; label: string; icon: React.ElementType; roles
   { id: 'properties',  label: 'Properties', icon: Building2, roles: ['owner', 'admin'] },
   { id: 'reviews',     label: 'Reviews',    icon: Star, roles: ['owner', 'admin', 'dispatcher'] },
   { id: 'training',    label: 'Training',   icon: GraduationCap },
+  { id: 'phone-bridge', label: 'Phone Bridge', icon: Smartphone, roles: ['owner', 'admin'] },
   { id: 'billing',     label: 'Billing',    icon: CreditCard, roles: ['owner', 'admin'] },
   { id: 'settings',    label: 'Settings',   icon: Settings, roles: ['owner', 'admin'] },
 ];
@@ -195,6 +198,7 @@ export function DashboardLayout() {
       case 'properties':  return <PropertyManagementPage />;
       case 'reviews':     return <ReviewsPage />;
       case 'training':    return <TrainingPage />;
+      case 'phone-bridge': return <PhoneBridgePage />;
       case 'billing':     return <BillingPage />;
       case 'settings':   return <SettingsPage />;
       default:           return <DashboardPage />;
