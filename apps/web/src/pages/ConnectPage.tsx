@@ -411,6 +411,25 @@ function UsersTab() {
 
   // Nothing here goes out on its own — one person, one click, every time.
   const [sending, setSending] = useState<string | null>(null);
+  const [preview, setPreview] = useState<
+    { userId: string; to: string; subject: string; html: string; firstEmail: boolean } | null
+  >(null);
+  const [previewLoading, setPreviewLoading] = useState<string | null>(null);
+  const openPreview = async (id: string) => {
+    setPreviewLoading(id);
+    try {
+      const { data } = await api.get(`/portal/users/${id}/invite-preview`);
+      setPreview({ userId: id, ...data });
+    } catch (err: any) {
+      toast.error(err?.response?.data?.error ?? 'Could not load the email preview');
+    } finally {
+      setPreviewLoading(null);
+    }
+  };
+  const confirmAndSend = (u: { id: string; email: string; lastLoginAt?: string }) => {
+    const what = u.lastLoginAt ? 'a sign-in link' : 'the welcome email';
+    if (window.confirm(`Send ${what} to ${u.email}?\n\nThis emails the tenant right away.`)) sendLink.mutate(u.id);
+  };
   const sendLink = useMutation({
     mutationFn: (id: string) =>
       api.post(`/portal/users/${id}/send-login-link`).then((r) => r.data),
@@ -457,7 +476,7 @@ function UsersTab() {
               ` · ${users.filter((u) => !u.lastLoginAt).length} never signed in`}
           </p>
           <p className="text-xs text-slate-400 mt-0.5">
-            Nothing is emailed automatically. Send each person a link when you're ready.
+            Nothing is emailed automatically. New tenants get a welcome email (link valid 7 days); use Preview to see it first.
           </p>
         </div>
         <Button onClick={() => setShowInvite(true)} className="flex items-center gap-1.5">
@@ -524,6 +543,49 @@ function UsersTab() {
         </div>
       )}
 
+      {preview && (
+        <div className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center p-4" onClick={() => setPreview(null)}>
+          <div
+            className="bg-white rounded-2xl shadow-xl w-full max-w-2xl max-h-[90vh] flex flex-col overflow-hidden"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="px-5 py-4 border-b border-slate-100 flex items-start gap-3">
+              <div className="flex-1 min-w-0">
+                <p className="text-xs text-slate-500">
+                  {preview.firstEmail ? 'Welcome email' : 'Welcome email (this person has signed in before, so Send gives them a plain sign-in link instead)'}
+                </p>
+                <p className="text-sm font-semibold text-slate-800 truncate">{preview.subject}</p>
+                <p className="text-xs text-slate-500 truncate">To: {preview.to}</p>
+              </div>
+              <button onClick={() => setPreview(null)} className="text-slate-400 hover:text-slate-600">
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+            <iframe
+              title="Email preview"
+              srcDoc={preview.html}
+              sandbox=""
+              className="flex-1 w-full min-h-[480px] bg-slate-100"
+            />
+            <div className="px-5 py-3 border-t border-slate-100 flex items-center justify-between gap-3">
+              <p className="text-xs text-slate-400">Preview only — the button in it does nothing and nothing has been sent.</p>
+              <div className="flex gap-2">
+                <Button variant="outline" onClick={() => setPreview(null)}>Close</Button>
+                <Button
+                  onClick={() => {
+                    const u = users.find((x) => x.id === preview.userId);
+                    setPreview(null);
+                    if (u) confirmAndSend(u);
+                  }}
+                >
+                  Send…
+                </Button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       {users.length === 0 ? (
         <div className="bg-white rounded-2xl border border-slate-200 p-10 text-center">
           <Users className="h-8 w-8 text-slate-300 mx-auto mb-2" />
@@ -568,12 +630,20 @@ function UsersTab() {
                 <Badge variant={u.isActive ? 'success' : 'secondary'}>
                   {u.isActive ? 'Active' : 'Inactive'}
                 </Badge>
+                <button
+                  onClick={() => openPreview(u.id)}
+                  disabled={previewLoading === u.id}
+                  className="text-xs text-slate-500 hover:text-slate-800 underline-offset-2 hover:underline"
+                  title={`See the email ${u.email} would receive`}
+                >
+                  {previewLoading === u.id ? 'Loading…' : 'Preview'}
+                </button>
                 <Button
                   variant="outline"
-                  onClick={() => sendLink.mutate(u.id)}
+                  onClick={() => confirmAndSend(u)}
                   disabled={!u.isActive || sending === u.id}
                   className="text-xs px-3 py-1.5 h-auto"
-                  title={`Email a sign-in link to ${u.email}`}
+                  title={u.lastLoginAt ? `Email a sign-in link to ${u.email}` : `Email the welcome invitation to ${u.email}`}
                 >
                   {sending === u.id ? (
                     <span className="flex items-center gap-1.5">
@@ -582,7 +652,7 @@ function UsersTab() {
                   ) : (
                     <span className="flex items-center gap-1.5">
                       <Send className="h-3 w-3" />
-                      {u.lastLoginAt ? 'Resend link' : 'Send login link'}
+                      {u.lastLoginAt ? 'Send login link' : 'Send welcome email'}
                     </span>
                   )}
                 </Button>

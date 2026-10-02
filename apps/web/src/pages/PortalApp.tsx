@@ -201,12 +201,15 @@ function PortalLoginPage({
   logoUrl,
   primaryColor,
   onSuccess,
+  linkExpired,
 }: {
   slug: string;
   portalName: string;
   logoUrl?: string;
   primaryColor: string;
   onSuccess: () => void;
+  /** Arrived via a sign-in link that was expired or already used. */
+  linkExpired?: boolean;
 }) {
   const [email, setEmail] = useState('');
   const [sent, setSent] = useState(false);
@@ -250,6 +253,11 @@ function PortalLoginPage({
           <p className="text-sm text-slate-500 mt-1">Sign in to your account</p>
         </div>
 
+        {linkExpired && !sent && (
+          <div className="mb-4 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+            That sign-in link has expired or was already used. Enter your email below and we'll send you a new one.
+          </div>
+        )}
         <div className="bg-white rounded-2xl border border-slate-200 p-6 shadow-sm">
           {sent ? (
             <div className="text-center py-4">
@@ -928,6 +936,7 @@ export function PortalApp() {
   const [me, setMe] = useState<PortalMeResponse | null>(null);
   const [authLoading, setAuthLoading] = useState(true);
   const [verifying, setVerifying] = useState(false);
+  const [linkExpired, setLinkExpired] = useState(false);
 
   // Check for magic link token in URL
   const urlParams = new URLSearchParams(window.location.search);
@@ -945,6 +954,10 @@ export function PortalApp() {
           loadMe();
         })
         .catch(() => {
+          // Strip the dead token so a refresh doesn't retry it, and say why
+          // they're looking at the sign-in form.
+          window.history.replaceState({}, '', `/portal/${slug}`);
+          setLinkExpired(true);
           setVerifying(false);
           setAuthLoading(false);
         });
@@ -997,6 +1010,7 @@ export function PortalApp() {
         portalName={portalName}
         primaryColor={primaryColor}
         onSuccess={() => loadMe()}
+        linkExpired={linkExpired}
       />
     );
   }

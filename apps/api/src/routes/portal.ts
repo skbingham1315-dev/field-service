@@ -41,7 +41,13 @@ import { decideFee, quoteFee } from '../lib/service-fee';
 import { invoiceServiceFee, syncServiceFeePayments } from '../lib/fee-invoice';
 import jwt from 'jsonwebtoken';
 import crypto from 'crypto';
-import { sendPortalMagicLink, type EmailDeliveryResult } from '../lib/email';
+import {
+  renderPortalInvite,
+  sendPortalInvite,
+  sendPortalMagicLink,
+  type EmailDeliveryResult,
+  type PortalInviteContent,
+} from '../lib/email';
 
 export const portalRouter = Router();
 
@@ -87,6 +93,9 @@ async function resolveRentalContext(pmTenantId: string) {
 const JWT_SECRET = process.env.JWT_SECRET ?? 'dev_secret';
 const PORTAL_JWT_SECRET = process.env.PORTAL_JWT_SECRET ?? JWT_SECRET + '_portal';
 const MAGIC_LINK_EXPIRY_MINS = 15;
+// The first-ever email is often opened hours or a day later; a 15-minute link
+// would greet a new tenant with "expired". Still single-use.
+const INVITE_EXPIRY_DAYS = 7;
 const OTP_EXPIRY_MINS = 10;
 
 // ─── Helper: issue portal session JWT ────────────────────────────────────────
@@ -148,19 +157,26 @@ async function issueAndSendMagicLink(opts: {
   displayName?: string | null;
   portalName: string;
   tenantSlug: string;
+  /** When set, send the welcome email (long-lived link) instead of a plain sign-in link. */
+  invite?: (link: string) => Promise<PortalInviteContent>;
 }): Promise<{ result: EmailDeliveryResult; link: string }> {
   const token = crypto.randomBytes(32).toString('hex');
+  const ttlMs = opts.invite ? INVITE_EXPIRY_DAYS * 24 * 60 * 60 * 1000 : MAGIC_LINK_EXPIRY_MINS * 60 * 1000;
   await prisma.portalSession.create({
     data: {
       portalUserId: opts.portalUserId,
       token,
       type: 'magic_link',
-      expiresAt: new Date(Date.now() + MAGIC_LINK_EXPIRY_MINS * 60 * 1000),
+      expiresAt: new Date(Date.now() + ttlMs),
     },
   });
 
   const baseUrl = process.env.WEB_URL ?? 'http://localhost:5173';
   const link = `${baseUrl}/portal/${opts.tenantSlug}/verify?token=${token}`;
+
+  if (opts.invite) {
+    return { result: await sendPortalInvite(opts.to, await opts.invite(link)), link };
+  }
 
   const result = await sendPortalMagicLink({
     to: opts.to,
@@ -896,6 +912,51 @@ portalRouter.post(
   },
 );
 
+type PortalUserWithConfig = Awaited<ReturnType<typeof loadPortalUserForEmail>>;
+
+async function loadPortalUserForEmail(tenantId: string, id: string) {
+  return prisma.portalUser.findFirst({
+    where: { id, tenantId },
+    include: { tenant: { include: { portalConfig: true } }, pmTenant: { select: { firstName: true } } },
+  });
+}
+
+async function buildInviteContent(pu: NonNullable<PortalUserWithConfig>, link: string): Promise<PortalInviteContent> {
+  const cfg = pu.tenant.portalConfig!;
+  const rental = pu.pmTenantId ? await resolveRentalContext(pu.pmTenantId) : null;
+  const baseUrl = process.env.WEB_URL ?? 'http://localhost:5173';
+  const feeOn = cfg.serviceFeeEnabled && Number(cfg.serviceFeeAmount) > 0;
+  return {
+    greetingName: pu.pmTenant?.firstName ?? pu.displayName?.split(' ')[0] ?? null,
+    companyName: pu.tenant.name,
+    portalName: cfg.portalName,
+    propertyLabel: rental ? `${rental.propertyName} (${rental.address})` : null,
+    link,
+    portalUrl: `${baseUrl}/portal/${pu.tenant.slug}`,
+    expiryDays: INVITE_EXPIRY_DAYS,
+    fee: feeOn ? { amount: Number(cfg.serviceFeeAmount), always: !cfg.serviceFeeWaiveLandlord } : null,
+    accentColor: cfg.primaryColor,
+  };
+}
+
+// GET /portal/users/:id/invite-preview (admin)
+// Exactly what the welcome email will look like for this person. Creates no
+// link and sends nothing — the button in the preview is inert.
+portalRouter.get(
+  '/users/:id/invite-preview',
+  authenticate,
+  requireRole('owner', 'admin'),
+  async (req: Request, res: Response): Promise<void> => {
+    const pu = await loadPortalUserForEmail((req as any).user.tenantId, req.params.id);
+    if (!pu || !pu.tenant.portalConfig) {
+      res.status(404).json({ error: 'Portal user not found' });
+      return;
+    }
+    const { subject, html } = renderPortalInvite(await buildInviteContent(pu, '#preview'));
+    res.json({ to: pu.email, subject, html, firstEmail: !pu.lastLoginAt });
+  },
+);
+
 // POST /portal/users/:id/send-login-link (admin)
 // Explicit and manual on purpose — creating a portal user sends nothing, and
 // nothing in this system emails a tenant unless an operator asks for it here.
@@ -906,10 +967,7 @@ portalRouter.post(
   async (req: Request, res: Response): Promise<void> => {
     const tenantId = (req as any).user.tenantId;
 
-    const portalUser = await prisma.portalUser.findFirst({
-      where: { id: req.params.id, tenantId },
-      include: { tenant: { include: { portalConfig: true } } },
-    });
+    const portalUser = await loadPortalUserForEmail(tenantId, req.params.id);
     if (!portalUser) {
       res.status(404).json({ error: 'Portal user not found' });
       return;
@@ -923,13 +981,18 @@ portalRouter.post(
       return;
     }
 
+    // Someone who has never signed in gets the welcome email; everyone else a
+    // routine sign-in link.
+    const isInvite = !portalUser.lastLoginAt;
     const { result, link } = await issueAndSendMagicLink({
       portalUserId: portalUser.id,
       to: portalUser.email,
       displayName: portalUser.displayName,
       portalName: portalUser.tenant.portalConfig.portalName,
       tenantSlug: portalUser.tenant.slug,
+      invite: isInvite ? (l) => buildInviteContent(portalUser, l) : undefined,
     });
+    const what = isInvite ? 'Welcome email' : 'Login link';
 
     // Admin-triggered, so report honestly rather than always claiming success.
     res.json({
@@ -939,7 +1002,7 @@ portalRouter.post(
       link: result === 'simulated' ? link : undefined,
       message:
         result === 'sent'
-          ? `Login link emailed to ${portalUser.email}.`
+          ? `${what} sent to ${portalUser.email}.`
           : result === 'simulated'
             ? 'Email is not configured (RESEND_API_KEY unset), so nothing was sent. The link is included here.'
             : 'The email provider rejected the message. Nothing was delivered.',

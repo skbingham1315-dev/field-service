@@ -11,7 +11,7 @@ function formatCents(cents: number): string {
   return '$' + (cents / 100).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 
-function baseHtml(companyName: string, title: string, bodyContent: string): string {
+function baseHtml(companyName: string, title: string, bodyContent: string, accent = '#2563eb'): string {
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -26,7 +26,7 @@ function baseHtml(companyName: string, title: string, bodyContent: string): stri
         <table width="600" cellpadding="0" cellspacing="0" style="background:#ffffff;border-radius:8px;overflow:hidden;max-width:600px;">
           <!-- Header -->
           <tr>
-            <td style="background:#2563eb;padding:24px 32px;">
+            <td style="background:${accent};padding:24px 32px;">
               <h1 style="margin:0;color:#ffffff;font-size:22px;font-weight:700;">${companyName}</h1>
             </td>
           </tr>
@@ -474,4 +474,94 @@ export async function sendPortalMagicLink(opts: {
     logger.warn('[email] failed to send portal magic link', { to, err });
     return 'failed';
   }
+}
+
+// ── Tenant Portal Welcome (first invite) ──────────────────────────────────────
+
+function esc(v: string): string {
+  return v.replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]!);
+}
+
+export interface PortalInviteContent {
+  greetingName?: string | null;
+  companyName: string;
+  portalName: string;
+  /** Where they live, e.g. "Open Range — 123 N Main St, San Tan Valley". */
+  propertyLabel?: string | null;
+  link: string;
+  /** The portal's sign-in page, for every visit after the first. */
+  portalUrl: string;
+  expiryDays: number;
+  /** null when no fee applies to requests. */
+  fee: { amount: number; always: boolean } | null;
+  accentColor?: string;
+}
+
+/**
+ * The first email a tenant ever gets from the portal. Unlike the routine
+ * sign-in link, it has to explain who is writing, what the portal is for, the
+ * service fee, and what to do in an emergency — and its link must survive the
+ * tenant opening it the next day.
+ */
+export function renderPortalInvite(c: PortalInviteContent): { subject: string; html: string } {
+  const accent = c.accentColor || '#2563eb';
+  const hello = c.greetingName ? `Hi ${esc(c.greetingName)},` : 'Hello,';
+  const where = c.propertyLabel ? ` for <strong>${esc(c.propertyLabel)}</strong>` : '';
+  const money = c.fee ? '$' + c.fee.amount.toFixed(2) : '';
+  const subject = `Welcome to the ${c.portalName}`;
+
+  const li = (t: string) => `<li style="margin:0 0 6px;">${t}</li>`;
+  const html = baseHtml(
+    c.companyName,
+    subject,
+    `<p style="margin:0 0 16px;color:#111827;font-size:16px;">${hello}</p>
+     <p style="margin:0 0 16px;color:#374151;font-size:15px;line-height:1.6;">
+       ${esc(c.companyName)} now uses an online portal for maintenance and repair requests${where}.
+       With it you can:
+     </p>
+     <ul style="margin:0 0 24px;padding-left:20px;color:#374151;font-size:15px;line-height:1.6;">
+       ${li('Report a repair any time, day or night')}
+       ${li('See the status of your requests')}
+       ${li('Message the maintenance team')}
+     </ul>
+     <p style="margin:0 0 12px;">
+       <a href="${esc(c.link)}" style="background:${accent};color:#ffffff;padding:13px 28px;border-radius:6px;text-decoration:none;display:inline-block;font-weight:600;font-size:15px;">Open my tenant portal</a>
+     </p>
+     <p style="margin:0 0 28px;color:#6b7280;font-size:13px;line-height:1.6;">
+       This button is just for you and works once within the next ${c.expiryDays} days. After that, go to
+       <a href="${esc(c.portalUrl)}" style="color:${accent};">${esc(c.portalUrl)}</a>, enter your email address,
+       and we'll send you a new sign-in link. There is no password to remember.
+     </p>
+     ${c.fee ? `<div style="margin:0 0 16px;padding:14px 16px;background:#fffbeb;border:1px solid #fde68a;border-radius:6px;">
+       <p style="margin:0 0 6px;color:#92400e;font-size:14px;font-weight:700;">Service fee</p>
+       <p style="margin:0;color:#92400e;font-size:14px;line-height:1.6;">
+         ${c.fee.always
+           ? `A ${money} service fee applies to each non-emergency repair request.`
+           : `A ${money} service fee may apply to a repair request, depending on the cause.`}
+         Before submitting, please check simple fixes first: a tripped breaker or GFCI outlet, the HVAC filter,
+         or a smoke-detector battery. You'll see the full terms before you submit.
+       </p>
+     </div>` : ''}
+     <div style="margin:0 0 24px;padding:14px 16px;background:#fef2f2;border:1px solid #fecaca;border-radius:6px;">
+       <p style="margin:0 0 6px;color:#991b1b;font-size:14px;font-weight:700;">Emergencies</p>
+       <p style="margin:0;color:#991b1b;font-size:14px;line-height:1.6;">
+         For fire, a gas smell, flooding, or any danger to health or safety, call 911 or the utility company first,
+         then submit a request marked Emergency.${c.fee ? ' Emergency requests are never charged a service fee.' : ''}
+       </p>
+     </div>
+     <p style="margin:0;color:#6b7280;font-size:13px;line-height:1.6;">
+       This mailbox isn't monitored. For questions, use the Messages tab in the portal.
+     </p>`,
+    accent,
+  );
+  return { subject, html };
+}
+
+export async function sendPortalInvite(to: string, content: PortalInviteContent): Promise<EmailDeliveryResult> {
+  const { subject, html } = renderPortalInvite(content);
+  if (!ENABLED || !resend) {
+    logger.info(`[email] simulated portal invite to ${to}: ${content.link}`);
+    return 'simulated';
+  }
+  return sendEmail(to, subject, html);
 }
