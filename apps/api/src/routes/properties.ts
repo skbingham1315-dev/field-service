@@ -53,6 +53,46 @@ import { authenticate } from '../middleware/authenticate';
 import { geocodeAddress, geocodePropertyAndSave } from '../lib/geocode';
 
 export const propertiesRouter = Router();
+
+// ─── Ownership + field guards ────────────────────────────────────────────────
+// Every record below hangs off a Property, which carries the workspace id.
+// Look records up THROUGH that chain, never by bare id, or one workspace could
+// read or edit another's leases and ledgers by guessing ids. And never pass
+// req.body straight to Prisma — allow only the fields a client may set.
+
+function allow<T extends Record<string, unknown>>(body: T, keys: string[]): Partial<T> {
+  const out: Record<string, unknown> = {};
+  for (const k of keys) if (body && Object.prototype.hasOwnProperty.call(body, k)) out[k] = (body as any)[k];
+  return out as Partial<T>;
+}
+function dates<T extends Record<string, unknown>>(data: T, keys: string[]): T {
+  for (const k of keys) {
+    const v = (data as any)[k];
+    if (v === '' ) (data as any)[k] = null;
+    else if (typeof v === 'string') (data as any)[k] = new Date(v);
+  }
+  return data;
+}
+
+const PROPERTY_FIELDS = ['name', 'type', 'street', 'city', 'state', 'zip', 'country', 'totalUnits', 'yearBuilt', 'notes', 'lat', 'lng'];
+const UNIT_FIELDS = ['unitNumber', 'bedrooms', 'bathrooms', 'sqft', 'marketRent', 'isAvailable', 'notes'];
+const PM_TENANT_FIELDS = ['firstName', 'lastName', 'email', 'phone', 'emergencyName', 'emergencyPhone', 'notes', 'isArchived'];
+const LEASE_FIELDS = ['status', 'startDate', 'endDate', 'rentAmount', 'depositAmount', 'depositPaid', 'lateFeePct', 'lateFeeGrace', 'notes'];
+const LEDGER_FIELDS = ['status', 'amount', 'dueDate', 'paidAt', 'notes'];
+const EXPENSE_FIELDS = ['category', 'vendor', 'amount', 'date', 'description', 'receiptUrl'];
+const OWNER_CONTACT_FIELDS = ['name', 'email', 'phone', 'isPrimary', 'notes'];
+const LISTING_FIELDS = ['listingPrice', 'availableFrom', 'description', 'isActive'];
+const APPLICATION_FIELDS = ['firstName', 'lastName', 'email', 'phone', 'currentAddress', 'employer', 'monthlyIncome', 'creditScore', 'message', 'status'];
+
+const ownUnit = (tenantId: string, id: string) =>
+  prisma.unit.findFirst({ where: { id, property: { tenantId } } });
+const ownLease = (tenantId: string, id: string) =>
+  prisma.lease.findFirst({ where: { id, unit: { property: { tenantId } } } });
+const ownPmTenant = (tenantId: string, id: string) =>
+  prisma.pMTenant.findFirst({ where: { id, tenantId } });
+const ownListing = (tenantId: string, id: string) =>
+  prisma.rentalListing.findFirst({ where: { id, unit: { property: { tenantId } } } });
+
 propertiesRouter.use(authenticate);
 
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024 } });
@@ -104,7 +144,7 @@ propertiesRouter.patch('/:id', async (req, res) => {
   const tenantId = req.user!.tenantId;
   const property = await prisma.property.updateMany({
     where: { id: req.params.id, tenantId },
-    data: req.body,
+    data: allow(req.body, PROPERTY_FIELDS),
   });
   if (!property.count) { res.status(404).json({ error: 'Not found' }); return; }
   // Re-pin on the map when the address moves (unless coordinates were sent explicitly).
@@ -150,7 +190,7 @@ propertiesRouter.post('/:id/units', async (req, res) => {
   const property = await prisma.property.findFirst({ where: { id: req.params.id, tenantId } });
   if (!property) { res.status(404).json({ error: 'Not found' }); return; }
   const unit = await prisma.unit.create({
-    data: { propertyId: req.params.id, ...req.body },
+    data: { ...(allow(req.body, UNIT_FIELDS) as any), propertyId: req.params.id },
   });
   res.status(201).json(unit);
 });
@@ -159,7 +199,9 @@ propertiesRouter.patch('/:id/units/:uid', async (req, res) => {
   const tenantId = req.user!.tenantId;
   const property = await prisma.property.findFirst({ where: { id: req.params.id, tenantId } });
   if (!property) { res.status(404).json({ error: 'Not found' }); return; }
-  const unit = await prisma.unit.update({ where: { id: req.params.uid }, data: req.body });
+  const owned = await prisma.unit.findFirst({ where: { id: req.params.uid, propertyId: property.id } });
+  if (!owned) { res.status(404).json({ error: 'Not found' }); return; }
+  const unit = await prisma.unit.update({ where: { id: owned.id }, data: allow(req.body, UNIT_FIELDS) });
   res.json(unit);
 });
 
@@ -183,23 +225,29 @@ propertiesRouter.get('/pm-tenants', async (req, res) => {
 
 propertiesRouter.post('/pm-tenants', async (req, res) => {
   const tenantId = req.user!.tenantId;
-  const tenant = await prisma.pMTenant.create({ data: { tenantId, ...req.body } });
+  const tenant = await prisma.pMTenant.create({ data: { ...(allow(req.body, PM_TENANT_FIELDS) as any), tenantId } });
   res.status(201).json(tenant);
 });
 
 propertiesRouter.patch('/pm-tenants/:id', async (req, res) => {
   const tenantId = req.user!.tenantId;
-  await prisma.pMTenant.updateMany({ where: { id: req.params.id, tenantId }, data: req.body });
+  const updated = await prisma.pMTenant.updateMany({ where: { id: req.params.id, tenantId }, data: allow(req.body, PM_TENANT_FIELDS) });
+  if (!updated.count) { res.status(404).json({ error: 'Not found' }); return; }
   res.json({ success: true });
 });
 
 // ─── Leases ───────────────────────────────────────────────────────────────────
 
 propertiesRouter.get('/leases/unit/:uid', async (req, res) => {
+  const tenantId = req.user!.tenantId;
   const lease = await prisma.lease.findFirst({
-    where: { unitId: req.params.uid, status: 'active' as any },
+    where: { unitId: req.params.uid, status: 'active' as any, unit: { property: { tenantId } } },
     include: {
       pmTenant: true,
+      occupants: {
+        where: { removedAt: null },
+        include: { pmTenant: { select: { id: true, firstName: true, lastName: true, email: true, phone: true } } },
+      },
       ledgerEntries: { orderBy: { createdAt: 'desc' }, take: 24 },
     },
   });
@@ -208,6 +256,10 @@ propertiesRouter.get('/leases/unit/:uid', async (req, res) => {
 
 propertiesRouter.post('/leases', async (req, res) => {
   const { unitId, pmTenantId, startDate, endDate, rentAmount, depositAmount, lateFeePct, lateFeeGrace, notes } = req.body;
+  const tenantId = req.user!.tenantId;
+  if (!(await ownUnit(tenantId, unitId)) || !(await ownPmTenant(tenantId, pmTenantId))) {
+    res.status(404).json({ error: 'Unit or tenant not found' }); return;
+  }
   // Deactivate previous active lease for unit
   await prisma.lease.updateMany({
     where: { unitId, status: 'active' as any },
@@ -233,7 +285,12 @@ propertiesRouter.post('/leases', async (req, res) => {
 });
 
 propertiesRouter.patch('/leases/:id', async (req, res) => {
-  const lease = await prisma.lease.update({ where: { id: req.params.id }, data: req.body });
+  const owned = await ownLease(req.user!.tenantId, req.params.id);
+  if (!owned) { res.status(404).json({ error: 'Not found' }); return; }
+  const lease = await prisma.lease.update({
+    where: { id: owned.id },
+    data: dates(allow(req.body, LEASE_FIELDS) as any, ['startDate', 'endDate']),
+  });
   // If lease terminated/expired, mark unit available
   if (req.body.status === 'terminated' || req.body.status === 'expired') {
     await prisma.unit.update({ where: { id: lease.unitId }, data: { isAvailable: true } });
@@ -244,6 +301,7 @@ propertiesRouter.patch('/leases/:id', async (req, res) => {
 // ─── Rent Ledger ──────────────────────────────────────────────────────────────
 
 propertiesRouter.get('/ledger/:leaseId', async (req, res) => {
+  if (!(await ownLease(req.user!.tenantId, req.params.leaseId))) { res.status(404).json({ error: 'Not found' }); return; }
   const entries = await prisma.rentLedger.findMany({
     where: { leaseId: req.params.leaseId },
     orderBy: { createdAt: 'desc' },
@@ -253,6 +311,7 @@ propertiesRouter.get('/ledger/:leaseId', async (req, res) => {
 
 propertiesRouter.post('/ledger', async (req, res) => {
   const { leaseId, type, amount, dueDate, notes, status } = req.body;
+  if (!(await ownLease(req.user!.tenantId, leaseId))) { res.status(404).json({ error: 'Lease not found' }); return; }
   const entry = await prisma.rentLedger.create({
     data: {
       leaseId,
@@ -268,11 +327,15 @@ propertiesRouter.post('/ledger', async (req, res) => {
 });
 
 propertiesRouter.patch('/ledger/:id', async (req, res) => {
-  const data: any = { ...req.body };
+  const owned = await prisma.rentLedger.findFirst({
+    where: { id: req.params.id, lease: { unit: { property: { tenantId: req.user!.tenantId } } } },
+  });
+  if (!owned) { res.status(404).json({ error: 'Not found' }); return; }
+  const data: any = dates(allow(req.body, LEDGER_FIELDS) as any, ['dueDate', 'paidAt']);
   if (req.body.status === 'paid' && !req.body.paidAt) {
     data.paidAt = new Date();
   }
-  const entry = await prisma.rentLedger.update({ where: { id: req.params.id }, data });
+  const entry = await prisma.rentLedger.update({ where: { id: owned.id }, data });
   res.json(entry);
 });
 
@@ -295,13 +358,14 @@ propertiesRouter.post('/:id/expenses', async (req, res) => {
   const property = await prisma.property.findFirst({ where: { id: req.params.id, tenantId } });
   if (!property) { res.status(404).json({ error: 'Not found' }); return; }
   const expense = await prisma.expense.create({
-    data: { propertyId: req.params.id, ...req.body, date: new Date(req.body.date) },
+    data: { ...(allow(req.body, EXPENSE_FIELDS) as any), propertyId: req.params.id, date: new Date(req.body.date) },
   });
   res.status(201).json(expense);
 });
 
 propertiesRouter.delete('/expenses/:id', async (req, res) => {
-  await prisma.expense.delete({ where: { id: req.params.id } });
+  const deleted = await prisma.expense.deleteMany({ where: { id: req.params.id, property: { tenantId: req.user!.tenantId } } });
+  if (!deleted.count) { res.status(404).json({ error: 'Not found' }); return; }
   res.json({ success: true });
 });
 
@@ -312,7 +376,7 @@ propertiesRouter.post('/:id/owner-contacts', async (req, res) => {
   const property = await prisma.property.findFirst({ where: { id: req.params.id, tenantId } });
   if (!property) { res.status(404).json({ error: 'Not found' }); return; }
   const contact = await prisma.ownerContact.create({
-    data: { propertyId: req.params.id, ...req.body },
+    data: { ...(allow(req.body, OWNER_CONTACT_FIELDS) as any), propertyId: req.params.id },
   });
   res.status(201).json(contact);
 });
@@ -333,18 +397,25 @@ propertiesRouter.get('/listings', async (req, res) => {
 });
 
 propertiesRouter.post('/listings', async (req, res) => {
+  if (!(await ownUnit(req.user!.tenantId, req.body?.unitId))) { res.status(404).json({ error: 'Unit not found' }); return; }
   const listing = await prisma.rentalListing.create({
-    data: { ...req.body, availableFrom: new Date(req.body.availableFrom) },
+    data: { ...(allow(req.body, LISTING_FIELDS) as any), unitId: req.body.unitId, availableFrom: new Date(req.body.availableFrom) },
   });
   res.status(201).json(listing);
 });
 
 propertiesRouter.patch('/listings/:id', async (req, res) => {
-  const listing = await prisma.rentalListing.update({ where: { id: req.params.id }, data: req.body });
+  const owned = await ownListing(req.user!.tenantId, req.params.id);
+  if (!owned) { res.status(404).json({ error: 'Not found' }); return; }
+  const listing = await prisma.rentalListing.update({
+    where: { id: owned.id },
+    data: dates(allow(req.body, LISTING_FIELDS) as any, ['availableFrom']),
+  });
   res.json(listing);
 });
 
 propertiesRouter.get('/listings/:id/applications', async (req, res) => {
+  if (!(await ownListing(req.user!.tenantId, req.params.id))) { res.status(404).json({ error: 'Not found' }); return; }
   const applications = await prisma.rentalApplication.findMany({
     where: { listingId: req.params.id },
     orderBy: { appliedAt: 'desc' },
@@ -353,16 +424,21 @@ propertiesRouter.get('/listings/:id/applications', async (req, res) => {
 });
 
 propertiesRouter.post('/listings/:id/applications', async (req, res) => {
+  if (!(await ownListing(req.user!.tenantId, req.params.id))) { res.status(404).json({ error: 'Not found' }); return; }
   const application = await prisma.rentalApplication.create({
-    data: { listingId: req.params.id, ...req.body },
+    data: { ...(allow(req.body, APPLICATION_FIELDS) as any), listingId: req.params.id },
   });
   res.status(201).json(application);
 });
 
 propertiesRouter.patch('/applications/:id', async (req, res) => {
+  const owned = await prisma.rentalApplication.findFirst({
+    where: { id: req.params.id, listing: { unit: { property: { tenantId: req.user!.tenantId } } } },
+  });
+  if (!owned) { res.status(404).json({ error: 'Not found' }); return; }
   const application = await prisma.rentalApplication.update({
-    where: { id: req.params.id },
-    data: req.body,
+    where: { id: owned.id },
+    data: allow(req.body, APPLICATION_FIELDS),
   });
   res.json(application);
 });

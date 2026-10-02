@@ -69,7 +69,9 @@ interface Lease {
   endDate?: string;
   rentAmount: number;
   depositAmount: number;
+  notes?: string;
   pmTenant: PMTenant;
+  occupants?: Array<{ id: string; pmTenant: { id: string; firstName: string; lastName: string; email?: string; phone?: string } }>;
   ledgerEntries?: LedgerEntry[];
   unit?: { unitNumber: string; property?: { name: string } };
 }
@@ -655,6 +657,21 @@ function PropertyFormModal({ onClose, onSaved }: { onClose: () => void; onSaved:
 
 // ─── Unit Detail / Lease + Ledger ─────────────────────────────────────────────
 
+const INPUT = 'w-full border border-slate-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500';
+
+function Field({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <div>
+      <label className="block text-xs font-medium text-slate-600 mb-1">{label}</label>
+      {children}
+    </div>
+  );
+}
+
+function toDateInput(d?: string | null) {
+  return d ? new Date(d).toISOString().slice(0, 10) : '';
+}
+
 function UnitDetailPanel({ unit, pmTenants, onBack }: { unit: Unit; pmTenants: PMTenant[]; onBack: () => void }) {
   const qc = useQueryClient();
   const activeLeaseFromUnit = unit.leases?.[0];
@@ -690,6 +707,33 @@ function UnitDetailPanel({ unit, pmTenants, onBack }: { unit: Unit; pmTenants: P
   const markPaid = useMutation({
     mutationFn: (id: string) => api.patch(`/properties/ledger/${id}`, { status: 'paid' }).then((r) => r.data),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['pm-lease-unit', unit.id] }),
+  });
+
+  const [editLease, setEditLease] = useState<null | { rentAmount: string; depositAmount: string; startDate: string; endDate: string; notes: string }>(null);
+  const saveLease = useMutation({
+    mutationFn: () =>
+      api.patch(`/properties/leases/${lease!.id}`, {
+        rentAmount: parseFloat(editLease!.rentAmount || '0'),
+        depositAmount: parseFloat(editLease!.depositAmount || '0'),
+        startDate: editLease!.startDate,
+        endDate: editLease!.endDate || '',
+        notes: editLease!.notes,
+      }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['pm-lease-unit', unit.id] });
+      qc.invalidateQueries({ queryKey: ['pm-property'] });
+      qc.invalidateQueries({ queryKey: ['pm-tenants'] });
+      setEditLease(null);
+    },
+  });
+  const endLease = useMutation({
+    mutationFn: () => api.patch(`/properties/leases/${lease!.id}`, { status: 'terminated', endDate: new Date().toISOString().slice(0, 10) }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['pm-lease-unit', unit.id] });
+      qc.invalidateQueries({ queryKey: ['pm-property'] });
+      qc.invalidateQueries({ queryKey: ['pm-properties'] });
+      qc.invalidateQueries({ queryKey: ['pm-tenants'] });
+    },
   });
 
   return (
@@ -768,16 +812,83 @@ function UnitDetailPanel({ unit, pmTenants, onBack }: { unit: Unit; pmTenants: P
         <>
           {/* Lease info */}
           <div className="bg-white rounded-2xl border border-slate-200 p-5">
-            <div className="flex items-start justify-between mb-4">
+            <div className="flex items-start justify-between mb-4 gap-2">
               <h3 className="font-semibold text-slate-800">Active Lease</h3>
-              <Badge variant="success">Active</Badge>
+              <div className="flex items-center gap-2">
+                {!editLease && (
+                  <>
+                    <button
+                      onClick={() =>
+                        setEditLease({
+                          rentAmount: String(Number(lease.rentAmount) || ''),
+                          depositAmount: String(Number(lease.depositAmount) || ''),
+                          startDate: toDateInput(lease.startDate),
+                          endDate: toDateInput(lease.endDate),
+                          notes: lease.notes ?? '',
+                        })
+                      }
+                      className="text-xs text-blue-600 hover:underline"
+                    >
+                      Edit lease
+                    </button>
+                    <button
+                      onClick={() => {
+                        if (window.confirm(`End this lease for ${lease.pmTenant.firstName} ${lease.pmTenant.lastName} today? The unit will show as vacant.`)) endLease.mutate();
+                      }}
+                      className="text-xs text-rose-600 hover:underline"
+                    >
+                      End lease
+                    </button>
+                  </>
+                )}
+                <Badge variant="success">Active</Badge>
+              </div>
             </div>
+            {editLease && (
+              <div className="mb-4 p-4 rounded-xl bg-slate-50 border border-slate-100 space-y-3">
+                <div className="grid grid-cols-2 gap-3">
+                  <Field label="Monthly Rent">
+                    <input type="number" min="0" step="0.01" value={editLease.rentAmount} onChange={(e) => setEditLease({ ...editLease, rentAmount: e.target.value })} className={INPUT} placeholder="0" />
+                  </Field>
+                  <Field label="Security Deposit">
+                    <input type="number" min="0" step="0.01" value={editLease.depositAmount} onChange={(e) => setEditLease({ ...editLease, depositAmount: e.target.value })} className={INPUT} placeholder="0" />
+                  </Field>
+                  <Field label="Start Date">
+                    <input type="date" value={editLease.startDate} onChange={(e) => setEditLease({ ...editLease, startDate: e.target.value })} className={INPUT} />
+                  </Field>
+                  <Field label="End Date">
+                    <input type="date" value={editLease.endDate} onChange={(e) => setEditLease({ ...editLease, endDate: e.target.value })} className={INPUT} />
+                  </Field>
+                </div>
+                <Field label="Notes">
+                  <textarea rows={2} value={editLease.notes} onChange={(e) => setEditLease({ ...editLease, notes: e.target.value })} className={INPUT + ' resize-none'} />
+                </Field>
+                <div className="flex justify-end gap-2">
+                  <Button variant="outline" onClick={() => setEditLease(null)}>Cancel</Button>
+                  <Button onClick={() => saveLease.mutate()} disabled={!editLease.startDate || saveLease.isPending}>
+                    {saveLease.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Save lease'}
+                  </Button>
+                </div>
+                {saveLease.isError && <p className="text-xs text-rose-600">Could not save the lease.</p>}
+              </div>
+            )}
             <div className="grid grid-cols-2 gap-3 text-sm">
               <div>
                 <p className="text-slate-500 text-xs">Tenant</p>
                 <p className="font-medium text-slate-800">{lease.pmTenant.firstName} {lease.pmTenant.lastName}</p>
                 {lease.pmTenant.email && <p className="text-slate-500">{lease.pmTenant.email}</p>}
                 {lease.pmTenant.phone && <p className="text-slate-500">{lease.pmTenant.phone}</p>}
+                {(lease.occupants?.length ?? 0) > 0 && (
+                  <div className="mt-2">
+                    <p className="text-slate-500 text-xs">Also lives here</p>
+                    {lease.occupants!.map((o) => (
+                      <p key={o.id} className="text-slate-700">
+                        {o.pmTenant.firstName} {o.pmTenant.lastName}
+                        {o.pmTenant.email && <span className="text-slate-400"> · {o.pmTenant.email}</span>}
+                      </p>
+                    ))}
+                  </div>
+                )}
               </div>
               <div>
                 <p className="text-slate-500 text-xs">Monthly Rent</p>
@@ -920,6 +1031,25 @@ function PropertiesTab() {
     enabled: !!selectedProperty && !selectedUnit,
   });
 
+  const [editProp, setEditProp] = useState<null | { name: string; street: string; city: string; state: string; zip: string; yearBuilt: string; notes: string }>(null);
+  const saveProp = useMutation({
+    mutationFn: () =>
+      api.patch(`/properties/${selectedProperty!.id}`, {
+        name: editProp!.name,
+        street: editProp!.street,
+        city: editProp!.city,
+        state: editProp!.state,
+        zip: editProp!.zip,
+        yearBuilt: editProp!.yearBuilt ? parseInt(editProp!.yearBuilt, 10) : null,
+        notes: editProp!.notes,
+      }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['pm-property', selectedProperty?.id] });
+      qc.invalidateQueries({ queryKey: ['pm-properties'] });
+      setEditProp(null);
+    },
+  });
+
   if (selectedUnit) {
     return (
       <UnitDetailPanel
@@ -947,8 +1077,46 @@ function PropertiesTab() {
                 <span className="text-xs text-slate-500">{detail.totalUnits} units</span>
                 {detail.yearBuilt && <span className="text-xs text-slate-500">Built {detail.yearBuilt}</span>}
               </div>
+              {detail.notes && <p className="text-xs text-slate-500 mt-2 whitespace-pre-line">{detail.notes}</p>}
             </div>
+            {!editProp && (
+              <button
+                onClick={() =>
+                  setEditProp({
+                    name: detail.name, street: detail.street, city: detail.city, state: detail.state, zip: detail.zip,
+                    yearBuilt: detail.yearBuilt ? String(detail.yearBuilt) : '', notes: detail.notes ?? '',
+                  })
+                }
+                className="text-xs text-blue-600 hover:underline"
+              >
+                Edit property
+              </button>
+            )}
           </div>
+          {editProp && (
+            <div className="mt-4 pt-4 border-t border-slate-100 space-y-3">
+              <div className="grid grid-cols-2 gap-3">
+                <div className="col-span-2"><Field label="Name"><input value={editProp.name} onChange={(e) => setEditProp({ ...editProp, name: e.target.value })} className={INPUT} /></Field></div>
+                <div className="col-span-2"><Field label="Street"><input value={editProp.street} onChange={(e) => setEditProp({ ...editProp, street: e.target.value })} className={INPUT} /></Field></div>
+                <Field label="City"><input value={editProp.city} onChange={(e) => setEditProp({ ...editProp, city: e.target.value })} className={INPUT} /></Field>
+                <div className="grid grid-cols-2 gap-3">
+                  <Field label="State"><input value={editProp.state} onChange={(e) => setEditProp({ ...editProp, state: e.target.value })} className={INPUT} /></Field>
+                  <Field label="ZIP"><input value={editProp.zip} onChange={(e) => setEditProp({ ...editProp, zip: e.target.value })} className={INPUT} /></Field>
+                </div>
+                <Field label="Year Built"><input type="number" value={editProp.yearBuilt} onChange={(e) => setEditProp({ ...editProp, yearBuilt: e.target.value })} className={INPUT} /></Field>
+              </div>
+              <Field label="Notes (gate codes, access, owner info…)">
+                <textarea rows={3} value={editProp.notes} onChange={(e) => setEditProp({ ...editProp, notes: e.target.value })} className={INPUT + ' resize-none'} />
+              </Field>
+              <div className="flex justify-end gap-2">
+                <Button variant="outline" onClick={() => setEditProp(null)}>Cancel</Button>
+                <Button onClick={() => saveProp.mutate()} disabled={!editProp.name || !editProp.street || saveProp.isPending}>
+                  {saveProp.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Save property'}
+                </Button>
+              </div>
+              <p className="text-[11px] text-slate-400">Changing the address moves the pin on the Live Map automatically.</p>
+            </div>
+          )}
         </div>
 
         {/* Units grid */}
@@ -1083,6 +1251,14 @@ function TenantsTab() {
     queryFn: () => api.get('/properties/pm-tenants').then((r) => r.data),
   });
 
+  const [editing, setEditing] = useState<string | null>(null);
+  const [editForm, setEditForm] = useState({ firstName: '', lastName: '', email: '', phone: '', emergencyName: '', emergencyPhone: '', notes: '' });
+  const ef = (k: keyof typeof editForm) => (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => setEditForm((v) => ({ ...v, [k]: e.target.value }));
+  const saveTenant = useMutation({
+    mutationFn: (id: string) => api.patch(`/properties/pm-tenants/${id}`, editForm),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['pm-tenants'] }); qc.invalidateQueries({ queryKey: ['pm-lease-unit'] }); setEditing(null); },
+  });
+
   const create = useMutation({
     mutationFn: () => api.post('/properties/pm-tenants', form).then((r) => r.data),
     onSuccess: () => { qc.invalidateQueries({ queryKey: ['pm-tenants'] }); setShowAdd(false); setForm({ firstName: '', lastName: '', email: '', phone: '', emergencyName: '', emergencyPhone: '', notes: '' }); },
@@ -1155,7 +1331,8 @@ function TenantsTab() {
           {tenants.map((t) => {
             const activeLease = t.leases?.[0];
             return (
-              <div key={t.id} className="bg-white rounded-2xl border border-slate-200 p-4 flex items-center gap-4">
+              <div key={t.id} className="bg-white rounded-2xl border border-slate-200 p-4">
+              <div className="flex items-center gap-4">
                 <div className="h-10 w-10 rounded-full bg-violet-100 text-violet-700 flex items-center justify-center font-semibold flex-shrink-0">
                   {t.firstName.charAt(0)}{t.lastName.charAt(0)}
                 </div>
@@ -1172,6 +1349,43 @@ function TenantsTab() {
                   )}
                 </div>
                 {activeLease ? <Badge variant="success">Active</Badge> : <Badge variant="secondary">No Lease</Badge>}
+                {editing !== t.id && (
+                  <button
+                    onClick={() => {
+                      setEditing(t.id);
+                      setEditForm({
+                        firstName: t.firstName, lastName: t.lastName, email: t.email ?? '', phone: t.phone ?? '',
+                        emergencyName: t.emergencyName ?? '', emergencyPhone: t.emergencyPhone ?? '', notes: t.notes ?? '',
+                      });
+                    }}
+                    className="text-xs text-blue-600 hover:underline"
+                  >
+                    Edit
+                  </button>
+                )}
+              </div>
+              {editing === t.id && (
+                <div className="mt-4 pt-4 border-t border-slate-100 space-y-3">
+                  <div className="grid grid-cols-2 gap-3">
+                    <Field label="First Name"><input value={editForm.firstName} onChange={ef('firstName')} className={INPUT} /></Field>
+                    <Field label="Last Name"><input value={editForm.lastName} onChange={ef('lastName')} className={INPUT} /></Field>
+                    <Field label="Email"><input type="email" value={editForm.email} onChange={ef('email')} className={INPUT} /></Field>
+                    <Field label="Phone"><input value={editForm.phone} onChange={ef('phone')} className={INPUT} /></Field>
+                    <Field label="Emergency Contact Name"><input value={editForm.emergencyName} onChange={ef('emergencyName')} className={INPUT} /></Field>
+                    <Field label="Emergency Contact Phone"><input value={editForm.emergencyPhone} onChange={ef('emergencyPhone')} className={INPUT} /></Field>
+                  </div>
+                  <Field label="Notes"><textarea rows={2} value={editForm.notes} onChange={ef('notes')} className={INPUT + ' resize-none'} /></Field>
+                  <p className="text-[11px] text-slate-400">
+                    Changing the email here doesn't change their portal sign-in email. Update that under Connect → Portal Users.
+                  </p>
+                  <div className="flex justify-end gap-2">
+                    <Button variant="outline" onClick={() => setEditing(null)}>Cancel</Button>
+                    <Button onClick={() => saveTenant.mutate(t.id)} disabled={!editForm.firstName || !editForm.lastName || saveTenant.isPending}>
+                      {saveTenant.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Save'}
+                    </Button>
+                  </div>
+                </div>
+              )}
               </div>
             );
           })}
