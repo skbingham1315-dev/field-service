@@ -565,3 +565,56 @@ export async function sendPortalInvite(to: string, content: PortalInviteContent)
   }
   return sendEmail(to, subject, html);
 }
+
+// ── Staff alert: new tenant work request ──────────────────────────────────────
+
+export async function sendNewWorkRequestAlert(to: string[], r: {
+  companyName: string;
+  tenantName: string;
+  tenantEmail: string;
+  property?: string | null;
+  title: string;
+  description: string;
+  urgency: string;
+  category?: string | null;
+  feeNote?: string | null;
+  appUrl: string;
+  isTest?: boolean;
+}): Promise<EmailDeliveryResult> {
+  const emergency = r.urgency === 'emergency';
+  const tag = (r.isTest ? '[TEST] ' : '') + (emergency ? 'EMERGENCY: ' : '');
+  const subject = `${tag}New repair request — ${r.title}${r.property ? ' · ' + r.property.split(' (')[0] : ''}`;
+  const row = (k: string, v?: string | null) =>
+    v ? `<tr><td style="padding:6px 0;color:#6b7280;font-size:13px;width:110px;vertical-align:top;">${k}</td><td style="padding:6px 0;color:#111827;font-size:14px;">${esc(v)}</td></tr>` : '';
+  const html = baseHtml(
+    r.companyName,
+    subject,
+    `${emergency ? '<p style="margin:0 0 16px;padding:10px 14px;background:#fef2f2;border:1px solid #fecaca;border-radius:6px;color:#991b1b;font-weight:700;">Marked as an EMERGENCY by the tenant.</p>' : ''}
+     <h2 style="margin:0 0 12px;color:#111827;font-size:18px;">${esc(r.title)}</h2>
+     <table cellpadding="0" cellspacing="0" style="width:100%;margin:0 0 16px;">
+       ${row('Tenant', `${r.tenantName} (${r.tenantEmail})`)}
+       ${row('Property', r.property)}
+       ${row('Urgency', r.urgency)}
+       ${row('Category', r.category)}
+       ${row('Service fee', r.feeNote)}
+     </table>
+     <p style="margin:0 0 20px;color:#374151;font-size:14px;line-height:1.6;white-space:pre-line;">${esc(r.description)}</p>
+     <p style="margin:0 0 8px;">
+       <a href="${esc(r.appUrl)}" style="background:#111827;color:#ffffff;padding:11px 22px;border-radius:6px;text-decoration:none;display:inline-block;font-weight:600;font-size:14px;">Open in FieldOps</a>
+     </p>
+     <p style="margin:0;color:#6b7280;font-size:12px;">Photos and notes the tenant adds appear on the request under Connect → Work Requests.</p>`,
+  );
+  if (!to.length) return 'simulated';
+  if (!ENABLED || !resend) {
+    logger.info(`[email] simulated work request alert to ${to.join(', ')}: ${subject}`);
+    return 'simulated';
+  }
+  try {
+    const { error } = await resend.emails.send({ from: FROM, to, subject, html });
+    if (error) { logger.warn('[email] work request alert rejected', { error }); return 'failed'; }
+    return 'sent';
+  } catch (err) {
+    logger.warn('[email] work request alert failed', { err });
+    return 'failed';
+  }
+}

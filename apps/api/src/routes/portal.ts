@@ -41,8 +41,11 @@ import { decideFee, quoteFee } from '../lib/service-fee';
 import { invoiceServiceFee, syncServiceFeePayments } from '../lib/fee-invoice';
 import jwt from 'jsonwebtoken';
 import crypto from 'crypto';
+import multer from 'multer';
+import sharp from 'sharp';
 import {
   renderPortalInvite,
+  sendNewWorkRequestAlert,
   sendPortalInvite,
   sendPortalMagicLink,
   type EmailDeliveryResult,
@@ -695,8 +698,52 @@ portalRouter.post(
       },
     });
     res.status(201).json(request);
+
+    // Tell the office. Fire-and-forget: the tenant's submission must not fail
+    // because an email did.
+    setImmediate(() => {
+      notifyStaffOfRequest(request.id).catch((err) =>
+        console.warn('[portal] work request alert failed', String(err)),
+      );
+    });
   },
 );
+
+/** Email every active owner/admin of the workspace about a new tenant request. */
+async function notifyStaffOfRequest(workRequestId: string) {
+  const r = await prisma.portalWorkRequest.findUnique({
+    where: { id: workRequestId },
+    include: {
+      tenant: { select: { id: true, name: true } },
+      portalUser: { include: { pmTenant: { select: { firstName: true, lastName: true } } } },
+      property: { select: { name: true, street: true, city: true } },
+    },
+  });
+  if (!r) return;
+  const staff = await prisma.user.findMany({
+    where: { tenantId: r.tenantId, role: { in: ['owner', 'admin'] }, status: 'active' },
+    select: { email: true },
+  });
+  const pu = r.portalUser;
+  const tenantName = pu.pmTenant ? `${pu.pmTenant.firstName} ${pu.pmTenant.lastName}` : pu.displayName ?? pu.email;
+  const fee =
+    r.feeStatus === 'disclosed' && r.feeAmount != null
+      ? `$${Number(r.feeAmount).toFixed(2)} agreed by tenant`
+      : r.urgency === 'emergency' ? 'None (emergency)' : null;
+  await sendNewWorkRequestAlert(staff.map((s) => s.email).filter(Boolean), {
+    companyName: r.tenant.name,
+    tenantName,
+    tenantEmail: pu.email,
+    property: r.property ? `${r.property.name} (${r.property.street}, ${r.property.city})` : r.serviceAddress,
+    title: r.title,
+    description: r.description,
+    urgency: r.urgency,
+    category: r.category,
+    feeNote: fee,
+    appUrl: `${process.env.WEB_URL ?? 'http://localhost:5173'}/#connect`,
+    isTest: pu.isTest,
+  });
+}
 
 // GET /portal/work-requests
 portalRouter.get(
@@ -704,11 +751,273 @@ portalRouter.get(
   portalAuth,
   async (req: Request, res: Response): Promise<void> => {
     const portalUser = (req as any).portalUser;
+    // A tenant coming back from Square should see "paid", not "billed".
+    await syncServiceFeePayments(portalUser.tenantId).catch(() => undefined);
     const requests = await prisma.portalWorkRequest.findMany({
       where: { portalUserId: portalUser.id },
       orderBy: { createdAt: 'desc' },
+      include: {
+        photos: { select: { id: true, createdAt: true }, orderBy: { createdAt: 'asc' } },
+        requestNotes: { include: NOTE_AUTHOR, orderBy: { createdAt: 'asc' } },
+        feeInvoice: { select: { invoiceNumber: true, status: true, amountDue: true, squarePaymentUrl: true } },
+      },
     });
-    res.json(requests);
+    res.json(requests.map(({ requestNotes, ...r }) => ({ ...r, notes: requestNotes.map(presentNote) })));
+  },
+);
+
+// ─── Work request photos & notes ─────────────────────────────────────────────
+// Photos are stored in Postgres (no object storage), normalised to a resized
+// JPEG so a 12 MB phone photo doesn't become a 12 MB row. Notes are a simple
+// thread per request: tenant notes and staff replies, all visible to the tenant.
+
+const MAX_PHOTOS_PER_REQUEST = 8;
+const MAX_NOTE_LENGTH = 2000;
+
+const photoUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 15 * 1024 * 1024, files: 1 },
+  fileFilter: (_req, file, cb) => cb(null, file.mimetype.startsWith('image/')),
+});
+
+const NOTE_AUTHOR = {
+  portalUser: { select: { displayName: true, email: true, pmTenant: { select: { firstName: true, lastName: true } } } },
+  user: { select: { firstName: true, lastName: true } },
+} as const;
+
+function presentNote(n: {
+  id: string; body: string; createdAt: Date; portalUserId: string | null; userId: string | null;
+  portalUser: { displayName: string | null; email: string; pmTenant: { firstName: string; lastName: string } | null } | null;
+  user: { firstName: string | null; lastName: string | null } | null;
+}) {
+  const fromTenant = !!n.portalUserId;
+  const author = fromTenant
+    ? (n.portalUser?.pmTenant ? `${n.portalUser.pmTenant.firstName} ${n.portalUser.pmTenant.lastName}` : n.portalUser?.displayName ?? n.portalUser?.email ?? 'Tenant')
+    : `${n.user?.firstName ?? ''} ${n.user?.lastName ?? ''}`.trim() || 'Staff';
+  return { id: n.id, body: n.body, createdAt: n.createdAt, fromTenant, author };
+}
+
+async function normalizePhoto(buf: Buffer, mime: string): Promise<{ data: Buffer; mimeType: string }> {
+  try {
+    const data = await sharp(buf)
+      .rotate() // honour EXIF orientation from phone cameras
+      .resize({ width: 2000, height: 2000, fit: 'inside', withoutEnlargement: true })
+      .jpeg({ quality: 80 })
+      .toBuffer();
+    return { data, mimeType: 'image/jpeg' };
+  } catch {
+    // e.g. HEIC without libheif — keep the original rather than lose the photo
+    return { data: buf, mimeType: mime };
+  }
+}
+
+async function savePhoto(opts: {
+  tenantId: string; workRequestId: string; file: Express.Multer.File;
+  portalUserId?: string; userId?: string;
+}) {
+  const count = await prisma.portalRequestPhoto.count({ where: { workRequestId: opts.workRequestId } });
+  if (count >= MAX_PHOTOS_PER_REQUEST) {
+    return { error: `A request can have at most ${MAX_PHOTOS_PER_REQUEST} photos.` };
+  }
+  const { data, mimeType } = await normalizePhoto(opts.file.buffer, opts.file.mimetype);
+  const photo = await prisma.portalRequestPhoto.create({
+    data: {
+      tenantId: opts.tenantId,
+      workRequestId: opts.workRequestId,
+      portalUserId: opts.portalUserId ?? null,
+      userId: opts.userId ?? null,
+      originalName: opts.file.originalname.slice(0, 200),
+      mimeType,
+      size: data.length,
+      data,
+    },
+    select: { id: true, createdAt: true },
+  });
+  return { photo };
+}
+
+async function sendPhoto(res: Response, where: { id: string; workRequestId: string; tenantId: string }) {
+  const photo = await prisma.portalRequestPhoto.findFirst({ where });
+  if (!photo) {
+    res.status(404).json({ error: 'Photo not found' });
+    return;
+  }
+  res.setHeader('Content-Type', photo.mimeType);
+  res.setHeader('Cache-Control', 'private, max-age=86400');
+  res.send(Buffer.from(photo.data));
+}
+
+/** The tenant's own request, or null. Occupants and leaseholders each see only their own. */
+async function ownRequest(portalUser: { id: string; tenantId: string }, id: string) {
+  return prisma.portalWorkRequest.findFirst({ where: { id, portalUserId: portalUser.id, tenantId: portalUser.tenantId } });
+}
+
+// POST /portal/work-requests/:id/photos  (multipart, field "photo")
+portalRouter.post(
+  '/work-requests/:id/photos',
+  portalAuth,
+  photoUpload.single('photo'),
+  async (req: Request, res: Response): Promise<void> => {
+    const portalUser = (req as any).portalUser;
+    const request = await ownRequest(portalUser, req.params.id);
+    if (!request) { res.status(404).json({ error: 'Request not found' }); return; }
+    if (!req.file) { res.status(400).json({ error: 'Attach an image file (JPEG, PNG, HEIC…).' }); return; }
+    const out = await savePhoto({ tenantId: portalUser.tenantId, workRequestId: request.id, file: req.file, portalUserId: portalUser.id });
+    if ('error' in out) { res.status(400).json({ error: out.error }); return; }
+    res.status(201).json(out.photo);
+  },
+);
+
+// GET /portal/work-requests/:id/photos/:photoId
+portalRouter.get(
+  '/work-requests/:id/photos/:photoId',
+  portalAuth,
+  async (req: Request, res: Response): Promise<void> => {
+    const portalUser = (req as any).portalUser;
+    const request = await ownRequest(portalUser, req.params.id);
+    if (!request) { res.status(404).json({ error: 'Request not found' }); return; }
+    await sendPhoto(res, { id: req.params.photoId, workRequestId: request.id, tenantId: portalUser.tenantId });
+  },
+);
+
+// POST /portal/work-requests/:id/notes  { body }
+portalRouter.post(
+  '/work-requests/:id/notes',
+  portalAuth,
+  async (req: Request, res: Response): Promise<void> => {
+    const portalUser = (req as any).portalUser;
+    const body = String(req.body?.body ?? '').trim();
+    if (!body) { res.status(400).json({ error: 'Write a note first.' }); return; }
+    if (body.length > MAX_NOTE_LENGTH) { res.status(400).json({ error: `Notes are limited to ${MAX_NOTE_LENGTH} characters.` }); return; }
+    const request = await ownRequest(portalUser, req.params.id);
+    if (!request) { res.status(404).json({ error: 'Request not found' }); return; }
+    const note = await prisma.portalRequestNote.create({
+      data: { tenantId: portalUser.tenantId, workRequestId: request.id, portalUserId: portalUser.id, body },
+      include: NOTE_AUTHOR,
+    });
+    res.status(201).json(presentNote(note));
+  },
+);
+
+// GET /portal/admin/work-requests/:id/photos/:photoId
+portalRouter.get(
+  '/admin/work-requests/:id/photos/:photoId',
+  authenticate,
+  requireRole('owner', 'admin', 'dispatcher'),
+  async (req: Request, res: Response): Promise<void> => {
+    await sendPhoto(res, { id: req.params.photoId, workRequestId: req.params.id, tenantId: (req as any).user.tenantId });
+  },
+);
+
+// POST /portal/admin/work-requests/:id/notes  { body } — staff reply, visible to the tenant
+portalRouter.post(
+  '/admin/work-requests/:id/notes',
+  authenticate,
+  requireRole('owner', 'admin', 'dispatcher'),
+  async (req: Request, res: Response): Promise<void> => {
+    const user = (req as any).user;
+    const body = String(req.body?.body ?? '').trim();
+    if (!body) { res.status(400).json({ error: 'Write a note first.' }); return; }
+    if (body.length > MAX_NOTE_LENGTH) { res.status(400).json({ error: `Notes are limited to ${MAX_NOTE_LENGTH} characters.` }); return; }
+    const request = await prisma.portalWorkRequest.findFirst({ where: { id: req.params.id, tenantId: user.tenantId } });
+    if (!request) { res.status(404).json({ error: 'Request not found' }); return; }
+    const note = await prisma.portalRequestNote.create({
+      data: { tenantId: user.tenantId, workRequestId: request.id, userId: user.id, body },
+      include: NOTE_AUTHOR,
+    });
+    res.status(201).json(presentNote(note));
+  },
+);
+
+// ─── Test emails (Connect → Test) ────────────────────────────────────────────
+// Lets an owner/admin receive exactly what a tenant receives, with working
+// links, by sending to a hidden test portal login on their OWN email. Only the
+// workspace's staff can be recipients, so this can't be used to email anyone else.
+
+async function staffRecipients(tenantId: string) {
+  const staff = await prisma.user.findMany({
+    where: { tenantId, role: { in: ['owner', 'admin'] }, status: { in: ['active', 'invited'] } },
+    select: { id: true, firstName: true, lastName: true, email: true, role: true },
+    orderBy: { createdAt: 'asc' },
+  });
+  const testUsers = await prisma.portalUser.findMany({
+    where: { tenantId, isTest: true },
+    select: { id: true, email: true, lastLoginAt: true },
+  });
+  return staff.map((u) => {
+    const t = testUsers.find((x) => x.email.toLowerCase() === u.email.toLowerCase());
+    return { ...u, testPortalUserId: t?.id ?? null, testLastLoginAt: t?.lastLoginAt ?? null };
+  });
+}
+
+// GET /portal/test/recipients
+portalRouter.get(
+  '/test/recipients',
+  authenticate,
+  requireRole('owner', 'admin'),
+  async (req: Request, res: Response): Promise<void> => {
+    const tenantId = (req as any).user.tenantId;
+    const tenant = await prisma.tenant.findUnique({ where: { id: tenantId }, select: { slug: true } });
+    const baseUrl = process.env.WEB_URL ?? 'http://localhost:5173';
+    res.json({ portalUrl: `${baseUrl}/portal/${tenant!.slug}`, recipients: await staffRecipients(tenantId) });
+  },
+);
+
+// POST /portal/test/send  { userId, kind: 'welcome' | 'login' }
+portalRouter.post(
+  '/test/send',
+  authenticate,
+  requireRole('owner', 'admin'),
+  async (req: Request, res: Response): Promise<void> => {
+    const tenantId = (req as any).user.tenantId;
+    const { userId, kind } = req.body as { userId?: string; kind?: string };
+    if (kind !== 'welcome' && kind !== 'login') { res.status(400).json({ error: 'kind must be welcome or login' }); return; }
+    const recipient = (await staffRecipients(tenantId)).find((r) => r.id === userId);
+    if (!recipient) { res.status(404).json({ error: 'Test emails can only go to this workspace’s owners and admins.' }); return; }
+
+    const tenant = await prisma.tenant.findUnique({ where: { id: tenantId }, include: { portalConfig: true } });
+    if (!tenant?.portalConfig?.isEnabled) { res.status(409).json({ error: 'The portal is not enabled for this workspace' }); return; }
+
+    // A staff email can't also be a real tenant login in the same workspace.
+    const clash = await prisma.portalUser.findFirst({ where: { tenantId, email: recipient.email, isTest: false } });
+    if (clash) { res.status(409).json({ error: `${recipient.email} is already a real tenant login, so it can't be used for testing.` }); return; }
+
+    const testUser =
+      (await prisma.portalUser.findFirst({ where: { tenantId, email: recipient.email, isTest: true } })) ??
+      (await prisma.portalUser.create({
+        data: {
+          tenantId,
+          email: recipient.email,
+          displayName: `${recipient.firstName ?? 'Test'} (test tenant)`,
+          isTest: true,
+          isActive: true,
+        },
+      }));
+
+    const pu = (await loadPortalUserForEmail(tenantId, testUser.id))!;
+    const { result } = await issueAndSendMagicLink({
+      portalUserId: pu.id,
+      to: pu.email,
+      displayName: pu.displayName,
+      portalName: tenant.portalConfig.portalName,
+      tenantSlug: tenant.slug,
+      invite: kind === 'welcome' ? (l) => buildInviteContent(pu, l) : undefined,
+    });
+    const preview =
+      kind === 'welcome' ? renderPortalInvite(await buildInviteContent(pu, '#preview')) : null;
+
+    res.json({
+      result,
+      to: pu.email,
+      kind,
+      preview,
+      message:
+        result === 'sent'
+          ? `Test ${kind === 'welcome' ? 'welcome email' : 'sign-in link'} sent to ${pu.email}.`
+          : result === 'simulated'
+            ? 'Email is not configured, so nothing was sent.'
+            : 'The email provider rejected the message.',
+    });
   },
 );
 
@@ -836,7 +1145,7 @@ portalRouter.get(
   async (req: Request, res: Response): Promise<void> => {
     const tenantId = (req as any).user.tenantId;
     const users = await prisma.portalUser.findMany({
-      where: { tenantId },
+      where: { tenantId, isTest: false }, // test logins live on the Test tab
       include: {
         pmTenant: {
           select: {
@@ -1153,6 +1462,7 @@ portalRouter.get(
             email: true,
             displayName: true,
             customerId: true,
+            isTest: true,
             pmTenant: { select: { firstName: true, lastName: true, phone: true } },
           },
         },
@@ -1161,11 +1471,20 @@ portalRouter.get(
         feeInvoice: {
           select: { id: true, invoiceNumber: true, status: true, amountDue: true, squarePaymentUrl: true, paidAt: true },
         },
+        photos: { select: { id: true, createdAt: true }, orderBy: { createdAt: 'asc' } },
+        requestNotes: { include: NOTE_AUTHOR, orderBy: { createdAt: 'asc' } },
       },
       orderBy: { createdAt: 'desc' },
       take: 100,
     });
-    res.json(requests);
+    res.json(
+      requests.map(({ requestNotes, portalUser, ...r }) => ({
+        ...r,
+        portalUser,
+        isTest: (portalUser as any).isTest ?? false,
+        notes: requestNotes.map(presentNote),
+      })),
+    );
   },
 );
 

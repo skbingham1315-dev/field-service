@@ -33,7 +33,10 @@ import {
   Loader2,
   Eye,
   EyeOff,
+  FlaskConical,
+  Mail,
 } from 'lucide-react';
+import { AuthPhoto } from '../lib/photos';
 import { Button, Badge } from '@fsp/ui';
 import { api } from '../lib/api';
 import { useAuthStore } from '../store/authStore';
@@ -84,6 +87,9 @@ interface WorkRequest {
   serviceAddress?: string;
   createdAt: string;
   portalUser: { email: string; displayName?: string; customerId?: string };
+  isTest?: boolean;
+  photos?: Array<{ id: string; createdAt: string }>;
+  notes?: Array<{ id: string; body: string; createdAt: string; fromTenant: boolean; author: string }>;
   feeStatus: 'not_applicable' | 'disclosed' | 'waived' | 'assessed' | 'invoiced' | 'paid';
   feeAmount?: string | number | null;
   feeAcknowledgedAt?: string | null;
@@ -125,7 +131,7 @@ interface PortalMessage {
 }
 
 // ─── Tab types ────────────────────────────────────────────────────────────────
-type Tab = 'settings' | 'users' | 'messages' | 'work-requests';
+type Tab = 'settings' | 'users' | 'messages' | 'work-requests' | 'test';
 
 const URGENCY_COLORS: Record<string, string> = {
   low: 'text-slate-500 bg-slate-100',
@@ -826,6 +832,191 @@ function MessagesTab() {
 
 // ─── Work Requests Tab ────────────────────────────────────────────────────────
 
+function RequestNotes({ request }: { request: WorkRequest }) {
+  const qc = useQueryClient();
+  const toast = useToast();
+  const [body, setBody] = useState('');
+  const add = useMutation({
+    mutationFn: () => api.post(`/portal/admin/work-requests/${request.id}/notes`, { body: body.trim() }),
+    onSuccess: () => {
+      setBody('');
+      qc.invalidateQueries({ queryKey: ['portal-work-requests'] });
+    },
+    onError: (err: any) => toast.error(err?.response?.data?.error ?? 'Could not add the note'),
+  });
+  return (
+    <div className="mt-4">
+      <p className="text-xs font-medium text-slate-600 mb-1.5">Notes</p>
+      {request.notes?.length ? (
+        <div className="space-y-2 mb-2">
+          {request.notes.map((n) => (
+            <div key={n.id} className={`rounded-xl px-3 py-2 text-sm ${n.fromTenant ? 'bg-amber-50 border border-amber-100' : 'bg-slate-50 border border-slate-100'}`}>
+              <p className="text-slate-700 whitespace-pre-line">{n.body}</p>
+              <p className="text-[11px] text-slate-400 mt-1">
+                {n.author}{n.fromTenant ? ' (tenant)' : ''} · {new Date(n.createdAt).toLocaleString()}
+              </p>
+            </div>
+          ))}
+        </div>
+      ) : (
+        <p className="text-xs text-slate-400 mb-2">No notes yet.</p>
+      )}
+      <div className="flex gap-2">
+        <textarea
+          value={body}
+          onChange={(e) => setBody(e.target.value)}
+          rows={2}
+          maxLength={2000}
+          placeholder="Reply to the tenant (they will see this in their portal)"
+          className="flex-1 border border-slate-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none"
+        />
+        <button
+          onClick={() => add.mutate()}
+          disabled={!body.trim() || add.isPending}
+          className="self-end text-xs px-3 py-2 rounded-lg bg-slate-800 text-white disabled:opacity-50"
+        >
+          {add.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : 'Add note'}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// ─── Test Tab ─────────────────────────────────────────────────────────────────
+// Sends the real tenant emails to the workspace's own owners/admins, through a
+// hidden test tenant login, so the links can actually be clicked and used.
+
+interface TestRecipient {
+  id: string;
+  firstName?: string | null;
+  lastName?: string | null;
+  email: string;
+  role: string;
+  testPortalUserId: string | null;
+  testLastLoginAt: string | null;
+}
+
+function TestTab() {
+  const toast = useToast();
+  const qc = useQueryClient();
+  const { data, isLoading } = useQuery<{ portalUrl: string; recipients: TestRecipient[] }>({
+    queryKey: ['portal-test-recipients'],
+    queryFn: () => api.get('/portal/test/recipients').then((r) => r.data),
+  });
+  const recipients = data?.recipients ?? [];
+  const portalUrl = data?.portalUrl ?? null;
+  const [log, setLog] = useState<Array<{ at: string; to: string; kind: string; result: string; message: string; preview: { subject: string; html: string } | null }>>([]);
+  const [open, setOpen] = useState<number | null>(null);
+  const [busy, setBusy] = useState<string | null>(null);
+
+  async function send(r: TestRecipient, kind: 'welcome' | 'login') {
+    setBusy(r.id + kind);
+    try {
+      const { data } = await api.post('/portal/test/send', { userId: r.id, kind });
+      setLog((l) => [{ at: new Date().toLocaleTimeString(), to: data.to, kind, result: data.result, message: data.message, preview: data.preview }, ...l]);
+      setOpen(0);
+      if (data.result === 'sent') toast.success(data.message);
+      else toast.error(data.message);
+      qc.invalidateQueries({ queryKey: ['portal-test-recipients'] });
+    } catch (err: any) {
+      toast.error(err?.response?.data?.error ?? 'Could not send the test email');
+    }
+    setBusy(null);
+  }
+
+
+  if (isLoading) {
+    return <div className="flex items-center justify-center py-20"><Loader2 className="h-6 w-6 animate-spin text-slate-400" /></div>;
+  }
+
+  return (
+    <div className="max-w-3xl space-y-4">
+      <div>
+        <h3 className="font-semibold text-slate-800">Test the tenant experience</h3>
+        <p className="text-sm text-slate-500 mt-0.5">
+          Sends the real tenant emails to you and your admins, not to any tenant. Each person gets their own
+          test tenant login, so the link in the email really works: you can sign in, submit a request with
+          photos and notes, and see it arrive under Work Requests marked <span className="font-medium text-violet-700">TEST</span>.
+        </p>
+        {portalUrl && (
+          <p className="text-xs text-slate-400 mt-1">
+            Tenant portal: <a href={portalUrl} target="_blank" rel="noreferrer" className="text-blue-600 hover:underline">{portalUrl}</a>
+          </p>
+        )}
+      </div>
+
+      <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden">
+        {recipients.map((r, i) => (
+          <div key={r.id} className={`flex items-center gap-3 px-5 py-4 flex-wrap ${i < recipients.length - 1 ? 'border-b border-slate-100' : ''}`}>
+            <div className="flex-1 min-w-[12rem]">
+              <p className="text-sm font-medium text-slate-800">
+                {`${r.firstName ?? ''} ${r.lastName ?? ''}`.trim() || r.email}
+                <span className="ml-2 text-[11px] text-slate-400 capitalize">{r.role}</span>
+              </p>
+              <p className="text-xs text-slate-500">{r.email}</p>
+              <p className="text-[11px] text-slate-400">
+                {r.testPortalUserId
+                  ? r.testLastLoginAt
+                    ? `Test login last used ${new Date(r.testLastLoginAt).toLocaleString()}`
+                    : 'Test login created, not used yet'
+                  : 'No test login yet (created on first send)'}
+              </p>
+            </div>
+            <Button
+              variant="outline"
+              className="text-xs px-3 py-1.5 h-auto"
+              disabled={!!busy}
+              onClick={() => send(r, 'welcome')}
+            >
+              {busy === r.id + 'welcome' ? <Loader2 className="h-3 w-3 animate-spin" /> : <span className="flex items-center gap-1.5"><Mail className="h-3 w-3" /> Welcome email</span>}
+            </Button>
+            <Button
+              variant="outline"
+              className="text-xs px-3 py-1.5 h-auto"
+              disabled={!!busy}
+              onClick={() => send(r, 'login')}
+            >
+              {busy === r.id + 'login' ? <Loader2 className="h-3 w-3 animate-spin" /> : <span className="flex items-center gap-1.5"><Send className="h-3 w-3" /> Sign-in link</span>}
+            </Button>
+          </div>
+        ))}
+      </div>
+
+      {log.length > 0 && (
+        <div className="space-y-2">
+          <h4 className="text-sm font-semibold text-slate-700">Sent this session</h4>
+          {log.map((e, i) => (
+            <div key={i} className="bg-white rounded-2xl border border-slate-200">
+              <button className="w-full flex items-center gap-3 px-4 py-3 text-left" onClick={() => setOpen(open === i ? null : i)}>
+                <span className={`text-[11px] px-2 py-0.5 rounded-full font-medium ${e.result === 'sent' ? 'text-emerald-700 bg-emerald-50' : 'text-rose-700 bg-rose-50'}`}>{e.result}</span>
+                <span className="text-sm text-slate-700 flex-1 truncate">
+                  {e.kind === 'welcome' ? 'Welcome email' : 'Sign-in link'} → {e.to}
+                </span>
+                <span className="text-xs text-slate-400">{e.at}</span>
+              </button>
+              {open === i && (
+                <div className="px-4 pb-4">
+                  {e.preview ? (
+                    <>
+                      <p className="text-xs text-slate-500 mb-1">Subject: {e.preview.subject}</p>
+                      <iframe title="Sent email" srcDoc={e.preview.html} sandbox="" className="w-full h-[520px] rounded-xl border border-slate-200 bg-slate-100" />
+                      <p className="text-[11px] text-slate-400 mt-1">This copy's button is inert; use the one in the email you received.</p>
+                    </>
+                  ) : (
+                    <p className="text-xs text-slate-500">
+                      A short "Sign in to …" email with a button that works once within 15 minutes. Check your inbox.
+                    </p>
+                  )}
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function fmtFee(amount: string | number | null | undefined): string {
   return '$' + Number(amount ?? 0).toFixed(2);
 }
@@ -927,6 +1118,15 @@ function WorkRequestsTab() {
                     >
                       {r.urgency}
                     </span>
+                    {r.isTest && (
+                      <span className="text-[11px] px-2 py-0.5 rounded-full font-medium text-violet-700 bg-violet-50">TEST</span>
+                    )}
+                    {(r.photos?.length ?? 0) > 0 && (
+                      <span className="text-[11px] text-slate-500">📷 {r.photos!.length}</span>
+                    )}
+                    {(r.notes?.length ?? 0) > 0 && (
+                      <span className="text-[11px] text-slate-500">💬 {r.notes!.length}</span>
+                    )}
                     {r.feeStatus && r.feeStatus !== 'not_applicable' && (
                       <span className={`text-[11px] px-2 py-0.5 rounded-full font-medium ${FEE_BADGE[r.feeStatus].cls}`}>
                         {FEE_BADGE[r.feeStatus].label}
@@ -953,6 +1153,19 @@ function WorkRequestsTab() {
                   {r.category && (
                     <p className="text-xs text-slate-500 mt-1">Category: {r.category}</p>
                   )}
+                  {(r.photos?.length ?? 0) > 0 && (
+                    <div className="mt-3 flex flex-wrap gap-2">
+                      {r.photos!.map((p) => (
+                        <AuthPhoto
+                          key={p.id}
+                          client={api}
+                          url={`/portal/admin/work-requests/${r.id}/photos/${p.id}`}
+                          className="h-24 w-24 rounded-lg border border-slate-200"
+                        />
+                      ))}
+                    </div>
+                  )}
+                  <RequestNotes request={r} />
                   {r.feeStatus !== 'not_applicable' && r.feeAmount != null && (
                     <div className="mt-4 rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 flex items-center gap-3 flex-wrap">
                       <div className="flex-1 min-w-[12rem]">
@@ -1034,6 +1247,7 @@ const TABS: Array<{ id: Tab; label: string; icon: React.ElementType }> = [
   { id: 'users', label: 'Portal Users', icon: Users },
   { id: 'messages', label: 'Messages', icon: MessageSquare },
   { id: 'work-requests', label: 'Work Requests', icon: Clipboard },
+  { id: 'test', label: 'Test', icon: FlaskConical },
 ];
 
 export function ConnectPage() {
@@ -1080,6 +1294,7 @@ export function ConnectPage() {
       {tab === 'users' && <UsersTab />}
       {tab === 'messages' && <MessagesTab />}
       {tab === 'work-requests' && <WorkRequestsTab />}
+      {tab === 'test' && <TestTab />}
     </div>
   );
 }

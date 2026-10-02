@@ -12,8 +12,10 @@
  *   /portal/:slug/messages  → messaging
  */
 
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
+import { AuthPhoto, uploadPhoto } from '../lib/photos';
 import {
+  Camera,
   FileText,
   Home,
   MessageSquare,
@@ -102,7 +104,20 @@ interface WorkRequest {
   createdAt: string;
   feeStatus?: 'not_applicable' | 'disclosed' | 'waived' | 'assessed' | 'invoiced' | 'paid';
   feeAmount?: string | number | null;
+  photos?: Array<{ id: string; createdAt: string }>;
+  notes?: RequestNote[];
+  feeInvoice?: { invoiceNumber: string; status: string; amountDue: number; squarePaymentUrl?: string | null } | null;
 }
+
+interface RequestNote {
+  id: string;
+  body: string;
+  createdAt: string;
+  fromTenant: boolean;
+  author: string;
+}
+
+const MAX_PHOTOS = 8;
 
 interface PortalMessage {
   id: string;
@@ -156,7 +171,7 @@ const FEE_STATUS: Record<string, { label: (amount: number | null) => string; col
     color: 'text-rose-700 bg-rose-50',
   },
   invoiced: {
-    label: (a) => (a != null ? `$${a.toFixed(2)} billed` : 'Fee billed'),
+    label: (a) => (a != null ? `$${a.toFixed(2)} due` : 'Fee due'),
     color: 'text-rose-700 bg-rose-50',
   },
   paid: { label: () => 'Fee paid', color: 'text-slate-600 bg-slate-100' },
@@ -519,6 +534,10 @@ function RequestsTab({ slug, primaryColor, me }: { slug: string; primaryColor: s
   const [fee, setFee] = useState<FeeQuote | null>(null);
   const [acknowledgedFee, setAcknowledgedFee] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
+  const [photos, setPhotos] = useState<File[]>([]);
+  const [extraNote, setExtraNote] = useState('');
+  const [expanded, setExpanded] = useState<string | null>(null);
+  const client = useMemo(() => portalApi(slug), [slug]);
 
   function loadRequests() {
     portalApi(slug)
@@ -551,6 +570,8 @@ function RequestsTab({ slug, primaryColor, me }: { slug: string; primaryColor: s
     setForm({ title: '', description: '', urgency: 'normal', category: '', serviceAddress: '' });
     setAcknowledgedFee(false);
     setSubmitError(null);
+    setPhotos([]);
+    setExtraNote('');
   }
 
   async function submitRequest() {
@@ -558,9 +579,22 @@ function RequestsTab({ slug, primaryColor, me }: { slug: string; primaryColor: s
     setSubmitting(true);
     setSubmitError(null);
     try {
-      await portalApi(slug).post('/portal/work-requests', { ...form, acknowledgedFee });
+      const { data: created } = await client.post('/portal/work-requests', { ...form, acknowledgedFee });
+      // The request exists now; photos and the note are extras. If one fails,
+      // say so but don't pretend the request wasn't submitted.
+      let failed = 0;
+      for (const p of photos) {
+        try { await uploadPhoto(client, `/portal/work-requests/${created.id}/photos`, p); } catch { failed++; }
+      }
+      if (extraNote.trim()) {
+        await client.post(`/portal/work-requests/${created.id}/notes`, { body: extraNote.trim() }).catch(() => { failed++; });
+      }
       resetForm();
       loadRequests();
+      setExpanded(created.id);
+      if (failed) {
+        window.alert('Your request was submitted, but some photos or your note did not upload. Open the request below to try adding them again.');
+      }
     } catch (err: any) {
       setSubmitError(
         err?.response?.data?.error ?? 'Could not submit your request. Please try again.',
@@ -686,6 +720,20 @@ function RequestsTab({ slug, primaryColor, me }: { slug: string; primaryColor: s
                 />
               </div>
             )}
+            <div>
+              <label className="block text-xs font-medium text-slate-600 mb-1">
+                Notes for the technician <span className="text-slate-400 font-normal">(optional)</span>
+              </label>
+              <textarea
+                value={extraNote}
+                onChange={(e) => setExtraNote(e.target.value)}
+                className="w-full border border-slate-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 resize-none"
+                rows={2}
+                maxLength={2000}
+                placeholder="Pets at home, gate or lockbox details, best times to come by…"
+              />
+            </div>
+            <PhotoPicker files={photos} onChange={setPhotos} primaryColor={primaryColor} />
             {fee?.disclosure && (
               <div
                 className={`rounded-xl border p-3 ${
@@ -792,14 +840,216 @@ function RequestsTab({ slug, primaryColor, me }: { slug: string; primaryColor: s
                       </span>
                     )}
                   </div>
-                  <p className="text-xs text-slate-500 mt-1 line-clamp-2">{r.description}</p>
-                  <p className="text-xs text-slate-400 mt-1">{new Date(r.createdAt).toLocaleDateString()}</p>
+                  {r.feeStatus === 'invoiced' && r.feeInvoice?.squarePaymentUrl && r.feeInvoice.amountDue > 0 && (
+                    <div className="mt-2 flex items-center gap-2 flex-wrap rounded-xl border border-rose-100 bg-rose-50 px-3 py-2">
+                      <span className="text-xs text-rose-800 flex-1">
+                        Service fee of ${(r.feeInvoice.amountDue / 100).toFixed(2)} is due (invoice {r.feeInvoice.invoiceNumber}).
+                      </span>
+                      <a
+                        href={r.feeInvoice.squarePaymentUrl}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="text-xs px-3 py-1.5 rounded-lg text-white font-medium"
+                        style={{ background: primaryColor }}
+                      >
+                        Pay now
+                      </a>
+                    </div>
+                  )}
+                  <p className={`text-xs text-slate-500 mt-1 ${expanded === r.id ? 'whitespace-pre-line' : 'line-clamp-2'}`}>{r.description}</p>
+                  <div className="flex items-center gap-3 mt-1">
+                    <p className="text-xs text-slate-400">{new Date(r.createdAt).toLocaleDateString()}</p>
+                    <button
+                      onClick={() => setExpanded(expanded === r.id ? null : r.id)}
+                      className="text-xs font-medium"
+                      style={{ color: primaryColor }}
+                    >
+                      {expanded === r.id
+                        ? 'Hide details'
+                        : `Notes & photos${(r.photos?.length ?? 0) + (r.notes?.length ?? 0) ? ` (${(r.photos?.length ?? 0)} photo${r.photos?.length === 1 ? '' : 's'}, ${r.notes?.length ?? 0} note${r.notes?.length === 1 ? '' : 's'})` : ''}`}
+                    </button>
+                  </div>
                 </div>
               </div>
+              {expanded === r.id && (
+                <RequestDetail request={r} client={client} primaryColor={primaryColor} onChanged={loadRequests} />
+              )}
             </div>
           );
         })
       )}
+    </div>
+  );
+}
+
+// ─── Photos & notes on a request ──────────────────────────────────────────────
+
+function PhotoPicker({ files, onChange, primaryColor }: { files: File[]; onChange: (f: File[]) => void; primaryColor: string }) {
+  const inputRef = useRef<HTMLInputElement>(null);
+  const previews = useMemo(() => files.map((f) => URL.createObjectURL(f)), [files]);
+  useEffect(() => () => previews.forEach((u) => URL.revokeObjectURL(u)), [previews]);
+  return (
+    <div>
+      <label className="block text-xs font-medium text-slate-600 mb-1">
+        Photos <span className="text-slate-400 font-normal">(optional, up to {MAX_PHOTOS})</span>
+      </label>
+      <div className="flex flex-wrap gap-2">
+        {previews.map((src, i) => (
+          <div key={src} className="relative h-16 w-16">
+            <img src={src} alt="" className="h-16 w-16 rounded-lg object-cover border border-slate-200" />
+            <button
+              type="button"
+              onClick={() => onChange(files.filter((_, j) => j !== i))}
+              className="absolute -top-1.5 -right-1.5 h-5 w-5 rounded-full bg-slate-800 text-white flex items-center justify-center"
+              aria-label="Remove photo"
+            >
+              <X className="h-3 w-3" />
+            </button>
+          </div>
+        ))}
+        {files.length < MAX_PHOTOS && (
+          <button
+            type="button"
+            onClick={() => inputRef.current?.click()}
+            className="h-16 w-16 rounded-lg border-2 border-dashed border-slate-200 text-slate-400 hover:text-slate-600 flex flex-col items-center justify-center text-[10px] gap-0.5"
+            style={{ borderColor: files.length ? undefined : primaryColor + '55' }}
+          >
+            <Camera className="h-4 w-4" /> Add
+          </button>
+        )}
+      </div>
+      <input
+        ref={inputRef}
+        type="file"
+        accept="image/*"
+        multiple
+        className="hidden"
+        onChange={(e) => {
+          const picked = Array.from(e.target.files ?? []).filter((x) => x.type.startsWith('image/') || /\.(heic|heif)$/i.test(x.name));
+          onChange([...files, ...picked].slice(0, MAX_PHOTOS));
+          e.target.value = '';
+        }}
+      />
+      <p className="text-[11px] text-slate-400 mt-1">A photo of the problem helps us send the right person with the right parts.</p>
+    </div>
+  );
+}
+
+function RequestDetail({
+  request,
+  client,
+  primaryColor,
+  onChanged,
+}: {
+  request: WorkRequest;
+  client: ReturnType<typeof portalApi>;
+  primaryColor: string;
+  onChanged: () => void;
+}) {
+  const [note, setNote] = useState('');
+  const [busy, setBusy] = useState<'note' | 'photo' | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const fileRef = useRef<HTMLInputElement>(null);
+  const photoCount = request.photos?.length ?? 0;
+  const closed = request.status === 'cancelled';
+
+  async function addNote() {
+    if (!note.trim()) return;
+    setBusy('note');
+    setError(null);
+    try {
+      await client.post(`/portal/work-requests/${request.id}/notes`, { body: note.trim() });
+      setNote('');
+      onChanged();
+    } catch (err: any) {
+      setError(err?.response?.data?.error ?? 'Could not save your note. Please try again.');
+    }
+    setBusy(null);
+  }
+
+  async function addPhotos(list: FileList | null) {
+    const files = Array.from(list ?? []).slice(0, MAX_PHOTOS - photoCount);
+    if (!files.length) return;
+    setBusy('photo');
+    setError(null);
+    let failed = 0;
+    for (const f of files) {
+      try { await uploadPhoto(client, `/portal/work-requests/${request.id}/photos`, f); } catch { failed++; }
+    }
+    if (failed) setError(`${failed} photo${failed === 1 ? '' : 's'} could not be uploaded.`);
+    setBusy(null);
+    onChanged();
+  }
+
+  return (
+    <div className="mt-3 pt-3 border-t border-slate-100 space-y-3">
+      <div>
+        <p className="text-xs font-medium text-slate-600 mb-1.5">Photos</p>
+        <div className="flex flex-wrap gap-2">
+          {request.photos?.map((p) => (
+            <AuthPhoto
+              key={p.id}
+              client={client}
+              url={`/portal/work-requests/${request.id}/photos/${p.id}`}
+              className="h-20 w-20 rounded-lg border border-slate-200"
+            />
+          ))}
+          {!closed && photoCount < MAX_PHOTOS && (
+            <button
+              onClick={() => fileRef.current?.click()}
+              disabled={busy === 'photo'}
+              className="h-20 w-20 rounded-lg border-2 border-dashed border-slate-200 text-slate-400 hover:text-slate-600 flex flex-col items-center justify-center text-[11px] gap-1"
+            >
+              {busy === 'photo' ? <Loader2 className="h-4 w-4 animate-spin" /> : <Camera className="h-4 w-4" />}
+              {busy === 'photo' ? 'Uploading' : 'Add photo'}
+            </button>
+          )}
+          <input ref={fileRef} type="file" accept="image/*" multiple className="hidden" onChange={(e) => { addPhotos(e.target.files); e.target.value = ''; }} />
+        </div>
+      </div>
+
+      <div>
+        <p className="text-xs font-medium text-slate-600 mb-1.5">Notes</p>
+        {request.notes?.length ? (
+          <div className="space-y-2 mb-2">
+            {request.notes.map((n) => (
+              <div
+                key={n.id}
+                className={`rounded-xl px-3 py-2 text-sm ${n.fromTenant ? 'bg-slate-50 border border-slate-100' : 'border'}`}
+                style={n.fromTenant ? undefined : { borderColor: primaryColor + '40', background: primaryColor + '0d' }}
+              >
+                <p className="text-slate-700 whitespace-pre-line">{n.body}</p>
+                <p className="text-[11px] text-slate-400 mt-1">
+                  {n.fromTenant ? 'You' : n.author} · {new Date(n.createdAt).toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}
+                </p>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <p className="text-xs text-slate-400 mb-2">No notes yet.</p>
+        )}
+        {!closed && (
+          <div className="flex gap-2">
+            <textarea
+              value={note}
+              onChange={(e) => setNote(e.target.value)}
+              rows={2}
+              maxLength={2000}
+              placeholder="Add a note — e.g. it got worse, or when you'll be home"
+              className="flex-1 border border-slate-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 resize-none"
+            />
+            <button
+              onClick={addNote}
+              disabled={!note.trim() || busy === 'note'}
+              className="self-end px-3 py-2 rounded-xl text-white text-sm font-medium disabled:opacity-50"
+              style={{ background: primaryColor }}
+            >
+              {busy === 'note' ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Add note'}
+            </button>
+          </div>
+        )}
+      </div>
+      {error && <p className="text-xs text-rose-600">{error}</p>}
     </div>
   );
 }

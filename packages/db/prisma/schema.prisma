@@ -217,6 +217,8 @@ model User {
   exerciseAnswers     TrainingExerciseAnswer[]
   jobFiles            JobFile[]
   workRequestFeeDecisions PortalWorkRequest[] @relation("WorkRequestFeeDecider")
+  workRequestPhotos   PortalRequestPhoto[]
+  workRequestNotes    PortalRequestNote[]
 
   @@unique([tenantId, email])
   @@index([tenantId, role])
@@ -1373,6 +1375,10 @@ model PortalUser {
   sessions        PortalSession[]
   workRequests    PortalWorkRequest[]
   messages        PortalMessage[]
+  requestPhotos   PortalRequestPhoto[]
+  requestNotes    PortalRequestNote[]
+  /// Operator's own login for trying the tenant experience. Hidden from lists, never billed.
+  isTest          Boolean   @default(false)
 
   @@unique([tenantId, email])
   @@index([tenantId])
@@ -1462,6 +1468,8 @@ model PortalWorkRequest {
   property       Property?  @relation(fields: [propertyId], references: [id], onDelete: SetNull)
   feeDecidedBy   User?      @relation("WorkRequestFeeDecider", fields: [feeDecidedById], references: [id], onDelete: SetNull)
   feeInvoice     Invoice?   @relation("WorkRequestFeeInvoice", fields: [feeInvoiceId], references: [id], onDelete: SetNull)
+  photos         PortalRequestPhoto[]
+  requestNotes   PortalRequestNote[]
 
   @@index([tenantId, status])
   @@index([portalUserId])
@@ -1737,4 +1745,45 @@ model McpAuditLog {
 
   @@index([tenantId, timestamp])
   @@map("mcp_audit_logs")
+}
+
+/// Photo attached to a work request by the tenant (or staff). Stored in Postgres;
+/// there is no object storage. Normalised to JPEG on upload.
+model PortalRequestPhoto {
+  id            String   @id @default(cuid())
+  tenantId      String
+  workRequestId String
+  portalUserId  String?
+  userId        String?
+  originalName  String
+  mimeType      String
+  size          Int
+  data          Bytes
+  createdAt     DateTime @default(now())
+
+  workRequest PortalWorkRequest @relation(fields: [workRequestId], references: [id], onDelete: Cascade)
+  portalUser  PortalUser?       @relation(fields: [portalUserId], references: [id], onDelete: SetNull)
+  user        User?             @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([workRequestId])
+  @@map("portal_request_photos")
+}
+
+/// A note on a work request. Tenant notes have portalUserId; staff replies have
+/// userId. Both are visible to the tenant.
+model PortalRequestNote {
+  id            String   @id @default(cuid())
+  tenantId      String
+  workRequestId String
+  portalUserId  String?
+  userId        String?
+  body          String
+  createdAt     DateTime @default(now())
+
+  workRequest PortalWorkRequest @relation(fields: [workRequestId], references: [id], onDelete: Cascade)
+  portalUser  PortalUser?       @relation(fields: [portalUserId], references: [id], onDelete: SetNull)
+  user        User?             @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([workRequestId])
+  @@map("portal_request_notes")
 }

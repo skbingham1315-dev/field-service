@@ -71,13 +71,15 @@ export async function invoiceServiceFee(tenantId: string, workRequestId: string)
   const email = pu.pmTenant?.email ?? pu.email ?? null;
   const amountCents = Math.round(Number(request.feeAmount) * 100);
   const visitDate = request.createdAt.toLocaleDateString('en-US', { timeZone: 'America/Phoenix' });
-  const lineDescription = `Service request fee — ${request.title} (requested ${visitDate})`;
+  // Operators' test logins (Connect → Test) get clearly marked invoices.
+  const testTag = pu.isTest ? 'TEST — ' : '';
+  const lineDescription = `${testTag}Service request fee — ${request.title} (requested ${visitDate})`;
 
   // Created before the invoice and keyed on the request, so a retry after a
   // failure further down reuses the same link rather than minting another.
   const link = await createPaymentLink({
     idempotencyKey: `fee-${request.id}`,
-    name: `Service request fee — ${request.title}`.slice(0, 255),
+    name: `${testTag}Service request fee — ${request.title}`.slice(0, 255),
     amountCents,
     note: `${request.tenant.name} · work request ${request.id}`,
     buyerEmail: email,
