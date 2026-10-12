@@ -1300,8 +1300,14 @@ export function PortalApp() {
     setMe(null);
   }
 
-  const primaryColor = me?.config.primaryColor ?? '#2563eb';
-  const portalName = me?.portalName ?? 'Customer Portal';
+  // Branding for the signed-out screens; once signed in, /portal/me wins.
+  const [branding, setBranding] = useState<{ portalName: string; primaryColor: string; logoUrl?: string | null } | null>(null);
+  useEffect(() => {
+    axios.get(`${API_BASE}/portal/branding/${slug}`).then((r) => setBranding(r.data)).catch(() => {});
+  }, [slug]);
+
+  const primaryColor = me?.config.primaryColor ?? branding?.primaryColor ?? '#2563eb';
+  const portalName = me?.portalName ?? branding?.portalName ?? 'Customer Portal';
 
   if (authLoading || verifying) {
     return (
@@ -1321,6 +1327,7 @@ export function PortalApp() {
       <PortalLoginPage
         slug={slug}
         portalName={portalName}
+        logoUrl={branding?.logoUrl ?? undefined}
         primaryColor={primaryColor}
         onSuccess={() => loadMe()}
         linkExpired={linkExpired}

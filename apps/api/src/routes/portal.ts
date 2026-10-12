@@ -438,6 +438,19 @@ portalRouter.post('/auth/magic-link', async (req: Request, res: Response): Promi
   res.json(generic);
 });
 
+// GET /portal/branding/:slug — public: name, colour and logo for the sign-in
+// page, which otherwise showed a generic "Customer Portal" until after login.
+portalRouter.get('/branding/:slug', async (req: Request, res: Response): Promise<void> => {
+  const tenant = await prisma.tenant.findUnique({
+    where: { slug: req.params.slug },
+    select: { portalConfig: { select: { isEnabled: true, portalName: true, primaryColor: true, logoUrl: true } } },
+  });
+  const c = tenant?.portalConfig;
+  if (!c?.isEnabled) { res.status(404).json({ error: 'Portal not found' }); return; }
+  res.setHeader('Cache-Control', 'public, max-age=300');
+  res.json({ portalName: c.portalName, primaryColor: c.primaryColor, logoUrl: c.logoUrl });
+});
+
 // POST /portal/auth/code  { email, tenantSlug, code }
 // The typed alternative to tapping the emailed link.
 portalRouter.post('/auth/code', async (req: Request, res: Response): Promise<void> => {
