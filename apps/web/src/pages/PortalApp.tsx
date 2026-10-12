@@ -226,10 +226,15 @@ function PortalLoginPage({
   /** Arrived via a sign-in link that was expired or already used. */
   linkExpired?: boolean;
 }) {
-  const [email, setEmail] = useState('');
+  // Remember the email on this device so signing in again is one tap + a code.
+  const emailKey = `portal_email_${slug}`;
+  const [email, setEmail] = useState(() => {
+    try { return localStorage.getItem(emailKey) ?? ''; } catch { return ''; }
+  });
   const [sent, setSent] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const [code, setCode] = useState('');
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -238,9 +243,27 @@ function PortalLoginPage({
     setError('');
     try {
       await axios.post(`${API_BASE}/portal/auth/magic-link`, { email, tenantSlug: slug });
+      try { localStorage.setItem(emailKey, email.trim()); } catch { /* storage blocked */ }
       setSent(true);
+      setCode('');
     } catch (err: any) {
       setError(err.response?.data?.error ?? 'Failed to send login link. Try again.');
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function submitCode(e: React.FormEvent) {
+    e.preventDefault();
+    setLoading(true);
+    setError('');
+    try {
+      const r = await axios.post(`${API_BASE}/portal/auth/code`, { email, tenantSlug: slug, code });
+      try { localStorage.setItem(emailKey, email.trim()); } catch { /* storage blocked */ }
+      setToken(slug, r.data.token);
+      onSuccess();
+    } catch (err: any) {
+      setError(err.response?.data?.error ?? 'That code did not work. Try again.');
     } finally {
       setLoading(false);
     }
@@ -275,18 +298,48 @@ function PortalLoginPage({
         )}
         <div className="bg-white rounded-2xl border border-slate-200 p-6 shadow-sm">
           {sent ? (
-            <div className="text-center py-4">
-              <CheckCircle2 className="h-10 w-10 mx-auto mb-3" style={{ color: primaryColor }} />
-              <h2 className="font-semibold text-slate-800 mb-1">Check your email</h2>
-              <p className="text-sm text-slate-500">
-                We sent a sign-in link to <strong>{email}</strong>. It expires in 15 minutes.
-              </p>
-              <button
-                onClick={() => setSent(false)}
-                className="mt-4 text-sm text-slate-500 hover:text-slate-700 underline"
-              >
-                Try a different email
-              </button>
+            <div className="py-2">
+              <div className="text-center">
+                <CheckCircle2 className="h-10 w-10 mx-auto mb-3" style={{ color: primaryColor }} />
+                <h2 className="font-semibold text-slate-800 mb-1">Check your email</h2>
+                <p className="text-sm text-slate-500">
+                  If <strong>{email}</strong> is on file, we sent a sign-in link and a 6-digit code.
+                  Tap the link, or type the code here. Check your junk folder if you don't see it.
+                </p>
+              </div>
+              <form onSubmit={submitCode} className="mt-5 space-y-3">
+                <input
+                  value={code}
+                  onChange={(e) => setCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
+                  inputMode="numeric"
+                  autoComplete="one-time-code"
+                  placeholder="6-digit code"
+                  className="w-full text-center tracking-[0.4em] text-lg border border-slate-200 rounded-xl px-3 py-2.5 focus:outline-none focus:ring-2"
+                  autoFocus
+                />
+                {error && (
+                  <p className="text-sm text-red-600 flex items-center gap-1.5">
+                    <AlertCircle className="h-4 w-4 flex-shrink-0" />
+                    {error}
+                  </p>
+                )}
+                <button
+                  type="submit"
+                  disabled={loading || code.length !== 6}
+                  className="w-full py-2.5 rounded-xl text-white font-medium text-sm disabled:opacity-50 flex items-center justify-center gap-2"
+                  style={{ background: primaryColor }}
+                >
+                  {loading ? <><Loader2 className="h-4 w-4 animate-spin" /> Signing in…</> : 'Sign in with code'}
+                </button>
+              </form>
+              <div className="mt-4 flex justify-between text-xs">
+                <button onClick={() => { setSent(false); setError(''); }} className="text-slate-500 hover:text-slate-700 underline">
+                  Use a different email
+                </button>
+                <button onClick={(e) => handleSubmit(e as any)} disabled={loading} className="text-slate-500 hover:text-slate-700 underline">
+                  Send a new code
+                </button>
+              </div>
             </div>
           ) : (
             <form onSubmit={handleSubmit} className="space-y-4">
@@ -320,9 +373,19 @@ function PortalLoginPage({
                 {loading ? (
                   <><Loader2 className="h-4 w-4 animate-spin" /> Sending…</>
                 ) : (
-                  'Send Sign-In Link'
+                  'Email me a sign-in link'
                 )}
               </button>
+              <button
+                type="button"
+                onClick={() => { if (email) { setSent(true); setError(''); } else setError('Enter your email first.'); }}
+                className="w-full text-xs text-slate-500 hover:text-slate-700 underline"
+              >
+                I already have a code
+              </button>
+              <p className="text-[11px] text-slate-400 text-center">
+                No password needed. Once you're in, this device stays signed in for 90 days.
+              </p>
             </form>
           )}
         </div>

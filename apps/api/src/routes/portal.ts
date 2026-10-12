@@ -107,7 +107,9 @@ function issuePortalJWT(portalUserId: string, tenantId: string): string {
   return jwt.sign(
     { sub: portalUserId, tenantId, type: 'portal' },
     PORTAL_JWT_SECRET,
-    { expiresIn: '7d' },
+    // Tenants sign in a few times a year; asking again every week just means
+    // more "where's my link" emails. Signing out still ends it on that device.
+    { expiresIn: '90d' },
   );
 }
 
@@ -154,6 +156,24 @@ async function portalAuth(req: Request, res: Response, next: NextFunction): Prom
  * pathname.split('/')[2], so a link of /portal/verify parses the slug as
  * "verify" and the session lands against a workspace that doesn't exist.
  */
+/** Codes are stored hashed and salted with the session token, never in plain text. */
+function hashCode(token: string, code: string): string {
+  return crypto.createHash('sha256').update(token + ':' + code).digest('hex');
+}
+
+const MAX_CODE_ATTEMPTS = 5;
+
+/** Emails are matched case-insensitively everywhere; stored lower-case. */
+function normalizeEmail(email: string): string {
+  return email.trim().toLowerCase();
+}
+
+async function findPortalUserByEmail(tenantId: string, email: string) {
+  return prisma.portalUser.findFirst({
+    where: { tenantId, email: { equals: normalizeEmail(email), mode: 'insensitive' } },
+  });
+}
+
 async function issueAndSendMagicLink(opts: {
   portalUserId: string;
   to: string;
@@ -165,11 +185,15 @@ async function issueAndSendMagicLink(opts: {
 }): Promise<{ result: EmailDeliveryResult; link: string }> {
   const token = crypto.randomBytes(32).toString('hex');
   const ttlMs = opts.invite ? INVITE_EXPIRY_DAYS * 24 * 60 * 60 * 1000 : MAGIC_LINK_EXPIRY_MINS * 60 * 1000;
+  // A typed code for when the link opens in the wrong browser (e.g. inside the
+  // Gmail app). Same session as the link, so using either one uses both.
+  const code = String(crypto.randomInt(0, 1_000_000)).padStart(6, '0');
   await prisma.portalSession.create({
     data: {
       portalUserId: opts.portalUserId,
       token,
       type: 'magic_link',
+      otp: hashCode(token, code),
       expiresAt: new Date(Date.now() + ttlMs),
     },
   });
@@ -178,13 +202,14 @@ async function issueAndSendMagicLink(opts: {
   const link = `${baseUrl}/portal/${opts.tenantSlug}/verify?token=${token}`;
 
   if (opts.invite) {
-    return { result: await sendPortalInvite(opts.to, await opts.invite(link)), link };
+    return { result: await sendPortalInvite(opts.to, { ...(await opts.invite(link)), code }), link };
   }
 
   const result = await sendPortalMagicLink({
     to: opts.to,
     portalName: opts.portalName,
     link,
+    code,
     expiryMins: MAGIC_LINK_EXPIRY_MINS,
     greetingName: opts.displayName?.split(' ')[0],
   });
@@ -369,33 +394,39 @@ portalRouter.post('/auth/magic-link', async (req: Request, res: Response): Promi
     return;
   }
 
-  // Upsert portal user
-  let portalUser = await prisma.portalUser.findUnique({
-    where: { tenantId_email: { tenantId: tenant.id, email } },
-  });
+  // Only people the business already knows get a link: an existing portal
+  // login, or (for customer-facing workspaces) an email on a customer record.
+  // Previously ANY email created a login, so a stranger could get into a
+  // landlord's portal and file requests. Unknown emails get the same reply as
+  // known ones, so the form can't be used to discover who is a tenant.
+  const generic = { message: 'If that email is on file, we sent a sign-in link and code. Check your email.' };
+  let portalUser = await findPortalUserByEmail(tenant.id, email);
   if (!portalUser) {
-    // Try to find matching customer
     const customer = await prisma.customer.findFirst({
-      where: { tenantId: tenant.id, email },
+      where: { tenantId: tenant.id, email: { equals: normalizeEmail(email), mode: 'insensitive' } },
     });
+    if (!customer) {
+      res.json(generic);
+      return;
+    }
     portalUser = await prisma.portalUser.create({
       data: {
         tenantId: tenant.id,
-        email,
-        customerId: customer?.id ?? null,
-        displayName: customer ? `${customer.firstName} ${customer.lastName}`.trim() : email,
+        email: normalizeEmail(email),
+        customerId: customer.id,
+        displayName: `${customer.firstName} ${customer.lastName}`.trim(),
       },
     });
   }
 
   if (!portalUser.isActive) {
-    res.status(403).json({ error: 'Your portal access has been deactivated' });
+    res.json(generic);
     return;
   }
 
   await issueAndSendMagicLink({
     portalUserId: portalUser.id,
-    to: email,
+    to: portalUser.email,
     displayName: portalUser.displayName,
     portalName: tenant.portalConfig.portalName,
     tenantSlug: tenant.slug,
@@ -404,7 +435,52 @@ portalRouter.post('/auth/magic-link', async (req: Request, res: Response): Promi
   // Deliberately the same response whether or not delivery succeeded — this
   // route is unauthenticated, and a distinguishable reply turns it into an
   // address-enumeration oracle.
-  res.json({ message: 'Magic link sent. Check your email.' });
+  res.json(generic);
+});
+
+// POST /portal/auth/code  { email, tenantSlug, code }
+// The typed alternative to tapping the emailed link.
+portalRouter.post('/auth/code', async (req: Request, res: Response): Promise<void> => {
+  const { email, tenantSlug, code } = req.body as { email?: string; tenantSlug?: string; code?: string };
+  const clean = String(code ?? '').replace(/\D/g, '');
+  if (!email || !tenantSlug || clean.length !== 6) {
+    res.status(400).json({ error: 'Enter your email and the 6-digit code from the email.' });
+    return;
+  }
+  const fail = () => res.status(401).json({ error: 'That code is wrong or has expired. Request a new one below.' });
+  const tenant = await prisma.tenant.findUnique({ where: { slug: tenantSlug } });
+  if (!tenant) { fail(); return; }
+  const portalUser = await findPortalUserByEmail(tenant.id, email);
+  if (!portalUser || !portalUser.isActive) { fail(); return; }
+
+  const sessions = await prisma.portalSession.findMany({
+    where: {
+      portalUserId: portalUser.id,
+      type: 'magic_link',
+      usedAt: null,
+      expiresAt: { gt: new Date() },
+      otp: { not: null },
+      attempts: { lt: MAX_CODE_ATTEMPTS },
+    },
+    orderBy: { createdAt: 'desc' },
+    take: 5,
+  });
+  const match = sessions.find((s) => s.otp === hashCode(s.token, clean));
+  if (!match) {
+    // Count the miss against every live code so guessing burns them all.
+    if (sessions.length) {
+      await prisma.portalSession.updateMany({
+        where: { id: { in: sessions.map((s) => s.id) } },
+        data: { attempts: { increment: 1 } },
+      });
+    }
+    fail();
+    return;
+  }
+
+  await prisma.portalSession.update({ where: { id: match.id }, data: { usedAt: new Date() } });
+  await prisma.portalUser.update({ where: { id: portalUser.id }, data: { lastLoginAt: new Date() } });
+  res.json({ token: issuePortalJWT(portalUser.id, portalUser.tenantId), portalUserId: portalUser.id });
 });
 
 // GET /portal/auth/verify?token=xxx
@@ -979,15 +1055,15 @@ portalRouter.post(
     if (!tenant?.portalConfig?.isEnabled) { res.status(409).json({ error: 'The portal is not enabled for this workspace' }); return; }
 
     // A staff email can't also be a real tenant login in the same workspace.
-    const clash = await prisma.portalUser.findFirst({ where: { tenantId, email: recipient.email, isTest: false } });
+    const clash = await prisma.portalUser.findFirst({ where: { tenantId, email: { equals: recipient.email, mode: 'insensitive' }, isTest: false } });
     if (clash) { res.status(409).json({ error: `${recipient.email} is already a real tenant login, so it can't be used for testing.` }); return; }
 
     const testUser =
-      (await prisma.portalUser.findFirst({ where: { tenantId, email: recipient.email, isTest: true } })) ??
+      (await prisma.portalUser.findFirst({ where: { tenantId, email: { equals: recipient.email, mode: 'insensitive' }, isTest: true } })) ??
       (await prisma.portalUser.create({
         data: {
           tenantId,
-          email: recipient.email,
+          email: normalizeEmail(recipient.email),
           displayName: `${recipient.firstName ?? 'Test'} (test tenant)`,
           isTest: true,
           isActive: true,
@@ -1206,16 +1282,18 @@ portalRouter.post(
       return;
     }
 
-    const existing = await prisma.portalUser.findUnique({
-      where: { tenantId_email: { tenantId, email } },
-    });
+    const existing = await findPortalUserByEmail(tenantId, email);
     if (existing) {
       res.status(409).json({ error: 'Portal user with this email already exists' });
       return;
     }
+    if (customerId && !(await prisma.customer.findFirst({ where: { id: customerId, tenantId } }))) {
+      res.status(404).json({ error: 'Customer not found' });
+      return;
+    }
 
     const user = await prisma.portalUser.create({
-      data: { tenantId, email, phone, displayName, customerId },
+      data: { tenantId, email: normalizeEmail(email), phone, displayName, customerId },
     });
     res.status(201).json(user);
   },

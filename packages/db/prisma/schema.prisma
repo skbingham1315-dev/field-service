@@ -1392,6 +1392,8 @@ model PortalSession {
   token         String    @unique @default(cuid())
   type          String    // magic_link | otp | session
   otp           String?
+  /// Wrong sign-in codes entered against this session; burned at 5.
+  attempts      Int       @default(0)
   expiresAt     DateTime
   usedAt        DateTime?
   createdAt     DateTime  @default(now())

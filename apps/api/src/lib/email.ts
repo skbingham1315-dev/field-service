@@ -438,8 +438,10 @@ export async function sendPortalMagicLink(opts: {
   link: string;
   expiryMins: number;
   greetingName?: string;
+  /** 6-digit code the tenant can type instead of tapping the link. */
+  code?: string;
 }): Promise<EmailDeliveryResult> {
-  const { to, portalName, link, expiryMins, greetingName } = opts;
+  const { to, portalName, link, expiryMins, greetingName, code } = opts;
   const hello = greetingName ? `Hi ${greetingName},` : 'Hi,';
 
   const html = baseHtml(
@@ -454,7 +456,8 @@ export async function sendPortalMagicLink(opts: {
        <a href="${link}" style="background:#2563eb;color:#ffffff;padding:12px 24px;border-radius:6px;text-decoration:none;display:inline-block;font-weight:600;">Sign In</a>
      </p>
      <p style="margin:0;color:#6b7280;font-size:13px;line-height:1.6;">
-       This link expires in ${expiryMins} minutes and can only be used once.
+       ${code ? `Or enter this code on the sign-in page: <strong style="font-size:18px;letter-spacing:3px;color:#111827;">${code}</strong><br/>` : ''}
+       This link${code ? ' and code' : ''} expire in ${expiryMins} minutes and can only be used once.
        If you did not request it, you can ignore this email.
      </p>`,
   );
@@ -494,6 +497,8 @@ export interface PortalInviteContent {
   expiryDays: number;
   /** null when no fee applies to requests. */
   fee: { amount: number; always: boolean } | null;
+  /** 6-digit code they can type on the sign-in page instead of tapping the button. */
+  code?: string;
   accentColor?: string;
 }
 
@@ -527,10 +532,16 @@ export function renderPortalInvite(c: PortalInviteContent): { subject: string; h
      <p style="margin:0 0 12px;">
        <a href="${esc(c.link)}" style="background:${accent};color:#ffffff;padding:13px 28px;border-radius:6px;text-decoration:none;display:inline-block;font-weight:600;font-size:15px;">Open my tenant portal</a>
      </p>
+     ${c.code ? `<p style="margin:0 0 12px;color:#374151;font-size:14px;line-height:1.6;">
+       If the button opens inside your email app, you can instead go to
+       <a href="${esc(c.portalUrl)}" style="color:${accent};">${esc(c.portalUrl)}</a>, enter your email, and type this code:
+       <strong style="font-size:18px;letter-spacing:3px;color:#111827;">${esc(c.code)}</strong>
+     </p>` : ''}
      <p style="margin:0 0 28px;color:#6b7280;font-size:13px;line-height:1.6;">
-       This button is just for you and works once within the next ${c.expiryDays} days. After that, go to
-       <a href="${esc(c.portalUrl)}" style="color:${accent};">${esc(c.portalUrl)}</a>, enter your email address,
-       and we'll send you a new sign-in link. There is no password to remember.
+       This button${c.code ? ' and code' : ''} works once within the next ${c.expiryDays} days. Once you're in, the portal remembers
+       you on that phone or computer for 90 days. <strong>Bookmark the page</strong> (or add it to your home screen) so it's easy to find.
+       To sign in again later, go to <a href="${esc(c.portalUrl)}" style="color:${accent};">${esc(c.portalUrl)}</a>, enter your email,
+       and we'll send a new link and code. There is no password to remember.
      </p>
      ${c.fee ? `<div style="margin:0 0 16px;padding:14px 16px;background:#fffbeb;border:1px solid #fde68a;border-radius:6px;">
        <p style="margin:0 0 6px;color:#92400e;font-size:14px;font-weight:700;">Service fee</p>
