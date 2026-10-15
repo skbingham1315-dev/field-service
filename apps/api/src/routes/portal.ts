@@ -96,9 +96,10 @@ async function resolveRentalContext(pmTenantId: string) {
 const JWT_SECRET = process.env.JWT_SECRET ?? 'dev_secret';
 const PORTAL_JWT_SECRET = process.env.PORTAL_JWT_SECRET ?? JWT_SECRET + '_portal';
 const MAGIC_LINK_EXPIRY_MINS = 15;
-// The first-ever email is often opened hours or a day later; a 15-minute link
-// would greet a new tenant with "expired". Still single-use.
-const INVITE_EXPIRY_DAYS = 7;
+// The first-ever email is often opened days later — tenants usually wait until
+// something breaks. 90 days covers that; the link and code are still single-use
+// and the code burns after 5 wrong tries.
+const INVITE_EXPIRY_DAYS = 90;
 const OTP_EXPIRY_MINS = 10;
 
 // ─── Helper: issue portal session JWT ────────────────────────────────────────

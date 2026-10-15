@@ -482,7 +482,7 @@ function UsersTab() {
               ` · ${users.filter((u) => !u.lastLoginAt).length} never signed in`}
           </p>
           <p className="text-xs text-slate-400 mt-0.5">
-            Nothing is emailed automatically. New tenants get a welcome email (link valid 7 days); use Preview to see it first.
+            Nothing is emailed automatically. New tenants get a welcome email (link and code valid 90 days); use Preview to see it first.
           </p>
         </div>
         <Button onClick={() => setShowInvite(true)} className="flex items-center gap-1.5">
